@@ -534,60 +534,60 @@ auseinander, die man abstrahieren würde.
 ## 10. Meilensteine
 
 ### M1 — Pipeline
-- [ ] `pipeline/fetch_scryfall.py`: Bulk-Index abfragen, `all_cards` per `jsonl_download_uri` ziehen
-- [ ] Streaming-Parse (gzip + zeilenweise), Filter `lang in (en,de)`, Tokens raus
-- [ ] Ableitungen: `normName`, `maxCopies`, `legalities`-Bitmaske, Trigramme
-- [ ] Vier NDJSON-Files + `version.json` nach `dist/`
-- [ ] `.github/workflows/catalog.yml`: wöchentlich, Release-Asset, Daten gitignored
+- [x] `pipeline/fetch_scryfall.py`: Bulk-Index abfragen, `all_cards` per `jsonl_download_uri` ziehen
+- [x] Streaming-Parse (gzip + zeilenweise), Filter `lang in (en,de)`, Tokens raus
+- [x] Ableitungen: `normName`, `maxCopies`, `legalities`-Bitmaske, Trigramme
+- [x] Vier NDJSON-Files + `version.json` nach `dist/`
+- [x] `.github/workflows/catalog.yml`: wöchentlich, Release-Asset, Daten gitignored
 
 ### M2 — Repo & Shell
-- [ ] Repo anlegen, MIT-Lizenz, README mit Disclaimer (§12)
-- [ ] App-Shell aus engram, TCG-Module weglassen
-- [ ] Dexie-Schema (§3), Capacitor-Projekt, erster leerer Build läuft
+- [x] Repo anlegen, MIT-Lizenz, README mit Disclaimer (§12)
+- [x] App-Shell aus engram, TCG-Module weglassen
+- [x] Dexie-Schema (§3), Capacitor-Projekt, erster leerer Build läuft
 
 ### M3 — Katalog-Sync
-- [ ] Start-Check gegen `version.json`, Timeout 3s, stiller Offline-Fallback
-- [ ] NDJSON-Streaming-Import, `bulkPut` in 1500er-Chunks, Fortschrittsanzeige
-- [ ] Abbruchsicher: `meta.catalogVersion` erst am Ende
-- [ ] Update-Pfad (`bulkPut`, `owned`/`decks` unangetastet)
+- [x] Start-Check gegen `version.json`, Timeout 3s, stiller Offline-Fallback
+- [x] NDJSON-Streaming-Import, `bulkPut` in 1500er-Chunks, Fortschrittsanzeige
+- [x] Abbruchsicher: `meta.catalogVersion` erst am Ende
+- [x] Update-Pfad (`bulkPut`, `owned`/`decks` unangetastet)
 
 ### M4 — Matcher
-- [ ] In-Memory-Namensindex beim Start aus `names` aufbauen
-- [ ] Exakt → Präfix → Trigramm+Levenshtein-Fallback
-- [ ] DE/EN parallel, Kollisions-Handling
-- [ ] Vitest mit echten OCR-Fixtures
+- [x] In-Memory-Namensindex beim Start aus `names` aufbauen
+- [x] Exakt → Präfix → Trigramm+Levenshtein-Fallback
+- [x] DE/EN parallel, Kollisions-Handling
+- [x] Vitest mit echten OCR-Fixtures
 
 ### M5 — Scanner & Sammlung
-- [ ] Titelbalken-Crop, `--psm 7`, Whitelist, Invertierungs-Heuristik
-- [ ] Layout-Sonderfälle + manueller Fallback
-- [ ] Scan-Korb → Sammlung
-- [ ] Sammlungsansicht: Bestand, Suche, Filter, Sortierung
-- [ ] JSON-Backup + ManaBox/Moxfield-kompatibler CSV-Export
+- [x] Titelbalken-Crop, `--psm 7`, Whitelist, Invertierungs-Heuristik
+- [x] Layout-Sonderfälle + manueller Fallback
+- [x] Scan-Korb → Sammlung
+- [x] Sammlungsansicht: Bestand, Suche, Filter, Sortierung
+- [x] JSON-Backup + ManaBox/Moxfield-kompatibler CSV-Export
 
 ### M6 — Erste nutzbare APK
-- [ ] `npm run cap:sync` + `gradlew assembleDebug` (JDK 17!)
-- [ ] Auf echtem Gerät gegen echten Bulk testen
+- [ ] `npm run cap:sync` + `gradlew assembleDebug` (JDK 17!) — _Code fertig; Build braucht JDK 17 + Android SDK_
+- [ ] Auf echtem Gerät gegen echten Bulk testen — _offen (Hardware)_
 - [ ] **Ab hier kann sie scannen.**
 
 ### M7 — Deckbau
-- [ ] Deck-Editor mit Bestandsanzeige aus der Sammlung
-- [ ] Commander-Validierung (Singleton, Farbidentität, Legalität)
-- [ ] Constructed-Formate
-- [ ] Manakurve, Farbverteilung, Landanteil
-- [ ] „Fehlt mir"-Liste
-- [ ] Deck-Text Import/Export
+- [x] Deck-Editor mit Bestandsanzeige aus der Sammlung
+- [x] Commander-Validierung (Singleton, Farbidentität, Legalität)
+- [x] Constructed-Formate
+- [x] Manakurve, Farbverteilung, Landanteil
+- [x] „Fehlt mir"-Liste
+- [x] Deck-Text Import/Export
 
 ### M8 — Peer-Scanning
-- [ ] Kotlin-Plugin: NanoHTTPD, `/hello`, `/catalog/:file`, `/basket`, `/basket/:id/status`
-- [ ] `network_security_config.xml`, KeepAwake, Port-Fallback
-- [ ] QR-Pairing (Anzeige + `jsQR`-Scan)
-- [ ] **Scan-Ziel im Scanner** (`local` / `peer`), Default „Meine Sammlung"
-- [ ] **Korb mit `target`** — ein Korb-Modell, zwei Aktionen (übernehmen / senden)
-- [ ] Empfang als Ein-/Ausschalter unter *Mehr*, kein globaler App-Modus
-- [ ] Sender: Korb-Push per `CapacitorHttp`, Retry, „gesendet/bestätigt"-Status
-- [ ] Receiver: `inbox`-Table, Prüfansicht nach Confidence sortiert, Übernahme nach `owned`
-- [ ] Empfangen während eigenem Scannen testen (Badge statt Dialog)
-- [ ] Test mit 3 Geräten und einem echten Bulk-Stapel
+- [x] Kotlin-Plugin: NanoHTTPD, `/hello`, `/catalog/:file`, `/basket`, `/basket/:id/status`
+- [x] `network_security_config.xml`, KeepAwake, Port-Fallback
+- [x] QR-Pairing (Anzeige + `jsQR`-Scan)
+- [x] **Scan-Ziel im Scanner** (`local` / `peer`), Default „Meine Sammlung"
+- [x] **Korb mit `target`** — ein Korb-Modell, zwei Aktionen (übernehmen / senden)
+- [x] Empfang als Ein-/Ausschalter unter *Mehr*, kein globaler App-Modus
+- [x] Sender: Korb-Push per `CapacitorHttp`, Retry, „gesendet/bestätigt"-Status
+- [x] Receiver: `inbox`-Table, Prüfansicht nach Confidence sortiert, Übernahme nach `owned`
+- [ ] Empfangen während eigenem Scannen testen (Badge statt Dialog) — _offen (Geräte-Test)_
+- [ ] Test mit 3 Geräten und einem echten Bulk-Stapel — _offen (Geräte-Test)_
 
 **Reihenfolge:** M8 kann vor M7, wenn der Bulk-Berg akut ist. Aber **nicht vor M5** —
 sonst debuggt man Netzwerk und OCR gleichzeitig.

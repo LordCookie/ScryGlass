@@ -3,6 +3,7 @@ import type { Scheduler } from 'tesseract.js';
 import jsQR from 'jsqr';
 import { matchOcr } from '../data/matcher';
 import { getCards, previewImageIds } from '../data/cards';
+import { searchCards } from '../data/search';
 import { addOwnedBatch, getMeta, setMeta } from '../db/db';
 import type { Card, Finish, Lang, BasketEntry } from '../domain/types';
 import { CardImage } from './CardImage';
@@ -159,6 +160,11 @@ export function ScannerPanel() {
   const [pairing, setPairing] = useState(false);
   const [pairMsg, setPairMsg] = useState<string | null>(null);
 
+  // Manueller Fallback (§ 6): Full-Art/textless/Secret-Lair haben keinen lesbaren
+  // Titelbalken → Karte suchen statt Fehltreffer riskieren.
+  const [manualQuery, setManualQuery] = useState('');
+  const [manualResults, setManualResults] = useState<Card[]>([]);
+
   const lastAutoRef = useRef<string | null>(null);
   const lastThumbRef = useRef<Uint8Array | null>(null);
   const thumbCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -208,6 +214,14 @@ export function ScannerPanel() {
       setTarget({ kind: 'local' });
     }
   }, [peers, target]);
+
+  // Manuelle Suche (Fallback) — debounced gegen den Katalog.
+  useEffect(() => {
+    let alive = true;
+    if (manualQuery.trim()) void searchCards(manualQuery, 6).then((r) => { if (alive) setManualResults(r); });
+    else setManualResults([]);
+    return () => { alive = false; };
+  }, [manualQuery]);
 
   function cropRegion() {
     if (!vdim) return null;
@@ -489,6 +503,15 @@ export function ScannerPanel() {
     setSendState('idle');
     if (typeof navigator.vibrate === 'function') navigator.vibrate(20);
   }
+  async function addManual(card: Card) {
+    const imgs = await previewImageIds([card.oracleId]);
+    addToBasket(
+      { oracleId: card.oracleId, card, scryfallId: imgs.get(card.oracleId), score: 1, method: 'manuell', lang: 'en' },
+      `manuell: ${card.name}`,
+    );
+    setManualQuery('');
+    setManualResults([]);
+  }
   function basketAdjust(oracleId: string, fin: Finish, delta: number) {
     setBasket((b) =>
       b
@@ -702,6 +725,35 @@ export function ScannerPanel() {
               : 'Am Handy: HTTPS-Adresse öffnen (LAN=1) und Kamerazugriff erlauben.'}
           </p>
         )}
+
+        {/* Manueller Fallback (§ 6): kein lesbarer Titelbalken (Full-Art/textless). */}
+        <details className="mt-3">
+          <summary className="cursor-pointer select-none font-mono text-xs text-muted">
+            Nicht erkannt? Karte manuell suchen
+          </summary>
+          <input
+            value={manualQuery}
+            onChange={(e) => setManualQuery(e.target.value)}
+            placeholder="Kartenname (DE oder EN)…"
+            className="mt-2 w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent"
+          />
+          {manualResults.length > 0 && (
+            <ul className="mt-2 divide-y divide-white/5 overflow-hidden rounded-md border border-border">
+              {manualResults.map((card) => (
+                <li key={card.oracleId}>
+                  <button
+                    onClick={() => void addManual(card)}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-sm hover:bg-white/10"
+                  >
+                    <ColorPips colors={card.colorIdentity} />
+                    <span className="min-w-0 flex-1 truncate">{card.name}</span>
+                    <span className="text-xs text-accent">＋ Korb</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </details>
       </div>
 
       {matches.length > 0 && (
