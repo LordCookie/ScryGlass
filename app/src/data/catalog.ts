@@ -1,6 +1,5 @@
-import Dexie from 'dexie';
+import type { Table } from 'dexie';
 import { db, getMeta, setMeta } from '../db/db';
-import type { Card, Printing, NameEntry, TrigramEntry } from '../domain/types';
 import { NdjsonBuffer } from './ndjson';
 
 /**
@@ -91,7 +90,7 @@ export async function getLocalCatalogVersion(): Promise<string | undefined> {
 /** Streamt ein NDJSON-File und schreibt es in Chunks in eine Dexie-Tabelle. */
 async function importFile<T>(
   url: string,
-  table: Dexie.Table<T, unknown>,
+  table: Table<T, unknown>,
   phaseTotal: number,
   onChunk: (phaseDone: number) => void | Promise<void>,
   signal?: AbortSignal,
@@ -139,11 +138,11 @@ export async function importCatalog(
   onProgress?: (p: SyncProgress) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const phases: { phase: SyncPhase; table: Dexie.Table<unknown, unknown>; total: number }[] = [
-    { phase: 'cards', table: db.cards as unknown as Dexie.Table<unknown, unknown>, total: remote.counts.cards },
-    { phase: 'printings', table: db.printings as unknown as Dexie.Table<unknown, unknown>, total: remote.counts.printings },
-    { phase: 'names', table: db.names as unknown as Dexie.Table<unknown, unknown>, total: remote.counts.names },
-    { phase: 'trigrams', table: db.trigrams as unknown as Dexie.Table<unknown, unknown>, total: remote.counts.trigrams },
+  const phases: { phase: SyncPhase; table: Table<unknown, unknown>; total: number }[] = [
+    { phase: 'cards', table: db.cards as unknown as Table<unknown, unknown>, total: remote.counts.cards },
+    { phase: 'printings', table: db.printings as unknown as Table<unknown, unknown>, total: remote.counts.printings },
+    { phase: 'names', table: db.names as unknown as Table<unknown, unknown>, total: remote.counts.names },
+    { phase: 'trigrams', table: db.trigrams as unknown as Table<unknown, unknown>, total: remote.counts.trigrams },
   ];
   const overallTotal = phases.reduce((s, p) => s + p.total, 0);
   let overallBefore = 0;
