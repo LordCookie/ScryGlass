@@ -21,6 +21,8 @@ export default defineConfig({
       // nur ein lokaler Cache auf dem Gerät). Bilder kommen vom Scryfall-CDN
       // (cards.scryfall.io). CacheFirst → einmal gesehen = offline verfügbar.
       workbox: {
+        // Pixel-Schriften (§ 3) mit ins Precache, damit sie offline sofort da sind.
+        globPatterns: ['**/*.{js,css,html,woff2}'],
         // Der Katalog (NDJSON) kann groß sein → aus dem Precache-Größenlimit raus.
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         runtimeCaching: [

@@ -3,8 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b0f14" />
+    <meta name="theme-color" content="#250E47" />
     <title>ScryGlass</title>
+    <script>
+      // DESIGN.md § 4: 1 Design-Pixel auf einen GANZZAHLIGEN Geräte-Pixel-Faktor
+      // nageln, sonst werden Pixelkanten auf krummen devicePixelRatios matschig.
+      (function () {
+        var px = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+        document.documentElement.style.setProperty('--px', px + 'px');
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

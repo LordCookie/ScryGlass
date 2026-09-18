@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, addOwned } from '../db/db';
-import { getCards, previewImageIds } from '../data/cards';
+import { getCards } from '../data/cards';
 import { searchCards } from '../data/search';
 import { normalizeName } from '../domain/nameMatch';
 import type { Card, Owned, Finish } from '../domain/types';
-import { CardImage } from './CardImage';
 import { ManaCost, ColorPips } from './mana';
 
 /**
@@ -23,7 +22,6 @@ const COLORS: { key: string; label: string }[] = [
 interface Row {
   owned: Owned;
   card?: Card;
-  scryfallId?: string;
 }
 
 export function CollectionView() {
@@ -33,9 +31,8 @@ export function CollectionView() {
 
   const rows = useLiveQuery<Row[]>(async () => {
     const owned = await db.owned.toArray();
-    const ids = owned.map((o) => o.oracleId);
-    const [cards, imgs] = await Promise.all([getCards(ids), previewImageIds(ids)]);
-    return owned.map((o) => ({ owned: o, card: cards.get(o.oracleId), scryfallId: imgs.get(o.oracleId) }));
+    const cards = await getCards(owned.map((o) => o.oracleId));
+    return owned.map((o) => ({ owned: o, card: cards.get(o.oracleId) }));
   }, []);
 
   const filtered = useMemo(() => {
@@ -105,18 +102,24 @@ export function CollectionView() {
           {distinct === 0 ? 'Noch keine Karten. Scanne welche im Scanner-Tab.' : 'Keine Treffer.'}
         </p>
       ) : (
-        <ul className="space-y-1">
+        <ul className="space-y-2">
           {filtered.map((r) => (
-            <li key={`${r.owned.oracleId}-${r.owned.finish}`} className="flex items-center gap-2 rounded-md bg-surface p-2 font-mono text-sm">
-              <CardImage scryfallId={r.scryfallId} name={r.card!.name} className="h-12 w-8" />
-              <ColorPips colors={r.card!.colorIdentity} />
-              <div className="min-w-0 flex-1">
-                <div className="truncate">{r.card!.name}{r.owned.finish !== 'nonfoil' && <span className="ml-1 text-[10px] text-accent">{r.owned.finish}</span>}</div>
-                <div className="text-xs text-muted"><ManaCost cost={r.card!.manaCost} /> <span className="ml-1">{r.card!.typeLine}</span></div>
+            // Jede Zeile = Mini-Kartenrahmen (DESIGN § 1/§ 6): Titelbalken Name/Mana, Meta-Zeile.
+            <li key={`${r.owned.oracleId}-${r.owned.finish}`} className="frame font-mono">
+              <div className="titlebar">
+                <span className="min-w-0 flex-1 truncate text-text">{r.card!.name}</span>
+                <ManaCost cost={r.card!.manaCost} />
               </div>
-              <button onClick={() => void addOwned(r.owned.oracleId, r.owned.finish, -1)} className="rounded px-2 py-1 text-muted hover:bg-white/10">−</button>
-              <span className="w-8 text-center text-accent">{r.owned.qty}×</span>
-              <button onClick={() => void addOwned(r.owned.oracleId, r.owned.finish, 1, { source: 'manual' })} className="rounded px-2 py-1 text-muted hover:bg-white/10">+</button>
+              <div className="flex items-center gap-2 px-3 py-2 text-sm">
+                <ColorPips colors={r.card!.colorIdentity} />
+                <span className="min-w-0 flex-1 truncate text-muted">
+                  {r.card!.typeLine}
+                  {r.owned.finish !== 'nonfoil' && <span className="ml-2 text-accent">✦ {r.owned.finish}</span>}
+                </span>
+                <button onClick={() => void addOwned(r.owned.oracleId, r.owned.finish, -1)} aria-label="weniger" className="px-2 py-1 text-muted hover:text-paper">−</button>
+                <span className="w-10 text-center font-hud text-[10px] text-text">{r.owned.qty}×</span>
+                <button onClick={() => void addOwned(r.owned.oracleId, r.owned.finish, 1, { source: 'manual' })} aria-label="mehr" className="px-2 py-1 text-muted hover:text-paper">+</button>
+              </div>
             </li>
           ))}
         </ul>

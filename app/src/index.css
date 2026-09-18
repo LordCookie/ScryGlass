@@ -1,30 +1,55 @@
+/* Selbstgehostete Pixel-Schriften (DESIGN.md § 3) — offline-fest, kein Google-Fonts. */
+@font-face {
+  font-family: 'Press Start 2P';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/press-start-2p.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Pixelify Sans';
+  font-style: normal;
+  font-weight: 400 700; /* Variable Font — ein File deckt 400–700 */
+  font-display: swap;
+  src: url('/fonts/pixelify-sans.woff2') format('woff2');
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /*
- * Design-Tokens an genau einer Stelle. Als space-getrennte RGB-Kanäle (nicht Hex!),
- * damit Tailwinds Opacity-Modifier `bg-accent/70` etc. funktionieren (der Config
- * mappt sie als `rgb(var(--c-x) / <alpha-value>)`). Rohe Nutzung immer via `rgb(...)`.
+ * Pixel-Designsystem (DESIGN.md). Dark only, feste Violett-Palette, festes
+ * Pixelraster. Kein Blur, kein Radius, keine weichen Verläufe.
+ * Tokens als space-getrennte RGB-Kanäle → Tailwind-Opacity (`bg-fill/20`).
  */
 :root {
-  --c-bg: 11 15 20;
-  --c-surface: 18 24 32;
-  --c-text: 230 237 243;
-  --c-muted: 139 152 165;
-  --c-border: 38 48 61;
-  --c-accent: 96 165 250; /* Scryfall-blau angelehnt */
-  --c-on-accent: 11 15 20;
-  --c-danger: 248 113 113;
-  --c-ok: 74 222 128;
+  /* Basis (DESIGN § 2) */
+  --c-bg: 37 14 71;        /* #250E47 ink-900  tiefster Hintergrund */
+  --c-surface: 56 37 84;   /* #382554 ink-800  Flächen/Listenzeilen */
+  --c-elevated: 58 21 112; /* #3A1570 ink-700  erhöhte Flächen/Sheets */
+  --c-titlebar: 76 29 149; /* #4C1D95 violet-600 Titelbalken/Primär */
+  --c-pressed: 100 37 194; /* #6425C2 violet-500 gedrückt/aktiv */
+  --c-fill: 121 45 235;    /* #792DEB violet-400 Rahmen/Fokus/Progress — NIE Text */
+  --c-text: 208 176 255;   /* #D0B0FF lilac-200 Primärtext (9,2:1) */
+  --c-paper: 242 233 255;  /* #F2E9FF max. Kontrast (über Kamerabild/Emphasis) */
+  --c-muted: 150 128 190;  /* gedämpftes Lila (~4,6:1 auf ink-900) */
 
-  /* MTG-Farbidentität (fest, semantisch). */
-  --c-mtg-w: 249 246 233;
-  --c-mtg-u: 59 130 246;
-  --c-mtg-b: 120 113 108;
-  --c-mtg-r: 239 68 68;
-  --c-mtg-g: 34 197 94;
-  --c-mtg-c: 156 163 175;
+  /* Semantik (DESIGN § 2) */
+  --c-ok: 63 191 143;      /* #3FBF8F Treffer sicher */
+  --c-warn: 168 163 40;    /* etwas heller als #94901C für 5:1 */
+  --c-warn-bg: 63 62 33;   /* #3F3E21 */
+  --c-danger: 232 84 107;  /* #E8546B kein Treffer/Fehler */
+
+  /* Alias, damit vorhandene Klassen (accent/on-accent) lesbar bleiben:
+     accent = lilac-200 (Text/Fokus/subtile Füllung), on-accent = ink-900. */
+  --c-accent: 208 176 255;
+  --c-on-accent: 37 14 71;
+
+  /* Pixelraster (DESIGN § 4): 1 Design-Pixel = --px (als LÄNGE, damit
+     `calc(var(--px) * n)` gültige Pixel ergibt). JS nagelt es beim Start auf
+     `floor(devicePixelRatio)px` (index.html). */
+  --px: 3px;
 }
 
 html,
@@ -37,32 +62,191 @@ body {
   margin: 0;
   background: rgb(var(--c-bg));
   color: rgb(var(--c-text));
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  /* Nie horizontal scrollen — sonst verrutscht die fixierte Mobil-Navigation. */
+  font-family: 'Pixelify Sans', system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.6; /* Pixelschrift braucht Luft (DESIGN § 3) */
   overflow-x: hidden;
+  -webkit-font-smoothing: none; /* Pixelschrift nicht glätten */
 }
 
-/* Kleine Rückmeldungs-Animationen (z. B. „in den Scan-Korb gelegt"). */
-@keyframes pop {
+/* DESIGN § 4: border-radius 0 — überall, ausnahmslos. Killt auch alle
+   Tailwind-`rounded-*` (inkl. rounded-full → Quadrate, on-brand). */
+*,
+*::before,
+*::after {
+  border-radius: 0 !important;
+}
+
+/* Sprite-/Bildhaftes hart skalieren (DESIGN § 4). */
+img,
+canvas,
+video,
+.pixelated {
+  image-rendering: pixelated;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+/* Fokus: harter Lila-Rahmen (DESIGN § 4). */
+:focus-visible {
+  outline: calc(var(--px) * 2) solid rgb(var(--c-text));
+  outline-offset: var(--px);
+}
+
+::selection {
+  background: rgb(var(--c-fill));
+  color: rgb(var(--c-paper));
+}
+
+@layer components {
+  /* Kartenrahmen — das Layout-Primitive (DESIGN § 1/§ 6). Harte Kante in violet-400,
+     ausgestanzte Ecken statt weichem Rechteck. */
+  .frame {
+    position: relative;
+    background: rgb(var(--c-surface));
+    border: calc(var(--px) * 2) solid rgb(var(--c-fill));
+    clip-path: polygon(
+      calc(var(--px) * 2) 0, calc(100% - var(--px) * 2) 0,
+      100% calc(var(--px) * 2), 100% calc(100% - var(--px) * 2),
+      calc(100% - var(--px) * 2) 100%, calc(var(--px) * 2) 100%,
+      0 calc(100% - var(--px) * 2), 0 calc(var(--px) * 2)
+    );
+  }
+  /* Titelbalken der Karte: Name links, Manakosten rechts. */
+  .titlebar {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--px) * 2);
+    background: rgb(var(--c-titlebar));
+    color: rgb(var(--c-text));
+    padding: calc(var(--px) * 2) calc(var(--px) * 3);
+  }
+
+  /* Pixel-Button (DESIGN § 4): harter Versatz-Schatten, beim Druck 1 Pixel rein. */
+  .pxbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: calc(var(--px) * 2);
+    min-height: 48px;
+    padding: 0 calc(var(--px) * 4);
+    background: rgb(var(--c-titlebar));
+    color: rgb(var(--c-text));
+    border: calc(var(--px) * 1) solid rgb(var(--c-fill));
+    box-shadow: var(--px) var(--px) 0 rgb(var(--c-bg));
+    cursor: pointer;
+    transition: none;
+  }
+  .pxbtn:active {
+    transform: translate(var(--px), var(--px));
+    box-shadow: 0 0 0 rgb(var(--c-bg));
+    background: rgb(var(--c-pressed));
+  }
+  .pxbtn:disabled {
+    opacity: 0.4;
+    box-shadow: none;
+    cursor: default;
+  }
+  .pxbtn-ghost {
+    background: rgb(var(--c-surface));
+    color: rgb(var(--c-text));
+  }
+  .pxbtn-primary {
+    background: rgb(var(--c-fill));
+    color: rgb(var(--c-paper));
+  }
+
+  /* Statuspunkt / Manasymbol als Quadrat. */
+  .pip {
+    width: calc(var(--px) * 6);
+    height: calc(var(--px) * 6);
+    min-width: 14px;
+    min-height: 14px;
+    border: calc(var(--px) * 1) solid rgb(var(--c-fill));
+    background: transparent;
+    display: inline-block;
+  }
+  .pip.on {
+    background: rgb(var(--c-fill));
+    box-shadow: 0 0 0 var(--px) rgb(var(--c-titlebar));
+  }
+
+  /* Dither-Fläche (2×2-Bayer, harte Stops) — Übergänge statt Verlauf (DESIGN § 4). */
+  .dither {
+    background-image:
+      linear-gradient(45deg, rgb(var(--c-fill)) 25%, transparent 25%, transparent 75%, rgb(var(--c-fill)) 75%);
+    background-size: calc(var(--px) * 2) calc(var(--px) * 2);
+    opacity: 0.25;
+  }
+}
+
+/* --- Pixel-Animationen: nur steps(), 8–12 fps (DESIGN § 5) --- */
+
+/* Foil-Sweep — einziges Glanzelement (Import-Bar). Dither-Band läuft diagonal. */
+@keyframes foil-sweep {
+  from { background-position: -140% 0; }
+  to { background-position: 240% 0; }
+}
+.foil {
+  position: relative;
+  overflow: hidden;
+}
+.foil::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    60deg,
+    rgb(var(--c-paper) / 0.35) 0 calc(var(--px) * 1),
+    transparent calc(var(--px) * 1) calc(var(--px) * 3)
+  );
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: foil-sweep 2.4s steps(8) infinite;
+  pointer-events: none;
+}
+
+/* Reticle-Ecken pulsieren (A2, 1 fps, 2 Frames). */
+@keyframes reticle {
+  0%, 49% { transform: translate(0, 0); opacity: 0.9; }
+  50%, 100% { transform: translate(var(--px), var(--px)); opacity: 1; }
+}
+.reticle-corner { animation: reticle 1s steps(1) infinite; }
+
+/* Shake (A5 — daneben). */
+@keyframes px-shake {
+  0%, 100% { transform: translateX(0); }
+  33% { transform: translateX(calc(var(--px) * -2)); }
+  66% { transform: translateX(calc(var(--px) * 2)); }
+}
+.animate-shake { animation: px-shake 0.15s steps(1) 1; }
+
+/* Stempel (A9 — Deck gültig). */
+@keyframes px-stamp {
+  0% { transform: scale(1.6); opacity: 0; }
+  50% { transform: scale(0.9); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-stamp { animation: px-stamp 0.18s steps(3) 1; }
+
+/* Tick/Pop — Zähler springt (A6). */
+@keyframes px-pop {
   0% { transform: scale(1); }
-  40% { transform: scale(1.2); }
+  50% { transform: scale(1.25); }
   100% { transform: scale(1); }
 }
-.animate-pop { animation: pop 0.3s ease-out; }
+.animate-pop { animation: px-pop 0.2s steps(2) 1; }
 
-@keyframes rise {
-  0% { opacity: 0; transform: translateY(6px) scale(0.9); }
-  20% { opacity: 1; }
-  100% { opacity: 0; transform: translateY(-24px) scale(1); }
+/* Pips leuchten bei 100 % einmal auf. */
+@keyframes px-flash {
+  0%, 100% { background: rgb(var(--c-fill)); }
+  50% { background: rgb(var(--c-paper)); }
 }
-.animate-rise { animation: rise 0.9s ease-out forwards; }
 
-/* Effekte respektieren die Systemeinstellung. */
+/* prefers-reduced-motion: Deko einfrieren, aber Fortschritt/Pips/Zähler laufen weiter
+   (das ist Information, keine Deko — DESIGN § 5). */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    transition-duration: 0.001ms !important;
+  .foil::after,
+  .reticle-corner {
+    animation: none !important;
   }
 }

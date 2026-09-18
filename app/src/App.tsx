@@ -15,6 +15,16 @@ import { MorePanel } from './ui/MorePanel';
 type Tab = 'scan' | 'sammlung' | 'decks' | 'peer' | 'mehr';
 type Gate = 'checking' | 'importing' | 'ready' | 'offline';
 
+// Import-Phasen als Pips (DESIGN.md § 5 A1). Reihenfolge = Pipeline-Reihenfolge.
+const PHASES: SyncProgress['phase'][] = ['cards', 'printings', 'names', 'trigrams'];
+const PHASE_LABEL: Record<SyncProgress['phase'], string> = {
+  cards: 'Karten',
+  printings: 'Editionen',
+  names: 'Namen',
+  trigrams: 'Index',
+};
+const nfDe = new Intl.NumberFormat('de-DE');
+
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'sammlung', label: 'Sammlung', icon: '▤' },
   { key: 'scan', label: 'Scanner', icon: '⛶' },
@@ -56,22 +66,15 @@ export default function App() {
   }
 
   if (gate === 'checking') {
-    return <Splash title="ScryGlass" subtitle="Katalog wird geprüft…" />;
+    return <Splash title="Katalog wird geprüft…" />;
   }
   if (gate === 'importing') {
-    const pct = progress ? Math.round((progress.overallDone / Math.max(1, progress.overallTotal)) * 100) : 0;
-    return (
-      <Splash title="Katalog wird geladen" subtitle={`Einmalig — ${pct}% (${progress?.phase ?? ''})`}>
-        <div className="mt-3 h-2 w-64 overflow-hidden rounded-full bg-surface">
-          <div className="h-2 rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
-        </div>
-      </Splash>
-    );
+    return <ImportScreen progress={progress} />;
   }
   if (gate === 'offline') {
     return (
       <Splash title="Kein Katalog" subtitle="Für den ersten Start ist einmalig Internet nötig.">
-        <button onClick={() => void runSync()} className="mt-4 rounded bg-accent px-4 py-2 font-mono text-sm text-on-accent">
+        <button onClick={() => void runSync()} className="pxbtn pxbtn-primary mt-6 font-hud text-[10px]">
           Erneut versuchen
         </button>
       </Splash>
@@ -80,9 +83,11 @@ export default function App() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-2xl flex-col">
-      <header className="flex items-center gap-2 px-4 pb-2 pt-4">
-        <h1 className="font-mono text-xl font-bold tracking-tight">Scry<span className="text-accent">Glass</span></h1>
-        <span className="font-mono text-[10px] text-muted">MTG · local-first</span>
+      <header className="flex items-center gap-3 px-4 pb-3 pt-4">
+        <h1 className="font-hud text-sm">
+          <span className="text-muted">Scry</span><span className="text-paper">Glass</span>
+        </h1>
+        <span className="font-mono text-xs text-muted">MTG · local-first</span>
       </header>
 
       {update && (
@@ -128,13 +133,58 @@ export default function App() {
   );
 }
 
-function Splash({ title, subtitle, children }: { title: string; subtitle: string; children?: React.ReactNode }) {
+function Splash({ title, subtitle, children }: { title: string; subtitle?: string; children?: React.ReactNode }) {
   return (
     <div className="flex min-h-full flex-col items-center justify-center px-6 text-center">
-      <h1 className="font-mono text-3xl font-bold">Scry<span className="text-accent">Glass</span></h1>
-      <p className="mt-1 font-mono text-lg">{title}</p>
-      <p className="mt-1 font-mono text-sm text-muted">{subtitle}</p>
+      <h1 className="font-hud text-xl">
+        <span className="text-muted">Scry</span><span className="text-paper">Glass</span>
+      </h1>
+      <p className="mt-6 font-mono text-lg text-text">{title}</p>
+      {subtitle && <p className="mt-1 font-mono text-sm text-muted">{subtitle}</p>}
       {children}
+    </div>
+  );
+}
+
+/**
+ * Erstimport — der einzige laute Moment (DESIGN.md § 5 A1 / § 6). Phasen-Pips,
+ * harter Fortschrittsbalken mit Foil-Sweep, echte Zahlen. „Das passiert nur einmal."
+ */
+function ImportScreen({ progress }: { progress: SyncProgress | null }) {
+  const pct = progress ? Math.min(100, Math.round((progress.overallDone / Math.max(1, progress.overallTotal)) * 100)) : 0;
+  const currentIdx = progress ? PHASES.indexOf(progress.phase) : 0;
+  return (
+    <div className="flex min-h-full flex-col items-center justify-center px-6">
+      <h1 className="mb-8 font-hud text-lg">
+        <span className="text-muted">Scry</span><span className="text-paper">Glass</span>
+      </h1>
+      <div className="frame w-full max-w-sm p-5">
+        <p className="mb-5 font-hud text-[11px] leading-relaxed text-text">KATALOG WIRD GELADEN</p>
+
+        {/* Phasen-Pips */}
+        <div className="mb-4 flex items-center gap-3">
+          {PHASES.map((p, i) => (
+            <span key={p} className={`pip ${i < currentIdx || pct >= 100 ? 'on' : ''}`}
+              style={i === currentIdx && pct < 100 ? { borderColor: 'rgb(var(--c-paper))' } : undefined} />
+          ))}
+        </div>
+
+        {/* Fortschrittsbalken (8 Design-Pixel, DESIGN § 5 A1) mit Foil-Sweep. */}
+        <div className="foil mb-2 w-full bg-elevated"
+          style={{ height: 'max(10px, calc(var(--px) * 8))', border: 'calc(var(--px) * 1) solid rgb(var(--c-fill))' }}>
+          <div className="h-full bg-fill" style={{ width: `${pct}%` }} />
+        </div>
+
+        {/* echte Zahl */}
+        <p className="font-hud text-[10px] text-text">
+          {progress ? `${nfDe.format(progress.overallDone)} / ${nfDe.format(progress.overallTotal)}` : '…'}
+        </p>
+        <p className="mt-1 font-mono text-sm text-muted">
+          {progress ? PHASE_LABEL[progress.phase] : ''}
+        </p>
+
+        <p className="mt-5 font-mono text-sm text-muted">Das passiert nur einmal.</p>
+      </div>
     </div>
   );
 }

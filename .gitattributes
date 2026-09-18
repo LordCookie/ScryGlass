@@ -12,3 +12,6 @@
 # Gradle-Wrapper-Skripte behalten ihre Endungen.
 *.bat text eol=crlf
 gradlew text eol=lf
+
+# Schriften binär behandeln.
+*.woff2 binary

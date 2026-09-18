@@ -6,8 +6,7 @@ import { getCards, previewImageIds } from '../data/cards';
 import { searchCards } from '../data/search';
 import { addOwnedBatch, getMeta, setMeta } from '../db/db';
 import type { Card, Finish, Lang, BasketEntry } from '../domain/types';
-import { CardImage } from './CardImage';
-import { ColorPips } from './mana';
+import { ManaCost, ColorPips } from './mana';
 import {
   subscribe as subscribePeers,
   getPeers,
@@ -637,10 +636,17 @@ export function ScannerPanel() {
           />
           {camOn && !pairing && (
             <div
-              className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-md border-2 border-accent/80"
+              className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 border-2 border-fill/80"
               style={{ height: `${boxScale * 100}%`, width: `${boxWidthPct}%` }}
             >
-              <div className="absolute inset-x-0 top-0 h-[13%] border-b border-dashed border-accent/60 bg-accent/10" />
+              {/* Titelbalken-Zone: Reticle-Ecken (DESIGN § 5 A2) — der Scanner liest hier. */}
+              <div className="absolute inset-x-0 top-0 h-[13%]">
+                <div className="dither absolute inset-0" />
+                <span className="reticle-corner absolute left-0 top-0 h-3 w-3 border-l-2 border-t-2 border-paper" />
+                <span className="reticle-corner absolute right-0 top-0 h-3 w-3 border-r-2 border-t-2 border-paper" />
+                <span className="reticle-corner absolute bottom-0 left-0 h-3 w-3 border-b-2 border-l-2 border-paper" />
+                <span className="reticle-corner absolute bottom-0 right-0 h-3 w-3 border-b-2 border-r-2 border-paper" />
+              </div>
             </div>
           )}
           {!camOn && <div className="flex h-40 items-center justify-center text-sm text-muted">Kamera aus</div>}
@@ -758,24 +764,30 @@ export function ScannerPanel() {
 
       {matches.length > 0 && (
         <div className="rounded-lg bg-surface p-4">
-          <h3 className="mb-2 font-mono text-sm">Erkannt</h3>
+          <h3 className="mb-2 font-hud text-[10px] text-text">ERKANNT</h3>
           <ol className="space-y-2">
             {matches.map((m, i) => {
               const c = confidenceLabel(m.score);
+              // Status-Rahmen (DESIGN § 5 A3/A4): sicher = ok, unsicher = warn.
+              const borderColor =
+                m.score >= 0.85 ? 'rgb(var(--c-ok))' : m.score < 0.6 ? 'rgb(var(--c-warn))' : 'rgb(var(--c-fill))';
               return (
-                <li key={m.oracleId} className={`flex items-center gap-3 rounded-md p-2 ${i === 0 ? 'bg-bg' : 'bg-bg/60'}`}>
-                  <CardImage scryfallId={m.scryfallId} name={m.card.name} className="h-16 w-11" />
-                  <ColorPips colors={m.card.colorIdentity} />
-                  <div className="min-w-0 flex-1">
-                    <div className="font-mono">{i > 0 && <span className="text-muted">{i + 1}. </span>}{m.card.name}</div>
-                    <div className="font-mono text-xs text-muted">
-                      {Math.round(m.score * 100)}% · <span className={c.cls}>{c.label}</span> · {m.method}
-                    </div>
+                <li key={m.oracleId} className="frame font-mono" style={{ borderColor }}>
+                  <div className="titlebar" style={{ background: i === 0 ? undefined : 'rgb(var(--c-elevated))' }}>
+                    <span className="min-w-0 flex-1 truncate text-text">
+                      {i > 0 && <span className="text-muted">{i + 1}. </span>}{m.card.name}
+                    </span>
+                    <ManaCost cost={m.card.manaCost} />
                   </div>
-                  <button onClick={() => addToBasket(m, ocrText)}
-                    className="shrink-0 rounded bg-accent/20 px-2 py-1 font-mono text-xs text-accent hover:bg-accent/40">
-                    ＋ Korb
-                  </button>
+                  <div className="flex items-center gap-2 px-3 py-2 text-sm">
+                    <ColorPips colors={m.card.colorIdentity} />
+                    <span className="min-w-0 flex-1 truncate text-muted">{m.card.typeLine}</span>
+                    <span className={`font-hud text-[10px] ${c.cls}`}>{Math.round(m.score * 100)}%</span>
+                    <button onClick={() => addToBasket(m, ocrText)}
+                      className="shrink-0 bg-fill/20 px-2 py-1 text-xs text-accent hover:bg-fill/40">
+                      ＋ Korb
+                    </button>
+                  </div>
                 </li>
               );
             })}
@@ -802,15 +814,14 @@ export function ScannerPanel() {
               <ul className="mb-3 space-y-1">
                 {basket.map((it) => (
                   <li key={`${it.oracleId}-${it.finish}`} className="flex items-center gap-1.5 font-mono text-sm">
-                    <CardImage scryfallId={it.scryfallId} name={it.card.name} className="h-8 w-6" />
                     <ColorPips colors={it.card.colorIdentity} />
-                    <button onClick={() => basketAdjust(it.oracleId, it.finish, -1)} className="rounded px-2 py-1 text-muted hover:bg-white/10">−</button>
-                    <span className="w-8 text-center text-accent">{it.qty}×</span>
-                    <button onClick={() => basketAdjust(it.oracleId, it.finish, 1)} className="rounded px-2 py-1 text-muted hover:bg-white/10">+</button>
-                    <span className="truncate">{it.card.name}</span>
-                    {it.finish !== 'nonfoil' && <span className="text-[10px] text-accent">{it.finish}</span>}
-                    {it.confidence < 0.7 && <span className="text-[10px] text-danger" title={`OCR: ${it.ocrRaw}`}>?</span>}
-                    <button onClick={() => basketAdjust(it.oracleId, it.finish, -it.qty)} className="ml-auto rounded px-2 py-1 text-muted hover:text-danger">✕</button>
+                    <button onClick={() => basketAdjust(it.oracleId, it.finish, -1)} aria-label="weniger" className="px-2 py-1 text-muted hover:text-paper">−</button>
+                    <span className="w-9 text-center font-hud text-[10px] text-text">{it.qty}×</span>
+                    <button onClick={() => basketAdjust(it.oracleId, it.finish, 1)} aria-label="mehr" className="px-2 py-1 text-muted hover:text-paper">+</button>
+                    <span className="min-w-0 flex-1 truncate">{it.card.name}</span>
+                    {it.finish !== 'nonfoil' && <span className="text-[10px] text-accent">✦ {it.finish}</span>}
+                    {it.confidence < 0.7 && <span className="text-[10px] text-warn" title={`OCR: ${it.ocrRaw}`}>?</span>}
+                    <button onClick={() => basketAdjust(it.oracleId, it.finish, -it.qty)} aria-label="entfernen" className="px-2 py-1 text-muted hover:text-danger">✕</button>
                   </li>
                 ))}
               </ul>
