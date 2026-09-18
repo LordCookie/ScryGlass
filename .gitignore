@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+app/node_modules/
+
+# Builds
+dist/
+app/dist/
+app/dev-dist/
+
+# Test / TS caches
+coverage/
+app/coverage/
+**/.tmp/
+*.tsbuildinfo
+
+# Generierte Kartendaten gehören NICHT ins Repo (PLAN.md § 2, § 12).
+# Der Katalog entsteht in der CI (.github/workflows/catalog.yml) und lebt im Release.
+# Lokal landet der Pipeline-Output in pipeline/dist/.
+pipeline/dist/
+app/public/catalog/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Capacitor / Android Build-Artefakte
+app/android/app/build/
+app/android/build/
+app/android/.gradle/
+app/android/local.properties
+app/android/app/release/
+*.apk
+*.aab
+*.keystore
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
