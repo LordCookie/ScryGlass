@@ -16,15 +16,15 @@ type Tab = 'scan' | 'sammlung' | 'decks' | 'peer' | 'mehr';
 type Gate = 'checking' | 'importing' | 'ready' | 'offline';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
-  { key: 'scan', label: 'Scanner', icon: '⛶' },
   { key: 'sammlung', label: 'Sammlung', icon: '▤' },
+  { key: 'scan', label: 'Scanner', icon: '⛶' },
   { key: 'decks', label: 'Decks', icon: '♦' },
   { key: 'peer', label: 'Peer', icon: '⇄' },
   { key: 'mehr', label: 'Mehr', icon: '⋯' },
 ];
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('scan');
+  const [tab, setTab] = useState<Tab>('sammlung');
   const [gate, setGate] = useState<Gate>('checking');
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [update, setUpdate] = useState<CatalogVersion | null>(null);

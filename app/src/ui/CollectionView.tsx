@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, addOwned } from '../db/db';
 import { getCards, previewImageIds } from '../data/cards';
+import { searchCards } from '../data/search';
 import { normalizeName } from '../domain/nameMatch';
-import type { Card, Owned } from '../domain/types';
+import type { Card, Owned, Finish } from '../domain/types';
 import { CardImage } from './CardImage';
 import { ManaCost, ColorPips } from './mana';
 
@@ -95,6 +96,8 @@ export function CollectionView() {
         </div>
       </div>
 
+      <ManualAddBox />
+
       {rows === undefined ? (
         <p className="px-1 font-mono text-sm text-muted">Lade…</p>
       ) : filtered.length === 0 ? (
@@ -119,5 +122,73 @@ export function CollectionView() {
         </ul>
       )}
     </section>
+  );
+}
+
+/**
+ * Karte per Hand in die Sammlung aufnehmen (Katalogsuche DE+EN → Klick fügt +1
+ * hinzu). Ergänzt den Scanner für alles, was man lieber tippt (PLAN.md § 0/§ 5).
+ */
+function ManualAddBox() {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<Card[]>([]);
+  const [finish, setFinish] = useState<Finish>('nonfoil');
+  const [added, setAdded] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    if (q.trim()) void searchCards(q, 8).then((r) => { if (alive) setResults(r); });
+    else setResults([]);
+    return () => { alive = false; };
+  }, [q]);
+
+  async function add(card: Card) {
+    await addOwned(card.oracleId, finish, 1, { source: 'manual' });
+    setAdded(card.name);
+    window.setTimeout(() => setAdded(null), 1500);
+  }
+
+  return (
+    <div className="rounded-lg bg-surface p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="font-mono text-sm">Karte manuell hinzufügen</h3>
+        <label className="flex items-center gap-1 font-mono text-xs text-muted">
+          Ausführung
+          <select
+            value={finish}
+            onChange={(e) => setFinish(e.target.value as Finish)}
+            className="rounded border border-border bg-bg px-2 py-1 outline-none focus:border-accent"
+          >
+            <option value="nonfoil">normal</option>
+            <option value="foil">foil</option>
+            <option value="etched">etched</option>
+          </select>
+        </label>
+      </div>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Kartenname (DE oder EN)…"
+        className="w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent"
+      />
+      {added && <p className="mt-2 font-mono text-xs text-ok">✓ „{added}" in die Sammlung ({finish})</p>}
+      {results.length > 0 && (
+        <ul className="mt-2 divide-y divide-white/5 overflow-hidden rounded-md border border-border">
+          {results.map((card) => (
+            <li key={card.oracleId}>
+              <button
+                onClick={() => void add(card)}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-sm hover:bg-white/10"
+              >
+                <ColorPips colors={card.colorIdentity} />
+                <span className="min-w-0 flex-1 truncate">{card.name}</span>
+                <span className="truncate text-[10px] text-muted">{card.typeLine}</span>
+                <span className="shrink-0 text-accent">＋</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
