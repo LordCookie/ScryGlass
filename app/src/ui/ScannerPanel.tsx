@@ -4,7 +4,7 @@ import jsQR from 'jsqr';
 import { matchOcr } from '../data/matcher';
 import { getCards, previewImageIds } from '../data/cards';
 import { searchCards } from '../data/search';
-import { dhashFromCanvas, nearestByHash, hashCount, type HashMatch } from '../data/imageHash';
+import { phashFromCanvas, nearestByHash, hashCount, type HashMatch } from '../data/imageHash';
 import { addOwnedBatch, getMeta, setMeta } from '../db/db';
 import type { Card, Finish, Lang, BasketEntry } from '../domain/types';
 import { ManaCost, ColorPips } from './mana';
@@ -30,12 +30,12 @@ const THUMB_W = 24;
 const THUMB_H = 34;
 const FRAME_SAME = 6;
 
-// Bild-Matching (Scanner v2): Schwellen für einen dHash-Treffer (0..256).
-// Datenbasis: gleiches Bild (Referenz↔Kamera-Engine) ≈ 35 Bit; VERSCHIEDENE Karten
-// min ≈ 64, p5 ≈ 86. Darum:
-const HASH_MAX_DIST = 60; // als Kandidat zeigen (knapp unter dem False-Minimum)
-const HASH_MIN_MARGIN = 10; // muss klar besser als der zweitbeste sein
-const HASH_STRONG_DIST = 46; // erst darunter automatisch übernehmen
+// Bild-Matching (Scanner v2): Schwellen für einen pHash-Treffer (0..256).
+// Datenbasis (gemessen): gleiches Bild (Referenz↔Kamera-Engine) ≈ 14 Bit (max ~24);
+// VERSCHIEDENE Karten min ≈ 72. Das große Fenster dazwischen ist das Kamera-Budget.
+const HASH_MAX_DIST = 54; // als Kandidat zeigen (klar unter dem False-Minimum)
+const HASH_MIN_MARGIN = 10; // muss klar besser als die nächste FREMDE Karte sein
+const HASH_STRONG_DIST = 36; // erst darunter automatisch übernehmen
 
 const isNativeApp =
   typeof window !== 'undefined' &&
@@ -380,7 +380,7 @@ export function ScannerPanel() {
     if (hashCount() > 0) {
       const raw = rawCropCanvas();
       if (raw) {
-        const qh = dhashFromCanvas(raw);
+        const qh = phashFromCanvas(raw);
         if (qh) hashMatch = nearestByHash(qh);
       }
     }

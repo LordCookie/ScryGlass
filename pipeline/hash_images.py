@@ -6,9 +6,10 @@ Bildschirmen. Ein **dHash** über das Kartenbild identifiziert die Karte am ARTW
 nicht am Text — robust gegen stilisierte Schrift und (in Grenzen) Licht.
 
 Für JEDE Druckausgabe (auch Alt-Art/Showcase — genau die sind der Gewinn) wird das
-Scryfall-Bild geladen, in Graustufe auf (S+1)×S skaliert und als 256-Bit-dHash
-(S=16) gespeichert. Die App hasht den Kamera-Ausschnitt gleich und sucht den
-nächsten (Hamming-Distanz).
+Scryfall-Bild geladen und als 256-Bit-**pHash** (DCT über die tiefen Frequenzen)
+gespeichert. Die App hasht den Kamera-Ausschnitt gleich und sucht den nächsten
+(Hamming-Distanz). pHash ist deutlich robuster gegen Render-/Kamera-Unterschiede
+als dHash (tiefe Frequenzen = grobe Struktur statt Nachbarpixel).
 
 Ausgabe: `hashes.ndjson` — eine Zeile je Printing: {"id","o","h"} (h = 64 Hex-Zeichen).
 
@@ -30,8 +31,11 @@ import threading
 import time
 from typing import Iterator, List, Optional, Tuple
 
-HASH_SIZE = 16  # 16×16 = 256 Bit
-IMG_SIZE = "small"  # kleinste Variante reicht fürs Downscalen auf 17×16
+# pHash (DCT): robuster gegen Render-/Kamera-Unterschiede als dHash, weil er die
+# TIEFEN Frequenzen (grobe Bildstruktur) nutzt statt Nachbarpixel-Differenzen.
+P_IMG = 32       # Graustufe auf P_IMG×P_IMG skalieren
+P_HASH = 16      # obere P_HASH×P_HASH DCT-Koeffizienten → 256 Bit
+IMG_SIZE = "small"
 USER_AGENT = "ScryGlass/1.0 (unofficial MTG fan tool; +https://github.com/LordCookie/ScryGlass)"
 
 
@@ -40,17 +44,7 @@ def image_url(scryfall_id: str, size: str = IMG_SIZE) -> str:
     return f"https://cards.scryfall.io/{size}/front/{a}/{b}/{scryfall_id}.jpg"
 
 
-# --- dHash (MUSS Bit für Bit zur TS-Seite passen: app/src/data/imageHash.ts) ----
-
-def dhash_bits(gray: List[List[int]], size: int = HASH_SIZE) -> List[int]:
-    """256 Bits aus einer (size)×(size+1)-Graustufenmatrix (row-major).
-    bit(row,col) = 1, wenn linker Pixel heller als rechter. Reihenfolge row*size+col."""
-    bits: List[int] = []
-    for row in range(size):
-        for col in range(size):
-            bits.append(1 if gray[row][col] > gray[row][col + 1] else 0)
-    return bits
-
+# --- pHash (MUSS Bit für Bit zur TS-Seite passen: app/src/data/imageHash.ts) ----
 
 def bits_to_hex(bits: List[int]) -> str:
     """Bits (MSB zuerst je Byte) → Hex-String."""
@@ -63,14 +57,38 @@ def bits_to_hex(bits: List[int]) -> str:
     return out.hex()
 
 
-def dhash_hex(image_bytes: bytes, size: int = HASH_SIZE) -> str:
-    from PIL import Image  # lazy — nur beim echten Hashen nötig
+_DCT_CACHE: dict = {}
+
+
+def _dct_matrix(n: int):
+    """Orthonormale DCT-II-Basismatrix C (n×n). MUSS zur TS-Seite passen:
+    C[k][x] = alpha(k) · cos(pi·(2x+1)·k / (2n)), alpha(0)=sqrt(1/n), sonst sqrt(2/n)."""
+    import numpy as np
+
+    if n not in _DCT_CACHE:
+        k = np.arange(n).reshape(-1, 1)
+        x = np.arange(n).reshape(1, -1)
+        c = np.cos(np.pi * (2 * x + 1) * k / (2 * n)) * np.sqrt(2.0 / n)
+        c[0, :] *= np.sqrt(0.5)  # alpha(0) = sqrt(1/n)
+        _DCT_CACHE[n] = c
+    return _DCT_CACHE[n]
+
+
+def phash_hex(image_bytes: bytes, img_size: int = P_IMG, hash_size: int = P_HASH) -> str:
+    """pHash: Graustufe → img_size² → 2D-DCT → obere hash_size²-Koeffizienten →
+    bit = Koeffizient > Median (row-major, MSB zuerst)."""
+    import numpy as np
+    from PIL import Image  # lazy
 
     with Image.open(io.BytesIO(image_bytes)) as im:
-        im = im.convert("L").resize((size + 1, size), Image.BILINEAR)
-        px = list(im.getdata())  # row-major, (size+1)*size Werte
-    gray = [[px[row * (size + 1) + col] for col in range(size + 1)] for row in range(size)]
-    return bits_to_hex(dhash_bits(gray, size))
+        im = im.convert("L").resize((img_size, img_size), Image.LANCZOS)
+        x = np.asarray(im, dtype=np.float64)
+    c = _dct_matrix(img_size)
+    d = c @ x @ c.T
+    low = d[:hash_size, :hash_size]
+    med = float(np.median(low))
+    bits = [1 if v > med else 0 for v in low.flatten().tolist()]
+    return bits_to_hex(bits)
 
 
 # --- IO ---------------------------------------------------------------------
@@ -144,7 +162,7 @@ def run(printings: str, out_path: str, workers: int, limit: Optional[int], delay
                 fail[0] += 1
             return
         try:
-            h = dhash_hex(data)
+            h = phash_hex(data)
         except Exception:
             with lock:
                 fail[0] += 1

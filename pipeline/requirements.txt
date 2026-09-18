@@ -1,8 +1,9 @@
 # Laufzeit: nur für den echten Bulk-Download (fetch_scryfall.py --> ohne --sample).
 requests>=2.28
 
-# Bild-Hash-Pipeline (hash_images.py): Kartenbilder laden + dHash.
+# Bild-Hash-Pipeline (hash_images.py): Kartenbilder laden + pHash (DCT).
 Pillow>=9.0
+numpy>=1.21
 
 # Tests
 pytest>=7.0

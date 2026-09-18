@@ -12,41 +12,81 @@ import { NdjsonBuffer } from './ndjson';
  * MSB zuerst je Byte → 256 Bit / 32 Byte / 64 Hex.
  */
 
-export const HASH_SIZE = 16;
-const HASH_BYTES = (HASH_SIZE * HASH_SIZE) / 8; // 32
+// pHash-Parameter (MÜSSEN zur Pipeline passen: pipeline/hash_images.py).
+export const P_IMG = 32; // Graustufe auf P_IMG×P_IMG
+export const P_HASH = 16; // obere P_HASH×P_HASH DCT-Koeffizienten → 256 Bit
+const TOTAL_BITS = P_HASH * P_HASH; // 256
+const HASH_BYTES = TOTAL_BITS / 8; // 32
 
 // Popcount-Tabelle für Bytes (Hamming-Distanz).
 const POPCOUNT = new Uint8Array(256);
 for (let i = 0; i < 256; i++) POPCOUNT[i] = (i & 1) + POPCOUNT[i >> 1];
 
-/** dHash eines Canvas als 64-Hex-String (identische Bit-Ordnung wie die Pipeline). */
-export function dhashFromCanvas(src: HTMLCanvasElement | HTMLVideoElement): string {
-  const w = HASH_SIZE + 1;
-  const h = HASH_SIZE;
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  const ctx = c.getContext('2d', { willReadFrequently: true });
+// Orthonormale DCT-II-Basismatrix (n×n, row-major), einmal berechnet.
+// C[k][x] = alpha(k)·cos(pi·(2x+1)·k/(2n)); alpha(0)=sqrt(1/n), sonst sqrt(2/n).
+let DCTM: Float64Array | null = null;
+function dctMatrix(n: number): Float64Array {
+  if (DCTM && DCTM.length === n * n) return DCTM;
+  const c = new Float64Array(n * n);
+  for (let k = 0; k < n; k++) {
+    const a = k === 0 ? Math.sqrt(1 / n) : Math.sqrt(2 / n);
+    for (let x = 0; x < n; x++) c[k * n + x] = a * Math.cos((Math.PI * (2 * x + 1) * k) / (2 * n));
+  }
+  DCTM = c;
+  return c;
+}
+
+/**
+ * pHash eines Canvas/Videos als 64-Hex-String (identisch zur Pipeline): Graustufe →
+ * P_IMG² → 2D-DCT (C·X·Cᵀ) → obere P_HASH²-Koeffizienten → bit = Koeff > Median.
+ */
+export function phashFromCanvas(src: HTMLCanvasElement | HTMLVideoElement): string {
+  const n = P_IMG;
+  const cv = document.createElement('canvas');
+  cv.width = n;
+  cv.height = n;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
   if (!ctx) return '';
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(src, 0, 0, w, h);
-  const d = ctx.getImageData(0, 0, w, h).data;
+  ctx.drawImage(src, 0, 0, n, n);
+  const d = ctx.getImageData(0, 0, n, n).data;
 
-  // Graustufe (ITU-R 601, wie PIL 'L').
-  const g = new Uint8Array(w * h);
+  const X = new Float64Array(n * n); // Graustufe (ITU-R 601, wie PIL 'L')
   for (let i = 0, p = 0; i < d.length; i += 4, p++) {
-    g[p] = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+    X[p] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
   }
 
-  const bits = new Uint8Array(HASH_SIZE * HASH_SIZE);
-  let bit = 0;
-  for (let row = 0; row < HASH_SIZE; row++) {
-    for (let col = 0; col < HASH_SIZE; col++) {
-      // bit = 1, wenn linker Pixel heller (identisch zur Pipeline).
-      bits[bit++] = g[row * w + col] > g[row * w + col + 1] ? 1 : 0;
+  const C = dctMatrix(n);
+  // M = X · Cᵀ  →  M[i][j] = Σ_x X[i][x]·C[j][x]
+  const M = new Float64Array(n * n);
+  for (let i = 0; i < n; i++) {
+    const xi = i * n;
+    for (let j = 0; j < n; j++) {
+      const cj = j * n;
+      let s = 0;
+      for (let x = 0; x < n; x++) s += X[xi + x] * C[cj + x];
+      M[xi + j] = s;
     }
   }
+  // D = C · M  (nur die oberen P_HASH×P_HASH Koeffizienten)
+  const low = new Float64Array(TOTAL_BITS);
+  for (let k = 0; k < P_HASH; k++) {
+    const ck = k * n;
+    for (let j = 0; j < P_HASH; j++) {
+      let s = 0;
+      for (let i = 0; i < n; i++) s += C[ck + i] * M[i * n + j];
+      low[k * P_HASH + j] = s;
+    }
+  }
+
+  // Median (bei gerader Anzahl: Mittel der beiden mittleren — wie numpy.median).
+  const sorted = Float64Array.from(low).sort();
+  const m = sorted.length;
+  const med = m % 2 ? sorted[(m - 1) / 2] : (sorted[m / 2 - 1] + sorted[m / 2]) / 2;
+
+  const bits = new Uint8Array(TOTAL_BITS);
+  for (let i = 0; i < TOTAL_BITS; i++) bits[i] = low[i] > med ? 1 : 0;
   return packBitsMsb(bits);
 }
 
@@ -210,27 +250,35 @@ export interface HashMatch {
 export function nearestByHash(hashHex: string): HashMatch | null {
   if (!buf || count === 0) return null;
   const q = hexToBytes(hashHex);
+  // Pass 1: bester Treffer.
   let best = 257;
-  let second = 257;
   let bi = -1;
   for (let i = 0; i < count; i++) {
     const off = i * HASH_BYTES;
     let dist = 0;
     for (let k = 0; k < HASH_BYTES; k++) dist += POPCOUNT[q[k] ^ buf[off + k]];
     if (dist < best) {
-      second = best;
       best = dist;
       bi = i;
-    } else if (dist < second) {
-      second = dist;
     }
   }
   if (bi < 0) return null;
+  const bestOracle = oracleIds[bi];
+  // Pass 2: nächste ANDERE Karte (Reprints desselben Oracle zählen nicht als
+  // Konkurrenz — der Margin misst „wie klar besser als eine fremde Karte").
+  let secondDiff = 257;
+  for (let i = 0; i < count; i++) {
+    if (oracleIds[i] === bestOracle) continue;
+    const off = i * HASH_BYTES;
+    let dist = 0;
+    for (let k = 0; k < HASH_BYTES; k++) dist += POPCOUNT[q[k] ^ buf[off + k]];
+    if (dist < secondDiff) secondDiff = dist;
+  }
   return {
-    oracleId: oracleIds[bi],
+    oracleId: bestOracle,
     scryfallId: scryfallIds[bi],
     distance: best,
-    margin: second - best,
-    score: 1 - best / (HASH_SIZE * HASH_SIZE),
+    margin: secondDiff - best,
+    score: 1 - best / TOTAL_BITS,
   };
 }

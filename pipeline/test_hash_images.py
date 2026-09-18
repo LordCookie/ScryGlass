@@ -1,4 +1,4 @@
-"""Tests für die dHash-Pipeline. Die Bit-Logik MUSS zur TS-Seite passen
+"""Tests für die pHash-Pipeline. Die Bit-Packung MUSS zur TS-Seite passen
 (app/src/data/imageHash.ts), sonst matcht kein Bild."""
 import pytest
 
@@ -17,15 +17,9 @@ def test_bits_to_hex():
     assert hi.bits_to_hex([1, 0, 1, 0, 1, 0, 1, 0]) == "aa"
 
 
-def test_dhash_bits_ordering():
-    # size=2 → 2×3-Matrix, 4 Bits, row-major (row*size+col).
-    gray = [[10, 5, 20], [3, 9, 1]]
-    # row0: 10>5 =1, 5>20 =0 ; row1: 3>9 =0, 9>1 =1
-    assert hi.dhash_bits(gray, size=2) == [1, 0, 0, 1]
-
-
-# --- perceptual-Eigenschaft an echten (synthetischen) Bildern ---------------
-PIL = pytest.importorskip("PIL")
+# --- pHash an echten (synthetischen) Bildern --------------------------------
+pytest.importorskip("PIL")
+pytest.importorskip("numpy")
 from PIL import Image  # noqa: E402
 import io as _io  # noqa: E402
 
@@ -36,35 +30,39 @@ def img_bytes(im: "Image.Image") -> bytes:
     return buf.getvalue()
 
 
-def test_dhash_identical_and_similar():
-    # Ein „Kartenbild": horizontaler Verlauf mit ein paar Blöcken.
-    base = Image.new("RGB", (146, 204))
-    px = base.load()
+def structured(seed: int) -> "Image.Image":
+    im = Image.new("RGB", (146, 204))
+    px = im.load()
     for y in range(204):
         for x in range(146):
-            px[x, y] = ((x * 3) % 256, (y * 2) % 256, ((x + y) * 2) % 256)
-
-    h1 = hi.dhash_hex(img_bytes(base))
-    assert len(h1) == 64  # 256 Bit = 32 Byte = 64 Hex
-
-    # Gleiches Bild → Distanz 0.
-    assert hamming_hex(h1, hi.dhash_hex(img_bytes(base.copy()))) == 0
-
-    # Leicht abgedunkelt (Licht) → kleine Distanz (dHash ist helligkeitsrobust).
-    darker = Image.eval(base, lambda v: max(0, v - 40))
-    assert hamming_hex(h1, hi.dhash_hex(img_bytes(darker))) <= 8
+            v = (x * (3 + seed) + y * (2 + seed) + (x * y) % (17 + seed)) % 256
+            px[x, y] = (v, (v * 2) % 256, (v + 90) % 256)
+    return im
 
 
-def test_dhash_different_images_far():
-    a = Image.new("RGB", (146, 204), (10, 10, 10))
-    b = Image.new("RGB", (146, 204), (240, 240, 240))
-    # Konstante Bilder: dHash ist all-0 (keine Nachbardifferenz) → identisch.
-    # Deshalb mit STRUKTUR testen: zwei verschiedene Muster müssen weit sein.
-    pa, pb = a.load(), b.load()
-    for y in range(204):
-        for x in range(146):
-            pa[x, y] = (255 if (x // 8) % 2 == 0 else 0,) * 3
-            pb[x, y] = (255 if (y // 8) % 2 == 0 else 0,) * 3  # vertikal statt horizontal
-    ha = hi.dhash_hex(img_bytes(a))
-    hb = hi.dhash_hex(img_bytes(b))
-    assert hamming_hex(ha, hb) > 40  # klar verschieden
+def test_phash_length_and_identical():
+    base = structured(0)
+    h1 = hi.phash_hex(img_bytes(base))
+    assert len(h1) == 64  # 256 Bit
+    assert hamming_hex(h1, hi.phash_hex(img_bytes(base.copy()))) == 0
+
+
+def test_phash_brightness_robust():
+    # pHash ist helligkeitsrobust (Verschiebung trifft v. a. den DC-Term).
+    base = structured(1)
+    darker = Image.eval(base, lambda v: max(0, v - 50))
+    assert hamming_hex(hi.phash_hex(img_bytes(base)), hi.phash_hex(img_bytes(darker))) <= 6
+
+
+def test_phash_different_far():
+    a = hi.phash_hex(img_bytes(structured(2)))
+    b = hi.phash_hex(img_bytes(structured(9)))
+    assert hamming_hex(a, b) > 40
+
+
+def test_dct_matrix_orthonormal():
+    import numpy as np
+
+    c = hi._dct_matrix(8)
+    # Orthonormal: C · C^T = Identität.
+    assert np.allclose(c @ c.T, np.eye(8), atol=1e-9)
