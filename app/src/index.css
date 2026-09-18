@@ -242,11 +242,36 @@ video,
   50% { background: rgb(var(--c-paper)); }
 }
 
+/* Kamera-„Power-on" beim Start: Veil blendet in Steps aus, heller Scanline-Sweep. */
+@keyframes cam-veil { 0% { opacity: 0.9; } 100% { opacity: 0; } }
+@keyframes cam-scan { from { top: 0; } to { top: 100%; } }
+.cam-boot {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgb(var(--c-bg));
+  overflow: hidden;
+  animation: cam-veil 0.6s steps(5) forwards;
+}
+.cam-boot::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: calc(var(--px) * 2);
+  background: rgb(var(--c-paper));
+  box-shadow: 0 0 0 calc(var(--px) * 1) rgb(var(--c-fill));
+  animation: cam-scan 0.6s steps(10) 1;
+}
+
 /* prefers-reduced-motion: Deko einfrieren, aber Fortschritt/Pips/Zähler laufen weiter
    (das ist Information, keine Deko — DESIGN § 5). */
 @media (prefers-reduced-motion: reduce) {
   .foil::after,
-  .reticle-corner {
+  .reticle-corner,
+  .cam-boot,
+  .cam-boot::before {
     animation: none !important;
   }
+  .cam-boot { display: none; }
 }

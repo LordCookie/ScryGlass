@@ -6,6 +6,7 @@ import {
   type CatalogVersion, type SyncProgress,
 } from './data/catalog';
 import { invalidateNameIndex } from './data/matcher';
+import { invalidateSearchIndex } from './data/search';
 import { ScannerPanel } from './ui/ScannerPanel';
 import { CollectionView } from './ui/CollectionView';
 import { DecksPanel } from './ui/DecksPanel';
@@ -48,6 +49,7 @@ export default function App() {
     const res = await syncOnStartup({ onProgress: (p) => { setProgress(p); setGate('importing'); } });
     setProgress(null);
     invalidateNameIndex();
+    invalidateSearchIndex();
     if (res.status === 'offline' && !local) setGate('offline');
     else if (res.status === 'update-available') { setUpdate(res.remote ?? null); setGate('ready'); }
     else setGate('ready');
@@ -60,6 +62,7 @@ export default function App() {
     setApplying(true);
     await applyUpdate(update, { onProgress: setProgress });
     invalidateNameIndex();
+    invalidateSearchIndex();
     setUpdate(null);
     setProgress(null);
     setApplying(false);
@@ -104,7 +107,7 @@ export default function App() {
         </div>
       )}
 
-      <main className="flex-1 px-4 pb-24">
+      <main className="flex-1 px-4 pb-28">
         {tab === 'scan' && <ScannerPanel />}
         {tab === 'sammlung' && <CollectionView />}
         {tab === 'decks' && <DecksPanel />}
@@ -112,21 +115,30 @@ export default function App() {
         {tab === 'mehr' && <MorePanel />}
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-surface/95 backdrop-blur">
+      <nav className="fixed inset-x-0 bottom-0 z-10 border-t-2 border-fill bg-surface"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="mx-auto flex max-w-2xl">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`relative flex flex-1 flex-col items-center gap-0.5 py-2 font-mono text-[11px] ${tab === t.key ? 'text-accent' : 'text-muted'}`}
-            >
-              <span className="text-lg leading-none">{t.icon}</span>
-              {t.label}
-              {t.key === 'peer' && inboxCount > 0 && (
-                <span className="absolute right-1/4 top-1 rounded-full bg-danger px-1.5 text-[9px] text-white">{inboxCount}</span>
-              )}
-            </button>
-          ))}
+          {TABS.map((t) => {
+            const active = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                aria-current={active ? 'page' : undefined}
+                className={`relative flex flex-1 flex-col items-center gap-1 py-3 font-mono text-xs ${
+                  active ? 'bg-titlebar text-paper' : 'text-muted hover:text-text'
+                }`}
+              >
+                {/* Aktiver Tab: heller Balken oben drauf (mehr Highlight). */}
+                {active && <span className="absolute inset-x-0 top-0 h-[calc(var(--px)*1)] bg-paper" />}
+                <span className="text-2xl leading-none">{t.icon}</span>
+                <span>{t.label}</span>
+                {t.key === 'peer' && inboxCount > 0 && (
+                  <span className="absolute right-1/5 top-1.5 bg-danger px-1.5 font-hud text-[8px] text-paper">{inboxCount}</span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </nav>
     </div>

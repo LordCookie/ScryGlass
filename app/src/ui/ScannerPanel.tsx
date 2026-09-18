@@ -132,6 +132,7 @@ export function ScannerPanel() {
 
   const [workerReady, setWorkerReady] = useState(false);
   const [camOn, setCamOn] = useState(false);
+  const [camBoot, setCamBoot] = useState(false); // Pixel-„Power-on" beim Start
   const [camError, setCamError] = useState<string | null>(null);
   const [vdim, setVdim] = useState<{ w: number; h: number } | null>(null);
 
@@ -337,9 +338,10 @@ export function ScannerPanel() {
         lastThumbRef.current = thumb;
       }
     }
-    // Titelbalken (oben ~12 %, § 6) + Ganzkarte als Sicherheitsnetz/für die Nummer.
+    // Titelbalken (oben ~12 %, § 6) + Ganzkarte als Sicherheitsnetz (auch live —
+    // hilft bei Showcase-/Borderless-Rahmen, wo der Titel-Crop danebenliegt).
     const bandTop = regionCanvas([0.04, 0.045, 0.92, 0.13], 900, 'adaptive');
-    const whole = mode === 'full' ? regionCanvas([0, 0, 1, 1], 800, 'otsu') : null;
+    const whole = regionCanvas([0, 0, 1, 1], 820, 'otsu');
     if (!bandTop) return;
     busyRef.current = true;
     setScanning(true);
@@ -444,6 +446,9 @@ export function ScannerPanel() {
       setTorchAvailable(!!caps?.torch);
       setTorchOn(false);
       setCamOn(true);
+      // Pixel-Startanimation (Power-on) — kurz, rein dekorativ.
+      setCamBoot(true);
+      window.setTimeout(() => setCamBoot(false), 700);
     } catch (e) {
       setCamError(e instanceof Error ? e.message : 'Kamera nicht verfügbar.');
     }
@@ -649,6 +654,7 @@ export function ScannerPanel() {
               </div>
             </div>
           )}
+          {camBoot && <div className="cam-boot" />}
           {!camOn && <div className="flex h-40 items-center justify-center text-sm text-muted">Kamera aus</div>}
         </div>
 

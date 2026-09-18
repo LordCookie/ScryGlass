@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, addOwned } from '../db/db';
-import { getCards } from '../data/cards';
+import { getCards, previewImageIds } from '../data/cards';
 import { searchCards } from '../data/search';
-import { normalizeName } from '../domain/nameMatch';
 import type { Card, Owned, Finish } from '../domain/types';
+import { CardImage } from './CardImage';
+import { CardDetail } from './CardDetail';
 import { ManaCost, ColorPips } from './mana';
 
 /**
  * Sammlungsansicht (PLAN.md § 5, M5): Bestand, Suche, Filter, Sortierung.
- * Reaktiv über Dexie (`useLiveQuery`) — Änderungen (Scan-Übernahme, Peer-Import)
- * erscheinen sofort.
+ * Zwei Ansichten: Bild-Raster (mit Anzahl-Badge) und Liste (Mini-Kartenrahmen).
+ * Klick auf eine Karte öffnet das Detail (Effekte/Bild/Legalität). Reaktiv über Dexie.
  */
 
 type SortKey = 'name' | 'cmc' | 'qty';
+type ViewMode = 'grid' | 'list';
 const COLORS: { key: string; label: string }[] = [
   { key: 'W', label: 'W' }, { key: 'U', label: 'U' }, { key: 'B', label: 'B' },
   { key: 'R', label: 'R' }, { key: 'G', label: 'G' }, { key: 'C', label: 'farblos' },
@@ -22,24 +24,38 @@ const COLORS: { key: string; label: string }[] = [
 interface Row {
   owned: Owned;
   card?: Card;
+  scryfallId?: string;
 }
 
 export function CollectionView() {
   const [query, setQuery] = useState('');
   const [color, setColor] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>('name');
+  const [view, setView] = useState<ViewMode>('grid');
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const rows = useLiveQuery<Row[]>(async () => {
     const owned = await db.owned.toArray();
-    const cards = await getCards(owned.map((o) => o.oracleId));
-    return owned.map((o) => ({ owned: o, card: cards.get(o.oracleId) }));
+    const ids = owned.map((o) => o.oracleId);
+    const [cards, imgs] = await Promise.all([getCards(ids), previewImageIds(ids)]);
+    return owned.map((o) => ({ owned: o, card: cards.get(o.oracleId), scryfallId: imgs.get(o.oracleId) }));
   }, []);
 
   const filtered = useMemo(() => {
     if (!rows) return [];
-    const q = normalizeName(query);
+    const q = query.trim().toLowerCase();
     let out = rows.filter((r) => r.card);
-    if (q) out = out.filter((r) => r.card!.normName.includes(q));
+    // Suche im Bestand: Name, Typ ODER Regeltext (analog zur Katalogsuche).
+    if (q) {
+      out = out.filter((r) => {
+        const c = r.card!;
+        return (
+          c.name.toLowerCase().includes(q) ||
+          c.typeLine.toLowerCase().includes(q) ||
+          c.oracleText.toLowerCase().includes(q)
+        );
+      });
+    }
     if (color) {
       out = out.filter((r) =>
         color === 'C' ? r.card!.colorIdentity.length === 0 : r.card!.colorIdentity.includes(color),
@@ -53,21 +69,32 @@ export function CollectionView() {
     return out;
   }, [rows, query, color, sort]);
 
+  // Fürs Raster je oracleId zusammenfassen (Anzahl über Ausführungen summieren).
+  const gridItems = useMemo(() => {
+    const map = new Map<string, { card: Card; scryfallId?: string; qty: number }>();
+    for (const r of filtered) {
+      const cur = map.get(r.owned.oracleId);
+      if (cur) cur.qty += r.owned.qty;
+      else map.set(r.owned.oracleId, { card: r.card!, scryfallId: r.scryfallId, qty: r.owned.qty });
+    }
+    return [...map.values()];
+  }, [filtered]);
+
   const totalCards = rows?.reduce((s, r) => s + r.owned.qty, 0) ?? 0;
-  const distinct = rows?.length ?? 0;
+  const distinct = new Set(rows?.map((r) => r.owned.oracleId)).size;
 
   return (
     <section className="space-y-3">
       <div className="rounded-lg bg-surface p-4">
         <div className="mb-2 flex items-baseline justify-between">
-          <h2 className="font-mono text-lg">Sammlung</h2>
+          <h2 className="font-hud text-sm text-text">SAMMLUNG</h2>
           <span className="font-mono text-xs text-muted">{totalCards} Karten · {distinct} verschiedene</span>
         </div>
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Suchen (Name)…"
-          className="mb-2 w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent"
+          placeholder="Suchen (Name, Typ oder Regeltext)…"
+          className="mb-2 w-full border-2 border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-paper"
         />
         <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
           <div className="flex gap-1">
@@ -75,21 +102,30 @@ export function CollectionView() {
               <button
                 key={c.key}
                 onClick={() => setColor(color === c.key ? null : c.key)}
-                className={`rounded px-2 py-1 ${color === c.key ? 'bg-accent text-on-accent' : 'bg-bg text-muted hover:text-text'}`}
+                className={`px-2 py-1 ${color === c.key ? 'bg-fill text-paper' : 'bg-bg text-muted hover:text-text'}`}
               >
                 {c.label}
               </button>
             ))}
           </div>
-          <label className="ml-auto flex items-center gap-1 text-muted">
-            Sortieren
-            <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}
-              className="rounded border border-border bg-bg px-2 py-1 outline-none focus:border-accent">
-              <option value="name">Name</option>
-              <option value="cmc">Manawert</option>
-              <option value="qty">Anzahl</option>
-            </select>
-          </label>
+          <div className="ml-auto flex items-center gap-2">
+            <label className="flex items-center gap-1 text-muted">
+              Sortieren
+              <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}
+                className="border-2 border-border bg-bg px-2 py-1 outline-none focus:border-paper">
+                <option value="name">Name</option>
+                <option value="cmc">Manawert</option>
+                <option value="qty">Anzahl</option>
+              </select>
+            </label>
+            {/* Ansicht umschalten: Raster / Liste */}
+            <div className="flex">
+              <button onClick={() => setView('grid')} aria-label="Raster"
+                className={`px-2 py-1 ${view === 'grid' ? 'bg-fill text-paper' : 'bg-bg text-muted'}`}>▦</button>
+              <button onClick={() => setView('list')} aria-label="Liste"
+                className={`px-2 py-1 ${view === 'list' ? 'bg-fill text-paper' : 'bg-bg text-muted'}`}>≣</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -101,15 +137,30 @@ export function CollectionView() {
         <p className="px-1 font-mono text-sm text-muted">
           {distinct === 0 ? 'Noch keine Karten. Scanne welche im Scanner-Tab.' : 'Keine Treffer.'}
         </p>
+      ) : view === 'grid' ? (
+        // Bild-Raster mit Anzahl-Badge oben rechts.
+        <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {gridItems.map((it) => (
+            <li key={it.card.oracleId}>
+              <button onClick={() => setDetailId(it.card.oracleId)} className="relative block w-full" title={it.card.name}>
+                <CardImage scryfallId={it.scryfallId} name={it.card.name} size="normal" className="h-auto w-full" />
+                <span className="absolute right-0 top-0 bg-titlebar px-1.5 py-0.5 font-hud text-[10px] text-paper"
+                  style={{ boxShadow: 'calc(var(--px)*-1) calc(var(--px)*1) 0 rgb(var(--c-fill))' }}>
+                  {it.qty}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
       ) : (
         <ul className="space-y-2">
           {filtered.map((r) => (
             // Jede Zeile = Mini-Kartenrahmen (DESIGN § 1/§ 6): Titelbalken Name/Mana, Meta-Zeile.
             <li key={`${r.owned.oracleId}-${r.owned.finish}`} className="frame font-mono">
-              <div className="titlebar">
+              <button onClick={() => setDetailId(r.owned.oracleId)} className="titlebar w-full text-left">
                 <span className="min-w-0 flex-1 truncate text-text">{r.card!.name}</span>
                 <ManaCost cost={r.card!.manaCost} />
-              </div>
+              </button>
               <div className="flex items-center gap-2 px-3 py-2 text-sm">
                 <ColorPips colors={r.card!.colorIdentity} />
                 <span className="min-w-0 flex-1 truncate text-muted">
@@ -124,13 +175,15 @@ export function CollectionView() {
           ))}
         </ul>
       )}
+
+      {detailId && <CardDetail oracleId={detailId} onClose={() => setDetailId(null)} />}
     </section>
   );
 }
 
 /**
- * Karte per Hand in die Sammlung aufnehmen (Katalogsuche DE+EN → Klick fügt +1
- * hinzu). Ergänzt den Scanner für alles, was man lieber tippt (PLAN.md § 0/§ 5).
+ * Karte per Hand in die Sammlung aufnehmen (Katalogsuche über Name, Typ UND
+ * Regeltext, DE+EN → Klick fügt +1 hinzu). Ergänzt den Scanner (PLAN.md § 0/§ 5).
  */
 function ManualAddBox() {
   const [q, setQ] = useState('');
@@ -160,7 +213,7 @@ function ManualAddBox() {
           <select
             value={finish}
             onChange={(e) => setFinish(e.target.value as Finish)}
-            className="rounded border border-border bg-bg px-2 py-1 outline-none focus:border-accent"
+            className="border-2 border-border bg-bg px-2 py-1 outline-none focus:border-paper"
           >
             <option value="nonfoil">normal</option>
             <option value="foil">foil</option>
@@ -171,12 +224,12 @@ function ManualAddBox() {
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Kartenname (DE oder EN)…"
-        className="w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent"
+        placeholder="Name, Typ oder Regeltext (DE/EN)…"
+        className="w-full border-2 border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-paper"
       />
       {added && <p className="mt-2 font-mono text-xs text-ok">✓ „{added}" in die Sammlung ({finish})</p>}
       {results.length > 0 && (
-        <ul className="mt-2 divide-y divide-white/5 overflow-hidden rounded-md border border-border">
+        <ul className="mt-2 divide-y divide-white/5 overflow-hidden border-2 border-border">
           {results.map((card) => (
             <li key={card.oracleId}>
               <button
