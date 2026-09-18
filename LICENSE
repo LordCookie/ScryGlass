@@ -1,5 +1,6 @@
-MIT License
+# License Information
 
+## 1. Software License (MIT)
 Copyright (c) 2026 LordCookie
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -19,3 +20,32 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+## 2. Wizards of the Coast (WotC) Fan Content Policy
+This project is unofficial Fan Content permitted under the Fan Content Policy. 
+Not approved/endorsed by Wizards. Portions of the materials used are property of 
+Wizards of the Coast. ©Wizards of the Coast LLC.
+
+Magic: The Gathering, its symbols, card text, card art, and all related intellectual 
+property are copyright of Wizards of the Coast. This project is strictly non-commercial 
+and does not monetize in any form.
+
+---
+
+## 3. Scryfall Data and API
+Card data, oracle text, and imagery are provided by Scryfall (https://scryfall.com/).
+This project is not affiliated with, endorsed, sponsored, or specifically approved by Scryfall LLC.
+
+---
+
+## 4. Third-Party Software
+This software relies on various open-source libraries, including but not limited to:
+* React
+* Capacitor
+* Tesseract OCR
+* Dexie.js
+* NanoHTTPD
+
+Their respective copyright notices and licenses can be found in the source code and dependency manifests (e.g., `package.json`) of this project.
