@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Peer-Scanning spricht native HTTP-Server im LAN an (http://192.168.x.y:8765).
+  Ab Android 9 ist Cleartext-HTTP per Default aus (PLAN.md § 8, Android-Fallstricke).
+  Android-Network-Security-Config unterstützt keine CIDR-Bereiche, daher wird
+  Cleartext generell erlaubt — die App selbst schickt Cleartext ausschließlich an
+  vom Nutzer per QR ausgewählte LAN-Peers; alles andere (Katalog/Bilder) läuft HTTPS.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

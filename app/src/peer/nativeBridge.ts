@@ -11,9 +11,22 @@ import { Capacitor, registerPlugin, CapacitorHttp, type PluginListenerHandle } f
 
 export interface PeerServerPlugin {
   /** Startet den HTTP-Server; liefert die erreichbare URL + gewählten Port. */
-  start(options: { token: string; port: number }): Promise<{ url: string; port: number }>;
+  start(options: {
+    token: string;
+    port: number;
+    deviceName: string;
+    catalogVersion: string;
+    cardCount: number;
+  }): Promise<{ url: string; port: number }>;
   stop(): Promise<void>;
   getLocalIp(): Promise<{ ip: string }>;
+  /** Setzt den Review-Status eines Korbs (für die Sender-Statusabfrage). */
+  setBasketStatus(options: {
+    basketId: string;
+    status: string;
+    accepted: number;
+    rejected: number;
+  }): Promise<void>;
   /** Feuert bei jedem eingehenden Korb (Body als JSON-String). */
   addListener(
     eventName: 'basketReceived',

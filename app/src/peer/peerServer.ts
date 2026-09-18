@@ -2,7 +2,7 @@ import { KeepAwake } from '@capacitor-community/keep-awake';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { PeerServer, isNative } from './nativeBridge';
 import { buildPairingUrl, generateToken, PEER_PORT_FALLBACKS, type BasketPayload } from './protocol';
-import { putInboxBasket } from '../db/db';
+import { db, putInboxBasket, getMeta } from '../db/db';
 import { getDeviceName } from './peerStore';
 
 /**
@@ -74,7 +74,11 @@ export async function startReceiver(): Promise<ReceiverState> {
     return current;
   }
   const token = generateToken();
-  const name = await getDeviceName();
+  const [name, catalogVersion, cardCount] = await Promise.all([
+    getDeviceName(),
+    getMeta<string>('catalogVersion').then((v) => v ?? ''),
+    db.cards.count(),
+  ]);
   try {
     listener = await PeerServer.addListener('basketReceived', (e) => void onBasket(e.data));
   } catch {
@@ -84,7 +88,7 @@ export async function startReceiver(): Promise<ReceiverState> {
   let started: { url: string; port: number } | null = null;
   for (const port of PEER_PORT_FALLBACKS) {
     try {
-      started = await PeerServer.start({ token, port });
+      started = await PeerServer.start({ token, port, deviceName: name, catalogVersion, cardCount });
       break;
     } catch {
       /* Port belegt → nächster */
