@@ -1,0 +1,14 @@
+# Konsistente Zeilenenden im Repo (LF), egal auf welchem OS entwickelt wird.
+* text=auto eol=lf
+
+# Binärdateien nicht anfassen.
+*.png binary
+*.jpg binary
+*.jar binary
+*.keystore binary
+*.apk binary
+*.aab binary
+
+# Gradle-Wrapper-Skripte behalten ihre Endungen.
+*.bat text eol=crlf
+gradlew text eol=lf

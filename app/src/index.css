@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design-Tokens an genau einer Stelle. Als space-getrennte RGB-Kanäle (nicht Hex!),
+ * damit Tailwinds Opacity-Modifier `bg-accent/70` etc. funktionieren (der Config
+ * mappt sie als `rgb(var(--c-x) / <alpha-value>)`). Rohe Nutzung immer via `rgb(...)`.
+ */
+:root {
+  --c-bg: 11 15 20;
+  --c-surface: 18 24 32;
+  --c-text: 230 237 243;
+  --c-muted: 139 152 165;
+  --c-border: 38 48 61;
+  --c-accent: 96 165 250; /* Scryfall-blau angelehnt */
+  --c-on-accent: 11 15 20;
+  --c-danger: 248 113 113;
+  --c-ok: 74 222 128;
+
+  /* MTG-Farbidentität (fest, semantisch). */
+  --c-mtg-w: 249 246 233;
+  --c-mtg-u: 59 130 246;
+  --c-mtg-b: 120 113 108;
+  --c-mtg-r: 239 68 68;
+  --c-mtg-g: 34 197 94;
+  --c-mtg-c: 156 163 175;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: rgb(var(--c-bg));
+  color: rgb(var(--c-text));
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* Nie horizontal scrollen — sonst verrutscht die fixierte Mobil-Navigation. */
+  overflow-x: hidden;
+}
+
+/* Kleine Rückmeldungs-Animationen (z. B. „in den Scan-Korb gelegt"). */
+@keyframes pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+.animate-pop { animation: pop 0.3s ease-out; }
+
+@keyframes rise {
+  0% { opacity: 0; transform: translateY(6px) scale(0.9); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-24px) scale(1); }
+}
+.animate-rise { animation: rise 0.9s ease-out forwards; }
+
+/* Effekte respektieren die Systemeinstellung. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -1,0 +1,14 @@
+[
+  { "raw": "Lightning Bolt", "expect": "lightning bolt", "lang": "en", "note": "Exakt-Treffer EN" },
+  { "raw": "Blitzschlag", "expect": "lightning bolt", "lang": "de", "note": "Exakt-Treffer DE" },
+  { "raw": "Blitzschiag", "expect": "lightning bolt", "lang": "de", "note": "OCR l->i" },
+  { "raw": "Lighming Bolt", "expect": "lightning bolt", "lang": "en", "note": "OCR tn->m" },
+  { "raw": "Serra Ang", "expect": "serra angel", "lang": "en", "note": "Praefix abgeschnitten" },
+  { "raw": "Llanowar Elv", "expect": "llanowar elves", "lang": "en", "note": "Praefix abgeschnitten" },
+  { "raw": "Paradiesvog", "expect": "birds of paradise", "lang": "de", "note": "DE-Praefix" },
+  { "raw": "Gegenzaubar", "expect": "counterspell", "lang": "de", "note": "OCR e->a am Ende" },
+  { "raw": "S0l Ring", "expect": "sol ring", "lang": "en", "note": "OCR 0->O Faltung" },
+  { "raw": "SWORDS TO PLOWSHARES 004", "expect": "swords to plowshares", "lang": "en", "note": "mit Sammlernummer-Rauschen" },
+  { "raw": "Serra Enge!", "expect": "serra angel", "lang": "de", "note": "DE + OCR l->!" },
+  { "raw": "qwertzuiop", "expect": null, "lang": "en", "note": "Kein Treffer -> manuelle Eingabe" }
+]
