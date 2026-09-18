@@ -4,6 +4,7 @@ import jsQR from 'jsqr';
 import { matchOcr } from '../data/matcher';
 import { getCards, previewImageIds } from '../data/cards';
 import { searchCards } from '../data/search';
+import { dhashFromCanvas, nearestByHash, hashCount, type HashMatch } from '../data/imageHash';
 import { addOwnedBatch, getMeta, setMeta } from '../db/db';
 import type { Card, Finish, Lang, BasketEntry } from '../domain/types';
 import { ManaCost, ColorPips } from './mana';
@@ -28,6 +29,13 @@ const CARD_ASPECT = 745 / 1040; // MTG-Kartenverhältnis
 const THUMB_W = 24;
 const THUMB_H = 34;
 const FRAME_SAME = 6;
+
+// Bild-Matching (Scanner v2): Schwellen für einen dHash-Treffer (0..256).
+// Datenbasis: gleiches Bild (Referenz↔Kamera-Engine) ≈ 35 Bit; VERSCHIEDENE Karten
+// min ≈ 64, p5 ≈ 86. Darum:
+const HASH_MAX_DIST = 60; // als Kandidat zeigen (knapp unter dem False-Minimum)
+const HASH_MIN_MARGIN = 10; // muss klar besser als der zweitbeste sein
+const HASH_STRONG_DIST = 46; // erst darunter automatisch übernehmen
 
 const isNativeApp =
   typeof window !== 'undefined' &&
@@ -159,6 +167,7 @@ export function ScannerPanel() {
   const [target, setTarget] = useState<ScanTarget>({ kind: 'local' });
   const [pairing, setPairing] = useState(false);
   const [pairMsg, setPairMsg] = useState<string | null>(null);
+  const [hashN, setHashN] = useState(0); // Karten im Bild-Hash-Index (Scanner v2)
 
   // Manueller Fallback (§ 6): Full-Art/textless/Secret-Lair haben keinen lesbaren
   // Titelbalken → Karte suchen statt Fehltreffer riskieren.
@@ -214,6 +223,13 @@ export function ScannerPanel() {
       setTarget({ kind: 'local' });
     }
   }, [peers, target]);
+
+  // Bild-Hash-Index lädt im Hintergrund (App) — Status fürs UI mitziehen.
+  useEffect(() => {
+    setHashN(hashCount());
+    const id = window.setInterval(() => setHashN(hashCount()), 2000);
+    return () => window.clearInterval(id);
+  }, []);
 
   // Manuelle Suche (Fallback) — debounced gegen den Katalog.
   useEffect(() => {
@@ -288,6 +304,22 @@ export function ScannerPanel() {
     return canvas;
   }
 
+  /** Roher (unbearbeiteter) Karten-Ausschnitt fürs Bild-Hashing (Scanner v2). */
+  function rawCropCanvas(): HTMLCanvasElement | null {
+    const video = videoRef.current;
+    const region = cropRegion();
+    if (!video || !region) return null;
+    const cw = 146;
+    const ch = 204;
+    const c = document.createElement('canvas');
+    c.width = cw;
+    c.height = ch;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(video, region.sx, region.sy, region.sw, region.sh, 0, 0, cw, ch);
+    return c;
+  }
+
   function frameThumb(): Uint8Array | null {
     const video = videoRef.current;
     const region = cropRegion();
@@ -342,6 +374,16 @@ export function ScannerPanel() {
     // hilft bei Showcase-/Borderless-Rahmen, wo der Titel-Crop danebenliegt).
     const bandTop = regionCanvas([0.04, 0.045, 0.92, 0.13], 900, 'adaptive');
     const whole = regionCanvas([0, 0, 1, 1], 820, 'otsu');
+    // Bild-Hash (Scanner v2) synchron vom aktuellen Frame — matcht das ARTWORK,
+    // nicht den Text (rettet Showcase-/Borderless-/Full-Art-Rahmen).
+    let hashMatch: HashMatch | null = null;
+    if (hashCount() > 0) {
+      const raw = rawCropCanvas();
+      if (raw) {
+        const qh = dhashFromCanvas(raw);
+        if (qh) hashMatch = nearestByHash(qh);
+      }
+    }
     if (!bandTop) return;
     busyRef.current = true;
     setScanning(true);
@@ -353,10 +395,37 @@ export function ScannerPanel() {
       setOcrText(text);
       const result = await matchOcr(text, { topN: 5, threshold: 0.55 });
       const shown = await enrich(result.candidates);
-      setMatches(shown);
 
-      const best = shown[0];
-      const confident = !!best && best.score >= 0.85 && !result.ambiguous;
+      // Bild-Treffer (falls eindeutig genug) an die Spitze — er ist bei
+      // schwierigen Rahmen zuverlässiger als OCR.
+      let finalMatches = shown;
+      const hashHit =
+        hashMatch && hashMatch.distance <= HASH_MAX_DIST && hashMatch.margin >= HASH_MIN_MARGIN
+          ? hashMatch
+          : null;
+      if (hashHit) {
+        const card = (await getCards([hashHit.oracleId])).get(hashHit.oracleId);
+        if (card) {
+          const imgs = await previewImageIds([hashHit.oracleId]);
+          const hm: ScanMatch = {
+            oracleId: hashHit.oracleId,
+            card,
+            scryfallId: hashHit.scryfallId ?? imgs.get(hashHit.oracleId),
+            // Distanz → grobe Confidence (0 Bit ≈ 1.0, 60 Bit ≈ 0.5).
+            score: Math.max(0.5, 1 - hashHit.distance / 128),
+            method: 'bild',
+            lang: 'en',
+          };
+          finalMatches = [hm, ...shown.filter((m) => m.oracleId !== hm.oracleId)];
+        }
+      }
+      setMatches(finalMatches);
+
+      const best = finalMatches[0];
+      // Auto-Übernahme: sehr sicherer Bildtreffer ODER sehr sicherer OCR-Treffer.
+      const strongHash = !!hashHit && hashHit.distance <= HASH_STRONG_DIST && best?.method === 'bild';
+      const confident =
+        !!best && (strongHash || (best.method !== 'bild' && best.score >= 0.85 && !result.ambiguous));
       if (autoAdd && best && confident) {
         if (lastAutoRef.current !== best.oracleId) {
           lastAutoRef.current = best.oracleId;
@@ -579,10 +648,16 @@ export function ScannerPanel() {
     <section className="space-y-4">
       <div className="rounded-lg bg-surface p-4">
         <h2 className="mb-1 font-mono text-lg">Scanner</h2>
-        <p className="mb-3 text-xs text-muted">
+        <p className="mb-2 text-xs text-muted">
           Karte in den Rahmen halten, <b>Name oben gut lesbar</b>. Die App liest den
-          Titel per Texterkennung und gleicht ihn gegen den Katalog ab. Alles lokal.
+          Titel per Texterkennung UND gleicht das Kartenbild ab. Alles lokal.
         </p>
+        {hashN > 0 && (
+          <p className="mb-3 font-mono text-[11px] text-ok">
+            ✓ Bild-Abgleich aktiv ({hashN.toLocaleString('de-DE')} Karten) — findet auch
+            Showcase-/Borderless-Rahmen.
+          </p>
+        )}
 
         {/* Scan-Ziel (§ 8) */}
         <div className="mb-3 flex flex-wrap items-center gap-2">

@@ -1,0 +1,52 @@
+name: Build image hashes
+
+# Perceptual-Hash-Index für den Scanner (Scanner v2, PLAN.md § 6). Hasht alle
+# Druckausgaben (Artwork) und hängt `hashes.ndjson` ans catalog-latest-Release.
+# Resumbar: lädt die vorherige hashes.ndjson und überspringt bereits Gehashtes —
+# spätere Läufe hashen also nur neue Karten (schnell). Der ERSTE Vollauf ist lang.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Monatlich (nach dem Katalog-Build), 1. des Monats 05:00 UTC.
+    - cron: "0 5 1 * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hashes
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: python -m pip install -r pipeline/requirements.txt
+
+      - name: Fetch printings + previous hashes (resume)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p pipeline/dist
+          gh release download catalog-latest -p printings.ndjson -D pipeline/dist --clobber
+          gh release download catalog-latest -p hashes.ndjson -D pipeline/dist --clobber || echo "keine vorherigen Hashes — Vollauf"
+
+      - name: Hash card images (resumable)
+        working-directory: pipeline
+        run: python hash_images.py --printings dist/printings.ndjson --out dist/hashes.ndjson --workers 12
+
+      - name: Upload to catalog-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Hashes: $(wc -l < pipeline/dist/hashes.ndjson)"
+          gh release upload catalog-latest pipeline/dist/hashes.ndjson --clobber

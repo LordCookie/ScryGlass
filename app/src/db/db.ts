@@ -4,6 +4,7 @@ import type {
   Printing,
   NameEntry,
   TrigramEntry,
+  HashEntry,
   Owned,
   Deck,
   InboxBasket,
@@ -28,6 +29,7 @@ export class ScryGlassDB extends Dexie {
   printings!: Table<Printing, string>; // PK: scryfallId
   names!: Table<NameEntry, [string, string, string]>; // PK: [normName+oracleId+lang]
   trigrams!: Table<TrigramEntry, string>; // PK: trigram
+  hashes!: Table<HashEntry, string>; // PK: scryfallId (Bild-dHash, Scanner v2)
   owned!: Table<Owned, number>; // PK: ++id
   decks!: Table<Deck, number>; // PK: ++id
   inbox!: Table<InboxBasket, string>; // PK: basketId
@@ -48,6 +50,10 @@ export class ScryGlassDB extends Dexie {
       decks: '++id, name, format, updatedAt',
       inbox: 'basketId, receivedAt, status',
       meta: 'key',
+    });
+    // v2: Bild-Hash-Index fürs Scanner-Matching (Scanner v2, optional befüllt).
+    this.version(2).stores({
+      hashes: 'scryfallId, oracleId',
     });
   }
 }

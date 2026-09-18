@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db/db';
 import {
-  syncOnStartup, applyUpdate, getLocalCatalogVersion,
+  syncOnStartup, applyUpdate, getLocalCatalogVersion, CATALOG_BASE_URL,
   type CatalogVersion, type SyncProgress,
 } from './data/catalog';
 import { invalidateNameIndex } from './data/matcher';
 import { invalidateSearchIndex } from './data/search';
+import { syncHashes, loadHashIndex } from './data/imageHash';
 import { ScannerPanel } from './ui/ScannerPanel';
 import { CollectionView } from './ui/CollectionView';
 import { DecksPanel } from './ui/DecksPanel';
@@ -50,9 +51,15 @@ export default function App() {
     setProgress(null);
     invalidateNameIndex();
     invalidateSearchIndex();
-    if (res.status === 'offline' && !local) setGate('offline');
+    let ready = true;
+    if (res.status === 'offline' && !local) { setGate('offline'); ready = false; }
     else if (res.status === 'update-available') { setUpdate(res.remote ?? null); setGate('ready'); }
     else setGate('ready');
+    // Bild-Hash-Index (Scanner v2) best-effort im Hintergrund nachladen.
+    if (ready) {
+      const ver = await getLocalCatalogVersion();
+      void syncHashes(CATALOG_BASE_URL, ver).then(() => void loadHashIndex());
+    }
   }
 
   useEffect(() => { void runSync(); }, []);
@@ -63,6 +70,8 @@ export default function App() {
     await applyUpdate(update, { onProgress: setProgress });
     invalidateNameIndex();
     invalidateSearchIndex();
+    const ver = await getLocalCatalogVersion();
+    void syncHashes(CATALOG_BASE_URL, ver).then(() => void loadHashIndex());
     setUpdate(null);
     setProgress(null);
     setApplying(false);

@@ -45,6 +45,14 @@ export interface TrigramEntry {
   oracleIds: string[];
 }
 
+/** Perceptual-Hash einer Druckausgabe fürs Bild-Matching (Scanner v2). */
+export interface HashEntry {
+  scryfallId: string;
+  oracleId: string;
+  /** 256-Bit-dHash als 64 Hex-Zeichen (siehe pipeline/hash_images.py). */
+  h: string;
+}
+
 /** Ein Bestand in der eigenen Sammlung. */
 export interface Owned {
   id?: number;
