@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, saveDeck, deleteDeck, listDecks } from '../db/db';
-import { getCards, ownedByOracle, previewImageIds, previewPrinting } from '../data/cards';
+import { getCards, ownedByOracle, ownedPrintingByOracle, previewImageIds, previewPrinting } from '../data/cards';
 import { searchCards } from '../data/search';
 import { normalizeName } from '../domain/nameMatch';
 import { validateDeck } from '../domain/deckValidate';
@@ -109,6 +109,14 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
   }, [deck]);
   const cards = useLiveQuery(() => getCards(refIds), [refIds]);
   const imgs = useLiveQuery(() => previewImageIds(refIds), [refIds]);
+  // Gewählte Ausgabe (Artwork) aus der Sammlung — überlagert die Standard-Vorschau,
+  // damit Deck-Raster/Commander dasselbe Bild wie die Sammlung zeigen.
+  const ownedPrint = useLiveQuery(() => ownedPrintingByOracle(), []);
+  const effectiveImgs = useMemo(() => {
+    const m = new Map(imgs ?? []);
+    if (ownedPrint) for (const [oid, pid] of ownedPrint) m.set(oid, pid);
+    return m;
+  }, [imgs, ownedPrint]);
   const [detailId, setDetailId] = useState<string | null>(null);
 
   if (!deck || !cards) return <p className="px-1 font-mono text-sm text-muted">Lade…</p>;
@@ -157,6 +165,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
       {rules && (
         <CommanderSection
           commander={deck.commanderId ? cards.get(deck.commanderId) : undefined}
+          chosenScryfallId={deck.commanderId ? effectiveImgs.get(deck.commanderId) : undefined}
           onSet={(id) => void update({ commanderId: id })}
         />
       )}
@@ -173,7 +182,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
       </div>
 
       {tab === 'liste' && (
-        <DeckList deck={deck} cards={cards} imgs={imgs ?? new Map()} owned={owned ?? new Map()}
+        <DeckList deck={deck} cards={cards} imgs={effectiveImgs} owned={owned ?? new Map()}
           onAdjust={adjust} allowSideboard={!rules} onOpenDetail={setDetailId} />
       )}
       {tab === 'stats' && <DeckStatsView deck={deck} cards={cards} />}
@@ -191,7 +200,9 @@ function combinedEntries(deck: Deck): DeckCard[] {
   return entries;
 }
 
-function CommanderSection({ commander, onSet }: { commander?: Card; onSet: (id: string | undefined) => void }) {
+function CommanderSection({ commander, chosenScryfallId, onSet }: {
+  commander?: Card; chosenScryfallId?: string; onSet: (id: string | undefined) => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [q, setQ] = useState('');
   const [results, setResults] = useState<Card[]>([]);
@@ -199,9 +210,11 @@ function CommanderSection({ commander, onSet }: { commander?: Card; onSet: (id: 
 
   useEffect(() => {
     let alive = true;
+    // Gewählte Ausgabe aus der Sammlung bevorzugen, sonst Standard-Vorschau.
+    if (chosenScryfallId) { setScryfallId(chosenScryfallId); return () => { alive = false; }; }
     if (commander) void previewPrinting(commander.oracleId).then((p) => alive && setScryfallId(p?.scryfallId));
     return () => { alive = false; };
-  }, [commander]);
+  }, [commander, chosenScryfallId]);
   useEffect(() => {
     let alive = true;
     if (q.trim()) void searchCards(q, 6).then((r) => { if (alive) setResults(r); });

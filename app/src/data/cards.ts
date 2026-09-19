@@ -64,3 +64,12 @@ export async function ownedByOracle(): Promise<Map<string, number>> {
   for (const o of rows) map.set(o.oracleId, (map.get(o.oracleId) ?? 0) + o.qty);
   return map;
 }
+
+/** Gewählte Druckausgabe (Artwork) je oracleId aus der Sammlung — damit Deck &
+ *  Detail dasselbe Artwork wie die Sammlung zeigen (printingId, PLAN.md § 3). */
+export async function ownedPrintingByOracle(): Promise<Map<string, string>> {
+  const rows = await db.owned.toArray();
+  const map = new Map<string, string>();
+  for (const o of rows) if (o.printingId && !map.has(o.oracleId)) map.set(o.oracleId, o.printingId);
+  return map;
+}
