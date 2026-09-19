@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { db, replaceOwned, saveDeck } from '../db/db';
+import { db, replaceOwned, saveDeck, listScans, clearScans } from '../db/db';
 import { serializeCollection, parseCollection, CollectionImportError } from '../domain/collectionIo';
 import { toMoxfieldCsv, type CsvRow } from '../domain/collectionCsv';
 import { getCards } from '../data/cards';
@@ -23,8 +23,77 @@ export function MorePanel() {
     <section className="space-y-3">
       <BackupSection />
       <CatalogSection />
+      <ScanLogSection />
       <AboutSection />
     </section>
+  );
+}
+
+/**
+ * Scanner-Protokoll exportieren (PLAN.md § 5): echte OCR-/Bild-Ergebnisse mit der
+ * bestätigten Karte als Ground Truth — die Basis, um Scanner-Schwellen zu tunen.
+ */
+function ScanLogSection() {
+  const [count, setCount] = useState<number | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    void db.scans.count().then(setCount);
+  }, []);
+
+  async function exportJson() {
+    const scans = await listScans();
+    if (scans.length === 0) {
+      setMsg('Noch keine Scans protokolliert.');
+      return;
+    }
+    const ids = new Set<string>();
+    for (const s of scans) {
+      if (s.ocrBestOracle) ids.add(s.ocrBestOracle);
+      if (s.hashOracle) ids.add(s.hashOracle);
+      ids.add(s.chosenOracle);
+    }
+    const cards = await getCards([...ids]);
+    const rows = scans.map((s) => ({
+      at: new Date(s.at).toISOString(),
+      via: s.via,
+      ocrRaw: s.ocrRaw,
+      chosen: s.chosenName,
+      ocrBest: s.ocrBestOracle ? (cards.get(s.ocrBestOracle)?.name ?? s.ocrBestOracle) : null,
+      ocrScore: s.ocrScore,
+      ocrMethod: s.ocrMethod,
+      ocrCorrect: s.ocrBestOracle ? s.ocrBestOracle === s.chosenOracle : null,
+      hashCard: s.hashOracle ? (cards.get(s.hashOracle)?.name ?? s.hashOracle) : null,
+      hashDist: s.hashDist,
+      hashMargin: s.hashMargin,
+      hashCorrect: s.hashOracle ? s.hashOracle === s.chosenOracle : null,
+    }));
+    download(`scryglass-scans-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(rows, null, 2));
+    setMsg(`${rows.length} Scans exportiert.`);
+  }
+
+  return (
+    <div className="rounded-lg bg-surface p-4">
+      <h2 className="mb-2 font-mono text-lg">Scanner-Protokoll</h2>
+      <p className="mb-3 text-xs text-muted">
+        Zum Verbessern des Scanners: die App merkt sich pro Scan den gelesenen Text, das
+        Bild-Ergebnis und die von dir bestätigte Karte. Exportieren und mir schicken —
+        daraus tune ich die Erkennung. Keine Bilder, keine persönlichen Daten.
+      </p>
+      <p className="mb-2 font-mono text-xs text-muted">{count ?? '…'} Scans gespeichert.</p>
+      <div className="flex flex-wrap gap-2">
+        <button onClick={() => void exportJson()} className="rounded bg-accent px-3 py-1.5 font-mono text-sm text-on-accent">
+          Protokoll exportieren
+        </button>
+        <button
+          onClick={() => { if (confirm('Scan-Protokoll leeren?')) void clearScans().then(() => { setCount(0); setMsg('Geleert.'); }); }}
+          className="rounded border border-border px-3 py-1.5 font-mono text-sm text-muted hover:border-danger hover:text-danger"
+        >
+          Leeren
+        </button>
+      </div>
+      {msg && <p className="mt-2 font-mono text-xs text-muted">{msg}</p>}
+    </div>
   );
 }
 

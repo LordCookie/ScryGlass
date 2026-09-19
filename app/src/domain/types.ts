@@ -49,8 +49,30 @@ export interface TrigramEntry {
 export interface HashEntry {
   scryfallId: string;
   oracleId: string;
-  /** 256-Bit-dHash als 64 Hex-Zeichen (siehe pipeline/hash_images.py). */
+  /** 256-Bit-pHash als 64 Hex-Zeichen (siehe pipeline/hash_images.py). */
   h: string;
+}
+
+/**
+ * Protokoll eines Scans zum Sammeln echter Fixtures (PLAN.md § 5): OCR-Rohtext +
+ * Bild-Hash-Ergebnis, plus die vom Nutzer bestätigte Karte als „Wahrheit". Export
+ * dient dem Tuning von OCR- und Hash-Schwellen. Enthält keine Bilder/Nutzerdaten.
+ */
+export interface ScanLog {
+  id?: number;
+  at: number;
+  ocrRaw: string;
+  ocrBestOracle?: string;
+  ocrScore?: number;
+  ocrMethod?: string;
+  hashOracle?: string;
+  hashDist?: number;
+  hashMargin?: number;
+  /** Ground Truth: was der Nutzer tatsächlich übernommen hat. */
+  chosenOracle: string;
+  chosenName: string;
+  /** kam der Treffer per Bild, OCR oder manuell zustande? */
+  via: 'bild' | 'ocr' | 'manuell';
 }
 
 /** Ein Bestand in der eigenen Sammlung. */

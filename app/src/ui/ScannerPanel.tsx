@@ -5,7 +5,7 @@ import { matchOcr } from '../data/matcher';
 import { getCards, previewImageIds } from '../data/cards';
 import { searchCards } from '../data/search';
 import { phashFromCanvas, nearestByHash, hashCount, type HashMatch } from '../data/imageHash';
-import { addOwnedBatch, getMeta, setMeta } from '../db/db';
+import { addOwnedBatch, getMeta, setMeta, logScan } from '../db/db';
 import type { Card, Finish, Lang, BasketEntry } from '../domain/types';
 import { ManaCost, ColorPips } from './mana';
 import {
@@ -175,6 +175,17 @@ export function ScannerPanel() {
   const [manualResults, setManualResults] = useState<Card[]>([]);
 
   const lastAutoRef = useRef<string | null>(null);
+  // Letzter Scan (OCR + Bild-Hash) — Rohdaten fürs Fixture-Protokoll (§ 5).
+  const lastScanRef = useRef<{
+    at: number;
+    ocrRaw: string;
+    ocrBestOracle?: string;
+    ocrScore?: number;
+    ocrMethod?: string;
+    hashOracle?: string;
+    hashDist?: number;
+    hashMargin?: number;
+  } | null>(null);
   const lastThumbRef = useRef<Uint8Array | null>(null);
   const thumbCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const autoToastTimer = useRef<number>();
@@ -421,6 +432,18 @@ export function ScannerPanel() {
       }
       setMatches(finalMatches);
 
+      // Rohdaten des Scans fürs Fixture-Protokoll merken (OCR + Bild-Hash, ungefiltert).
+      lastScanRef.current = {
+        at: Date.now(),
+        ocrRaw: text,
+        ocrBestOracle: shown[0]?.oracleId,
+        ocrScore: shown[0]?.score,
+        ocrMethod: shown[0]?.method,
+        hashOracle: hashMatch?.oracleId,
+        hashDist: hashMatch?.distance,
+        hashMargin: hashMatch?.margin,
+      };
+
       const best = finalMatches[0];
       // Auto-Übernahme: sehr sicherer Bildtreffer ODER sehr sicherer OCR-Treffer.
       const strongHash = !!hashHit && hashHit.distance <= HASH_STRONG_DIST && best?.method === 'bild';
@@ -555,6 +578,25 @@ export function ScannerPanel() {
   }
 
   function addToBasket(m: ScanMatch, ocrRaw: string) {
+    // Fixture protokollieren (§ 5): der bestätigte Treffer ist die Ground Truth.
+    const via = m.method === 'bild' ? 'bild' : m.method === 'manuell' ? 'manuell' : 'ocr';
+    const ls = lastScanRef.current;
+    const recent = ls != null && Date.now() - ls.at < 120000;
+    if (via !== 'manuell' || recent) {
+      void logScan({
+        at: Date.now(),
+        ocrRaw: (recent ? ls!.ocrRaw : ocrRaw) || '',
+        ocrBestOracle: recent ? ls!.ocrBestOracle : undefined,
+        ocrScore: recent ? ls!.ocrScore : undefined,
+        ocrMethod: recent ? ls!.ocrMethod : undefined,
+        hashOracle: recent ? ls!.hashOracle : undefined,
+        hashDist: recent ? ls!.hashDist : undefined,
+        hashMargin: recent ? ls!.hashMargin : undefined,
+        chosenOracle: m.oracleId,
+        chosenName: m.card.name,
+        via,
+      });
+    }
     setBasket((b) => {
       const i = b.findIndex((x) => x.oracleId === m.oracleId && x.finish === finish);
       if (i >= 0) return b.map((x, j) => (j === i ? { ...x, qty: x.qty + 1 } : x));
@@ -833,8 +875,11 @@ export function ScannerPanel() {
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-sm hover:bg-white/10"
                   >
                     <ColorPips colors={card.colorIdentity} />
-                    <span className="min-w-0 flex-1 truncate">{card.name}</span>
-                    <span className="text-xs text-accent">＋ Korb</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{card.name}</span>
+                      <span className="block truncate text-[10px] text-muted">{card.typeLine}</span>
+                    </span>
+                    <span className="shrink-0 text-xs text-accent">＋ Korb</span>
                   </button>
                 </li>
               ))}

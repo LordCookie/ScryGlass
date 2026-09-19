@@ -200,8 +200,10 @@ function CommanderPicker({ deck, onSet }: { deck: Deck; onSet: (id: string | und
               <button onClick={() => { onSet(c.oracleId); setQ(''); }}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-sm hover:bg-white/10">
                 <ColorPips colors={c.colorIdentity} />
-                <span className="truncate">{c.name}</span>
-                <span className="ml-auto truncate text-xs text-muted">{c.typeLine}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{c.name}</span>
+                  <span className="block truncate text-[10px] text-muted">{c.typeLine}</span>
+                </span>
               </button>
             </li>
           ))}
@@ -231,10 +233,15 @@ function AddCardBox({
           {results.map((c) => (
             <li key={c.oracleId} className="flex items-center gap-2 px-3 py-1.5 font-mono text-sm">
               <ColorPips colors={c.colorIdentity} />
-              <span className="min-w-0 flex-1 truncate">{c.name}</span>
-              {owned.get(c.oracleId) ? <span className="text-[10px] text-ok">im Bestand: {owned.get(c.oracleId)}</span> : <span className="text-[10px] text-muted">nicht im Bestand</span>}
-              <button onClick={() => onAdd(c.oracleId, 'cards')} className="rounded bg-accent/20 px-2 py-1 text-xs text-accent hover:bg-accent/40">+ Deck</button>
-              {allowSideboard && <button onClick={() => onAdd(c.oracleId, 'sideboard')} className="rounded bg-white/10 px-2 py-1 text-xs text-muted hover:text-text">+ SB</button>}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{c.name}</span>
+                <span className="block truncate text-[10px] text-muted">
+                  {c.typeLine}
+                  {owned.get(c.oracleId) ? <span className="text-ok"> · im Bestand: {owned.get(c.oracleId)}</span> : ''}
+                </span>
+              </span>
+              <button onClick={() => onAdd(c.oracleId, 'cards')} className="shrink-0 bg-fill/20 px-2 py-1 text-xs text-accent hover:bg-fill/40">+ Deck</button>
+              {allowSideboard && <button onClick={() => onAdd(c.oracleId, 'sideboard')} className="shrink-0 bg-white/10 px-2 py-1 text-xs text-muted hover:text-text">+ SB</button>}
             </li>
           ))}
         </ul>

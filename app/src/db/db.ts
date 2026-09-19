@@ -5,6 +5,7 @@ import type {
   NameEntry,
   TrigramEntry,
   HashEntry,
+  ScanLog,
   Owned,
   Deck,
   InboxBasket,
@@ -29,7 +30,8 @@ export class ScryGlassDB extends Dexie {
   printings!: Table<Printing, string>; // PK: scryfallId
   names!: Table<NameEntry, [string, string, string]>; // PK: [normName+oracleId+lang]
   trigrams!: Table<TrigramEntry, string>; // PK: trigram
-  hashes!: Table<HashEntry, string>; // PK: scryfallId (Bild-dHash, Scanner v2)
+  hashes!: Table<HashEntry, string>; // PK: scryfallId (Bild-pHash, Scanner v2)
+  scans!: Table<ScanLog, number>; // PK: ++id (Fixture-Sammlung)
   owned!: Table<Owned, number>; // PK: ++id
   decks!: Table<Deck, number>; // PK: ++id
   inbox!: Table<InboxBasket, string>; // PK: basketId
@@ -54,6 +56,10 @@ export class ScryGlassDB extends Dexie {
     // v2: Bild-Hash-Index fürs Scanner-Matching (Scanner v2, optional befüllt).
     this.version(2).stores({
       hashes: 'scryfallId, oracleId',
+    });
+    // v3: Scan-Protokoll zum Sammeln echter OCR-/Bild-Fixtures (§ 5).
+    this.version(3).stores({
+      scans: '++id, at',
     });
   }
 }
@@ -189,4 +195,28 @@ export async function setInboxStatus(
 
 export async function deleteInbox(basketId: string): Promise<void> {
   await db.inbox.delete(basketId);
+}
+
+// --- Scan-Protokoll (Fixture-Sammlung, § 5) ---------------------------------
+
+export async function logScan(entry: Omit<ScanLog, 'id'>): Promise<void> {
+  try {
+    await db.scans.add(entry as ScanLog);
+    // Nicht unbegrenzt wachsen lassen — die ältesten über 2000 kappen.
+    const n = await db.scans.count();
+    if (n > 2000) {
+      const old = await db.scans.orderBy('at').limit(n - 2000).primaryKeys();
+      await db.scans.bulkDelete(old);
+    }
+  } catch {
+    /* Protokoll ist best-effort — darf den Scan nie stören. */
+  }
+}
+
+export async function listScans(): Promise<ScanLog[]> {
+  return db.scans.orderBy('at').reverse().toArray();
+}
+
+export async function clearScans(): Promise<void> {
+  await db.scans.clear();
 }

@@ -237,8 +237,10 @@ function ManualAddBox() {
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-sm hover:bg-white/10"
               >
                 <ColorPips colors={card.colorIdentity} />
-                <span className="min-w-0 flex-1 truncate">{card.name}</span>
-                <span className="truncate text-[10px] text-muted">{card.typeLine}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{card.name}</span>
+                  <span className="block truncate text-[10px] text-muted">{card.typeLine}</span>
+                </span>
                 <span className="shrink-0 text-accent">＋</span>
               </button>
             </li>
