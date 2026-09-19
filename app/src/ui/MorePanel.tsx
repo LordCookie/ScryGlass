@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import { db, replaceOwned, saveDeck, listScans, clearScans } from '../db/db';
 import { serializeCollection, parseCollection, CollectionImportError } from '../domain/collectionIo';
 import { toMoxfieldCsv, type CsvRow } from '../domain/collectionCsv';
@@ -8,7 +11,7 @@ import { invalidateNameIndex } from '../data/matcher';
 
 /** „Mehr": Backup/Export, Katalog-Update, Rechtliches (PLAN.md § 5, § 4, § 12). */
 
-function download(filename: string, content: string, type = 'application/json') {
+function downloadWeb(filename: string, content: string, type = 'application/json') {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -16,6 +19,57 @@ function download(filename: string, content: string, type = 'application/json') 
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * Datei speichern/teilen. Nativ (Android): in den Cache schreiben und die Teilen-
+ * Funktion öffnen (Blob-Downloads sind im WebView unzuverlässig). Web: klassischer
+ * Download. Rückgabe: true, wenn ausgelöst.
+ */
+async function saveFile(filename: string, content: string, type = 'application/json'): Promise<boolean> {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const res = await Filesystem.writeFile({
+        path: filename,
+        data: content,
+        directory: Directory.Cache,
+        encoding: Encoding.UTF8,
+      });
+      await Share.share({ title: filename, url: res.uri });
+      return true;
+    } catch {
+      return false; // Teilen abgebrochen o. Ä.
+    }
+  }
+  downloadWeb(filename, content, type);
+  return true;
+}
+
+/** In die Zwischenablage legen — robust: erst Clipboard-API, dann Textarea-Fallback
+ *  (Datei-Downloads sind im Android-WebView oft unzuverlässig). */
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* Fallback unten */
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 export function MorePanel() {
@@ -41,11 +95,11 @@ function ScanLogSection() {
     void db.scans.count().then(setCount);
   }, []);
 
-  async function exportJson() {
+  async function buildJson(): Promise<string | null> {
     const scans = await listScans();
     if (scans.length === 0) {
       setMsg('Noch keine Scans protokolliert.');
-      return;
+      return null;
     }
     const ids = new Set<string>();
     for (const s of scans) {
@@ -68,8 +122,21 @@ function ScanLogSection() {
       hashMargin: s.hashMargin,
       hashCorrect: s.hashOracle ? s.hashOracle === s.chosenOracle : null,
     }));
-    download(`scryglass-scans-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(rows, null, 2));
-    setMsg(`${rows.length} Scans exportiert.`);
+    return JSON.stringify(rows, null, 2);
+  }
+
+  async function copyJson() {
+    const json = await buildJson();
+    if (!json) return;
+    const ok = await copyToClipboard(json);
+    setMsg(ok ? 'In die Zwischenablage kopiert — schick es mir einfach.' : 'Kopieren fehlgeschlagen — probier „Als Datei".');
+  }
+
+  async function exportJson() {
+    const json = await buildJson();
+    if (!json) return;
+    await saveFile(`scryglass-scans-${new Date().toISOString().slice(0, 10)}.json`, json);
+    setMsg('Als Datei exportiert.');
   }
 
   return (
@@ -77,13 +144,16 @@ function ScanLogSection() {
       <h2 className="mb-2 font-mono text-lg">Scanner-Protokoll</h2>
       <p className="mb-3 text-xs text-muted">
         Zum Verbessern des Scanners: die App merkt sich pro Scan den gelesenen Text, das
-        Bild-Ergebnis und die von dir bestätigte Karte. Exportieren und mir schicken —
+        Bild-Ergebnis und die von dir bestätigte Karte. Kopieren/exportieren und mir schicken —
         daraus tune ich die Erkennung. Keine Bilder, keine persönlichen Daten.
       </p>
       <p className="mb-2 font-mono text-xs text-muted">{count ?? '…'} Scans gespeichert.</p>
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => void exportJson()} className="rounded bg-accent px-3 py-1.5 font-mono text-sm text-on-accent">
-          Protokoll exportieren
+        <button onClick={() => void copyJson()} className="rounded bg-accent px-3 py-1.5 font-mono text-sm text-on-accent">
+          In Zwischenablage
+        </button>
+        <button onClick={() => void exportJson()} className="rounded border border-border px-3 py-1.5 font-mono text-sm hover:border-accent">
+          Als Datei
         </button>
         <button
           onClick={() => { if (confirm('Scan-Protokoll leeren?')) void clearScans().then(() => { setCount(0); setMsg('Geleert.'); }); }}
@@ -103,7 +173,7 @@ function BackupSection() {
 
   async function exportJson() {
     const [owned, decks] = await Promise.all([db.owned.toArray(), db.decks.toArray()]);
-    download(`scryglass-backup-${new Date().toISOString().slice(0, 10)}.json`, serializeCollection(owned, decks));
+    await saveFile(`scryglass-backup-${new Date().toISOString().slice(0, 10)}.json`, serializeCollection(owned, decks));
     setMsg(`${owned.length} Bestände + ${decks.length} Decks exportiert.`);
   }
 
@@ -116,7 +186,7 @@ function BackupSection() {
       finish: o.finish,
       lang: 'en',
     }));
-    download(`scryglass-collection-${new Date().toISOString().slice(0, 10)}.csv`, toMoxfieldCsv(rows), 'text/csv');
+    await saveFile(`scryglass-collection-${new Date().toISOString().slice(0, 10)}.csv`, toMoxfieldCsv(rows), 'text/csv');
     setMsg(`${rows.length} Zeilen als CSV exportiert (Moxfield/ManaBox).`);
   }
 
