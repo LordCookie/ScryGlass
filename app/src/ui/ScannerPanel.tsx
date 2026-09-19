@@ -4,7 +4,8 @@ import jsQR from 'jsqr';
 import { matchOcr } from '../data/matcher';
 import { getCards, previewImageIds } from '../data/cards';
 import { searchCards } from '../data/search';
-import { phashFromCanvas, nearestByHash, hashCount, type HashMatch } from '../data/imageHash';
+import { phashFromCanvas, nearestByHashMulti, hashCount, type HashMatch } from '../data/imageHash';
+import { fuseScan, type FuseConfig } from '../domain/scanFuse';
 import { addOwnedBatch, getMeta, setMeta, logScan } from '../db/db';
 import type { Card, Finish, Lang, BasketEntry } from '../domain/types';
 import { ManaCost, ColorPips } from './mana';
@@ -38,6 +39,23 @@ const HASH_MAX_DIST = 60; // als Kandidat zeigen (klar unter dem False-Minimum ~
 const HASH_MIN_MARGIN = 12; // muss klar besser als die nächste FREMDE Karte sein
 const HASH_AUTO_DIST = 56; // Auto-Übernahme: Distanz-Obergrenze
 const HASH_AUTO_MARGIN = 18; // Auto-Übernahme: klarer Abstand zur zweitbesten fremden Karte
+
+// Kreuz-Bestätigung (Tier 1): Wenn OCR UND Bild dieselbe Karte liefern, darf das Bild
+// lockerer sein (dist bis knapp unter das False-Minimum ~72, kleiner Margin) — ein
+// unabhängiger Doppel-Fehler auf dieselbe Karte ist praktisch ausgeschlossen.
+const FUSE_CFG: FuseConfig = {
+  hashMaxDist: HASH_MAX_DIST,
+  hashMinMargin: HASH_MIN_MARGIN,
+  hashAutoDist: HASH_AUTO_DIST,
+  hashAutoMargin: HASH_AUTO_MARGIN,
+  hashConfirmDist: 70,
+  hashConfirmMargin: 4,
+  ocrConfident: 0.85,
+  ocrConfirm: 0.6,
+};
+// Zeitlicher Konsens: so viele Frames hintereinander dieselbe Karte, bevor im Live-
+// Modus automatisch übernommen wird (Kreuz-Bestätigung darf sofort).
+const AUTO_CONSENSUS = 2;
 
 const isNativeApp =
   typeof window !== 'undefined' &&
@@ -177,6 +195,8 @@ export function ScannerPanel() {
   const [manualResults, setManualResults] = useState<Card[]>([]);
 
   const lastAutoRef = useRef<string | null>(null);
+  // Zeitlicher Konsens fürs Auto-Add: gleiche Karte über mehrere Frames zählen.
+  const consensusRef = useRef<{ oracleId: string; count: number }>({ oracleId: '', count: 0 });
   // Letzter Scan (OCR + Bild-Hash) — Rohdaten fürs Fixture-Protokoll (§ 5).
   const lastScanRef = useRef<{
     at: number;
@@ -317,20 +337,50 @@ export function ScannerPanel() {
     return canvas;
   }
 
-  /** Roher (unbearbeiteter) Karten-Ausschnitt fürs Bild-Hashing (Scanner v2). */
-  function rawCropCanvas(): HTMLCanvasElement | null {
+  /** Roher (unbearbeiteter) Karten-Ausschnitt fürs Bild-Hashing (Scanner v2).
+   *  `inset` zieht den Rahmen an allen Seiten etwas enger (gegen lockeres Framing). */
+  function rawCropCanvas(inset = 0): HTMLCanvasElement | null {
     const video = videoRef.current;
     const region = cropRegion();
     if (!video || !region) return null;
     const cw = 146;
     const ch = 204;
+    const dx = region.sw * inset;
+    const dy = region.sh * inset;
     const c = document.createElement('canvas');
     c.width = cw;
     c.height = ch;
     const ctx = c.getContext('2d', { willReadFrequently: true });
     if (!ctx) return null;
-    ctx.drawImage(video, region.sx, region.sy, region.sw, region.sh, 0, 0, cw, ch);
+    ctx.drawImage(video, region.sx + dx, region.sy + dy, region.sw - 2 * dx, region.sh - 2 * dy, 0, 0, cw, ch);
     return c;
+  }
+
+  /** 180°-Drehung eines Ausschnitts (fängt kopfüber gehaltene Karten ab). */
+  function rotate180(src: HTMLCanvasElement): HTMLCanvasElement | null {
+    const c = document.createElement('canvas');
+    c.width = src.width;
+    c.height = src.height;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.translate(c.width, c.height);
+    ctx.rotate(Math.PI);
+    ctx.drawImage(src, 0, 0);
+    return c;
+  }
+
+  /** Mehrere Query-Hashes eines Frames: Basis, enger, 180°-gedreht (Tier 1). */
+  function frameHashes(): string[] {
+    const base = rawCropCanvas(0);
+    const tight = rawCropCanvas(0.05);
+    const variants: HTMLCanvasElement[] = [];
+    if (base) {
+      variants.push(base);
+      const rot = rotate180(base);
+      if (rot) variants.push(rot);
+    }
+    if (tight) variants.push(tight);
+    return variants.map((v) => phashFromCanvas(v)).filter((h): h is string => !!h);
   }
 
   function frameThumb(): Uint8Array | null {
@@ -391,11 +441,9 @@ export function ScannerPanel() {
     // nicht den Text (rettet Showcase-/Borderless-/Full-Art-Rahmen).
     let hashMatch: HashMatch | null = null;
     if (hashCount() > 0) {
-      const raw = rawCropCanvas();
-      if (raw) {
-        const qh = phashFromCanvas(raw);
-        if (qh) hashMatch = nearestByHash(qh);
-      }
+      // Mehrere Ausschnitt-Varianten + 180°-Drehung → besten Treffer nehmen (Tier 1).
+      const hashes = frameHashes();
+      if (hashes.length) hashMatch = nearestByHashMulti(hashes);
     }
     if (!bandTop) return;
     busyRef.current = true;
@@ -411,31 +459,31 @@ export function ScannerPanel() {
       const result = await matchOcr(text, { topN: 5, threshold: 0.62 });
       const shown = await enrich(result.candidates);
 
-      // Bild-Treffer (falls eindeutig genug) an die Spitze — er ist bei schwierigen
-      // Rahmen zuverlässiger als OCR.
-      const hashHit =
-        hashMatch && hashMatch.distance <= HASH_MAX_DIST && hashMatch.margin >= HASH_MIN_MARGIN
-          ? hashMatch
-          : null;
-      // „stark" = eindeutig genug für Auto-Übernahme (Distanz + klarer Margin).
-      const strong =
-        !!hashHit && hashHit.distance <= HASH_AUTO_DIST && hashHit.margin >= HASH_AUTO_MARGIN;
+      // Fusion OCR + Bild (Tier 1): Kreuz-Bestätigung > starker Bildtreffer > sicheres OCR.
+      const ocrBest = shown[0];
+      const fused = fuseScan(
+        { oracleId: ocrBest?.oracleId, score: ocrBest?.score ?? 0, ambiguous: result.ambiguous },
+        hashMatch ? { oracleId: hashMatch.oracleId, distance: hashMatch.distance, margin: hashMatch.margin } : null,
+        FUSE_CFG,
+      );
+
+      // Anzeige: fusionierter Bester oben. Bei (Kreuz-)Bildtreffer die Bild-Karte bauen.
       let finalMatches = shown;
-      if (hashHit) {
-        const card = (await getCards([hashHit.oracleId])).get(hashHit.oracleId);
+      if ((fused.method === 'bild' || fused.method === 'bild+ocr') && hashMatch) {
+        const card = (await getCards([hashMatch.oracleId])).get(hashMatch.oracleId);
         if (card) {
-          const imgs = await previewImageIds([hashHit.oracleId]);
+          const imgs = await previewImageIds([hashMatch.oracleId]);
           const hm: ScanMatch = {
-            oracleId: hashHit.oracleId,
+            oracleId: hashMatch.oracleId,
             card,
-            scryfallId: hashHit.scryfallId ?? imgs.get(hashHit.oracleId),
-            // Distanz → grobe Confidence (0 Bit ≈ 1.0, 60 Bit ≈ 0.5).
-            score: Math.max(0.5, 1 - hashHit.distance / 128),
-            method: 'bild',
+            scryfallId: hashMatch.scryfallId ?? imgs.get(hashMatch.oracleId),
+            score: fused.score,
+            method: fused.method,
             lang: 'en',
           };
-          // Starker Bildtreffer: nur ihn zeigen (kein OCR-Rauschen wie „Dirty Rat").
-          finalMatches = strong ? [hm] : [hm, ...shown.filter((m) => m.oracleId !== hm.oracleId)];
+          // Starker Alleingang des Bildes: nur ihn zeigen (kein OCR-Rauschen); bei
+          // Kreuz-Bestätigung ruhig die OCR-Alternativen mit anzeigen.
+          finalMatches = fused.showAlone ? [hm] : [hm, ...shown.filter((m) => m.oracleId !== hm.oracleId)];
         }
       }
       setMatches(finalMatches);
@@ -453,12 +501,17 @@ export function ScannerPanel() {
       };
 
       const best = finalMatches[0];
-      // Auto-Übernahme: eindeutiger Bildtreffer ODER sehr sicherer OCR-Treffer.
-      const confident =
-        !!best &&
-        ((best.method === 'bild' && strong) ||
-          (best.method !== 'bild' && best.score >= 0.85 && !result.ambiguous));
-      if (autoAdd && best && confident) {
+      // Zeitlicher Konsens: gleiche Karte über mehrere Frames zählen (Kreuz-Bestätigung
+      // darf sofort). Verhindert, dass ein Ausreißer-Frame eine falsche Karte auto-addet.
+      if (fused.oracleId && fused.confident) {
+        if (consensusRef.current.oracleId === fused.oracleId) consensusRef.current.count += 1;
+        else consensusRef.current = { oracleId: fused.oracleId, count: 1 };
+      } else {
+        consensusRef.current = { oracleId: '', count: 0 };
+      }
+      const required = mode === 'live' && !fused.agree ? AUTO_CONSENSUS : 1;
+      const consensusOk = fused.confident && consensusRef.current.count >= required;
+      if (autoAdd && best && consensusOk) {
         if (lastAutoRef.current !== best.oracleId) {
           lastAutoRef.current = best.oracleId;
           addToBasket(best, text);
@@ -565,6 +618,7 @@ export function ScannerPanel() {
     setPairing(false);
     lastThumbRef.current = null;
     lastAutoRef.current = null;
+    consensusRef.current = { oracleId: '', count: 0 };
     setAutoToast(null);
   }
 
@@ -588,7 +642,7 @@ export function ScannerPanel() {
 
   function addToBasket(m: ScanMatch, ocrRaw: string) {
     // Fixture protokollieren (§ 5): der bestätigte Treffer ist die Ground Truth.
-    const via = m.method === 'bild' ? 'bild' : m.method === 'manuell' ? 'manuell' : 'ocr';
+    const via = m.method.startsWith('bild') ? 'bild' : m.method === 'manuell' ? 'manuell' : 'ocr';
     const ls = lastScanRef.current;
     const recent = ls != null && Date.now() - ls.at < 120000;
     if (via !== 'manuell' || recent) {

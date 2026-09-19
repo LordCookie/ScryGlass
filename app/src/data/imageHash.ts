@@ -282,3 +282,22 @@ export function nearestByHash(hashHex: string): HashMatch | null {
     score: 1 - best / TOTAL_BITS,
   };
 }
+
+/**
+ * Bester Treffer über mehrere Query-Hashes (Scanner-Robustheit Tier 1): der Aufrufer
+ * hasht mehrere Varianten desselben Frames (verschiedene Ausschnitte + 180°-Drehung)
+ * und wir nehmen die Variante mit der KLEINSTEN Distanz (bei Gleichstand größerer
+ * Margin). So fangen wir schiefes/lockeres Framing und kopfüber gehaltene Karten ab.
+ */
+export function nearestByHashMulti(hashes: readonly string[]): HashMatch | null {
+  let best: HashMatch | null = null;
+  for (const h of hashes) {
+    if (!h) continue;
+    const m = nearestByHash(h);
+    if (!m) continue;
+    if (!best || m.distance < best.distance || (m.distance === best.distance && m.margin > best.margin)) {
+      best = m;
+    }
+  }
+  return best;
+}
