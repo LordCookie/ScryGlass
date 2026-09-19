@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, saveDeck, deleteDeck, listDecks } from '../db/db';
-import { getCards, ownedByOracle } from '../data/cards';
+import { getCards, ownedByOracle, previewImageIds, previewPrinting } from '../data/cards';
 import { searchCards } from '../data/search';
 import { normalizeName } from '../domain/nameMatch';
 import { validateDeck } from '../domain/deckValidate';
@@ -10,6 +10,16 @@ import { computeMissing } from '../domain/deckMissing';
 import { parseDeckText, serializeDeckText } from '../domain/deckText';
 import { LEGALITY_FORMATS, FORMAT_LABELS, type Card, type Deck, type DeckCard, type FormatId } from '../domain/types';
 import { ColorPips } from './mana';
+import { CardImage } from './CardImage';
+import { CardDetail } from './CardDetail';
+
+const COLOR_NAME: Record<string, string> = {
+  W: 'Weiß', U: 'Blau', B: 'Schwarz', R: 'Rot', G: 'Grün', C: 'Farblos',
+};
+function colorNames(colors: readonly string[]): string {
+  if (colors.length === 0) return 'Farblos';
+  return colors.map((c) => COLOR_NAME[c] ?? c).join(' / ');
+}
 
 /** Deckbau (PLAN.md § 7). Bewusst klein: Zählen statt Solver. */
 
@@ -98,6 +108,8 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
     return ids;
   }, [deck]);
   const cards = useLiveQuery(() => getCards(refIds), [refIds]);
+  const imgs = useLiveQuery(() => previewImageIds(refIds), [refIds]);
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   if (!deck || !cards) return <p className="px-1 font-mono text-sm text-muted">Lade…</p>;
 
@@ -139,15 +151,15 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
             className="rounded border border-border bg-bg px-2 py-1 outline-none focus:border-accent">
             {LEGALITY_FORMATS.map((f) => <option key={f} value={f}>{FORMAT_LABELS[f]}</option>)}
           </select>
-          {rules && (
-            <span className="text-xs text-muted">
-              Commander: {deck.commanderId ? cards.get(deck.commanderId)?.name ?? '—' : 'keiner'}
-            </span>
-          )}
         </div>
       </div>
 
-      {rules && <CommanderPicker deck={deck} onSet={(id) => void update({ commanderId: id })} />}
+      {rules && (
+        <CommanderSection
+          commander={deck.commanderId ? cards.get(deck.commanderId) : undefined}
+          onSet={(id) => void update({ commanderId: id })}
+        />
+      )}
 
       <AddCardBox owned={owned ?? new Map()} onAdd={(id, list) => adjust(list, id, 1)} allowSideboard={!rules} />
 
@@ -161,11 +173,14 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
       </div>
 
       {tab === 'liste' && (
-        <DeckList deck={deck} cards={cards} owned={owned ?? new Map()} onAdjust={adjust} allowSideboard={!rules} />
+        <DeckList deck={deck} cards={cards} imgs={imgs ?? new Map()} owned={owned ?? new Map()}
+          onAdjust={adjust} allowSideboard={!rules} onOpenDetail={setDetailId} />
       )}
       {tab === 'stats' && <DeckStatsView deck={deck} cards={cards} />}
       {tab === 'fehlt' && <MissingView deck={deck} cards={cards} owned={owned ?? new Map()} />}
       {tab === 'text' && <DeckTextView deck={deck} cards={cards} onImport={(patch) => void update(patch)} />}
+
+      {detailId && <CardDetail oracleId={detailId} onClose={() => setDetailId(null)} />}
     </section>
   );
 }
@@ -176,28 +191,65 @@ function combinedEntries(deck: Deck): DeckCard[] {
   return entries;
 }
 
-function CommanderPicker({ deck, onSet }: { deck: Deck; onSet: (id: string | undefined) => void }) {
+function CommanderSection({ commander, onSet }: { commander?: Card; onSet: (id: string | undefined) => void }) {
+  const [editing, setEditing] = useState(false);
   const [q, setQ] = useState('');
   const [results, setResults] = useState<Card[]>([]);
+  const [scryfallId, setScryfallId] = useState<string | undefined>();
+
+  useEffect(() => {
+    let alive = true;
+    if (commander) void previewPrinting(commander.oracleId).then((p) => alive && setScryfallId(p?.scryfallId));
+    return () => { alive = false; };
+  }, [commander]);
   useEffect(() => {
     let alive = true;
     if (q.trim()) void searchCards(q, 6).then((r) => { if (alive) setResults(r); });
     else setResults([]);
     return () => { alive = false; };
   }, [q]);
+
+  // Commander gewählt und nicht im Ändern-Modus → prominent anzeigen.
+  if (commander && !editing) {
+    return (
+      <div className="frame">
+        <div className="titlebar">
+          <span className="min-w-0 flex-1 truncate text-text">Commander</span>
+          <button onClick={() => { setEditing(true); setQ(''); }} className="px-1 text-xs text-paper">ändern</button>
+          <button onClick={() => onSet(undefined)} className="px-1 text-xs text-paper hover:text-danger">entfernen</button>
+        </div>
+        <div className="flex gap-3 p-3 font-mono">
+          <CardImage scryfallId={scryfallId} name={commander.name} size="normal" className="h-auto w-24 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-base text-text">{commander.name}</div>
+            <div className="text-xs text-muted">{commander.typeLine}</div>
+            <div className="mt-3">
+              <div className="mb-1 font-hud text-[9px] text-muted">VERFÜGBARE FARBEN</div>
+              <div className="flex items-center gap-2">
+                <ColorPips colors={commander.colorIdentity} />
+                <span className="text-sm text-text">{colorNames(commander.colorIdentity)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Kein Commander oder Ändern-Modus → Suche.
   return (
     <div className="rounded-lg bg-surface p-3">
       <div className="mb-1 flex items-center justify-between font-mono text-xs text-muted">
-        <span>Commander wählen</span>
-        {deck.commanderId && <button onClick={() => onSet(undefined)} className="hover:text-danger">entfernen</button>}
+        <span>Commander wählen (legendäre Kreatur)</span>
+        {commander && <button onClick={() => setEditing(false)} className="hover:text-text">abbrechen</button>}
       </div>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Legendäre Kreatur suchen…"
-        className="w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" />
+        className="w-full border-2 border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-paper" />
       {results.length > 0 && (
-        <ul className="mt-2 divide-y divide-white/5 overflow-hidden rounded-md border border-border">
+        <ul className="mt-2 divide-y divide-white/5 overflow-hidden border-2 border-border">
           {results.map((c) => (
             <li key={c.oracleId}>
-              <button onClick={() => { onSet(c.oracleId); setQ(''); }}
+              <button onClick={() => { onSet(c.oracleId); setQ(''); setEditing(false); }}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-sm hover:bg-white/10">
                 <ColorPips colors={c.colorIdentity} />
                 <span className="min-w-0 flex-1">
@@ -251,11 +303,13 @@ function AddCardBox({
 }
 
 function DeckList({
-  deck, cards, owned, onAdjust, allowSideboard,
+  deck, cards, imgs, owned, onAdjust, allowSideboard, onOpenDetail,
 }: {
-  deck: Deck; cards: Map<string, Card>; owned: Map<string, number>;
-  onAdjust: (list: 'cards' | 'sideboard', id: string, delta: number) => void; allowSideboard: boolean;
+  deck: Deck; cards: Map<string, Card>; imgs: Map<string, string>; owned: Map<string, number>;
+  onAdjust: (list: 'cards' | 'sideboard', id: string, delta: number) => void;
+  allowSideboard: boolean; onOpenDetail: (oracleId: string) => void;
 }) {
+  const [view, setView] = useState<'list' | 'grid'>('list');
   const validation = validateDeck(deck, cards);
   const renderList = (list: 'cards' | 'sideboard', title: string) => {
     const entries = deck[list];
@@ -263,27 +317,51 @@ function DeckList({
     return (
       <div className="rounded-lg bg-surface p-3">
         <h3 className="mb-2 font-mono text-sm">{title} ({entries.reduce((s, c) => s + c.qty, 0)})</h3>
-        <ul className="space-y-1">
-          {entries.map((e) => {
-            const card = cards.get(e.oracleId);
-            const have = owned.get(e.oracleId) ?? 0;
-            return (
-              <li key={e.oracleId} className="flex items-center gap-2 font-mono text-sm">
-                <ColorPips colors={card?.colorIdentity ?? []} />
-                <button onClick={() => onAdjust(list, e.oracleId, -1)} className="rounded px-2 py-0.5 text-muted hover:bg-white/10">−</button>
-                <span className="w-7 text-center text-accent">{e.qty}×</span>
-                <button onClick={() => onAdjust(list, e.oracleId, 1)} className="rounded px-2 py-0.5 text-muted hover:bg-white/10">+</button>
-                <span className="min-w-0 flex-1 truncate">{card?.name ?? e.oracleId}</span>
-                <span className={`text-[10px] ${have >= e.qty ? 'text-ok' : 'text-danger'}`}>{have}/{e.qty}</span>
-              </li>
-            );
-          })}
-        </ul>
+        {view === 'grid' ? (
+          <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {entries.map((e) => {
+              const card = cards.get(e.oracleId);
+              const have = owned.get(e.oracleId) ?? 0;
+              return (
+                <li key={e.oracleId}>
+                  <button onClick={() => onOpenDetail(e.oracleId)} className="relative block w-full" title={card?.name}>
+                    <CardImage scryfallId={imgs.get(e.oracleId)} name={card?.name} size="normal" className="h-auto w-full" />
+                    <span className="absolute right-0 top-0 bg-titlebar px-1.5 py-0.5 font-hud text-[10px] text-paper">{e.qty}×</span>
+                    <span className={`absolute bottom-0 left-0 bg-bg px-1 font-hud text-[8px] ${have >= e.qty ? 'text-ok' : 'text-danger'}`}>{have}/{e.qty}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <ul className="space-y-1">
+            {entries.map((e) => {
+              const card = cards.get(e.oracleId);
+              const have = owned.get(e.oracleId) ?? 0;
+              return (
+                <li key={e.oracleId} className="flex items-center gap-2 font-mono text-sm">
+                  <ColorPips colors={card?.colorIdentity ?? []} />
+                  <button onClick={() => onAdjust(list, e.oracleId, -1)} aria-label="weniger" className="px-2 py-0.5 text-muted hover:text-paper">−</button>
+                  <span className="w-7 text-center font-hud text-[10px] text-text">{e.qty}×</span>
+                  <button onClick={() => onAdjust(list, e.oracleId, 1)} aria-label="mehr" className="px-2 py-0.5 text-muted hover:text-paper">+</button>
+                  <button onClick={() => onOpenDetail(e.oracleId)} className="min-w-0 flex-1 truncate text-left hover:text-accent">{card?.name ?? e.oracleId}</button>
+                  <span className={`text-[10px] ${have >= e.qty ? 'text-ok' : 'text-danger'}`}>{have}/{e.qty}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     );
   };
   return (
     <div className="space-y-3">
+      <div className="flex justify-end gap-1 font-mono text-xs">
+        <button onClick={() => setView('list')} aria-label="Liste"
+          className={`px-2 py-1 ${view === 'list' ? 'bg-fill text-paper' : 'bg-surface text-muted'}`}>≣</button>
+        <button onClick={() => setView('grid')} aria-label="Raster"
+          className={`px-2 py-1 ${view === 'grid' ? 'bg-fill text-paper' : 'bg-surface text-muted'}`}>▦</button>
+      </div>
       <div className={`rounded-lg p-3 font-mono text-xs ${validation.ok ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'}`}>
         {validation.ok ? '✓ Deck ist legal.' : (
           <ul className="space-y-0.5">
