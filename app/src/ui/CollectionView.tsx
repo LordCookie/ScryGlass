@@ -38,7 +38,8 @@ export function CollectionView() {
     const owned = await db.owned.toArray();
     const ids = owned.map((o) => o.oracleId);
     const [cards, imgs] = await Promise.all([getCards(ids), previewImageIds(ids)]);
-    return owned.map((o) => ({ owned: o, card: cards.get(o.oracleId), scryfallId: imgs.get(o.oracleId) }));
+    // Gewählte Ausgabe (printingId) bevorzugen, sonst die Standard-Vorschau.
+    return owned.map((o) => ({ owned: o, card: cards.get(o.oracleId), scryfallId: o.printingId ?? imgs.get(o.oracleId) }));
   }, []);
 
   const filtered = useMemo(() => {

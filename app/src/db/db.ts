@@ -144,6 +144,15 @@ export async function addOwnedBatch(
   });
 }
 
+/** Merkt die gewählte Druckausgabe (Artwork) für alle Bestände einer Karte —
+ *  damit Sammlung/Detail dieses Artwork anzeigen (PLAN.md § 3, printingId). */
+export async function setOwnedPrinting(oracleId: string, printingId: string): Promise<void> {
+  await db.transaction('rw', db.owned, async () => {
+    const rows = await db.owned.where('oracleId').equals(oracleId).toArray();
+    for (const r of rows) if (r.id != null) await db.owned.update(r.id, { printingId });
+  });
+}
+
 /** Ersetzt die komplette Sammlung (für Import/Restore aus dem Backup). */
 export async function replaceOwned(entries: Owned[]): Promise<void> {
   await db.transaction('rw', db.owned, async () => {

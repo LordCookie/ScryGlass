@@ -31,11 +31,13 @@ const THUMB_H = 34;
 const FRAME_SAME = 6;
 
 // Bild-Matching (Scanner v2): Schwellen für einen pHash-Treffer (0..256).
-// Datenbasis (gemessen): gleiches Bild (Referenz↔Kamera-Engine) ≈ 14 Bit (max ~24);
-// VERSCHIEDENE Karten min ≈ 72. Das große Fenster dazwischen ist das Kamera-Budget.
-const HASH_MAX_DIST = 54; // als Kandidat zeigen (klar unter dem False-Minimum)
-const HASH_MIN_MARGIN = 10; // muss klar besser als die nächste FREMDE Karte sein
-const HASH_STRONG_DIST = 36; // erst darunter automatisch übernehmen
+// Datenbasis aus echten Scans: KORREKTE Treffer lagen bei Distanz 26–52 mit Margin
+// 26–50 (Abstand zur nächsten FREMDEN Karte); verschiedene Karten min ≈ 72.
+// Der Margin ist das eigentliche Confidence-Signal → Auto-Übernahme daran festmachen.
+const HASH_MAX_DIST = 60; // als Kandidat zeigen (klar unter dem False-Minimum ~72)
+const HASH_MIN_MARGIN = 12; // muss klar besser als die nächste FREMDE Karte sein
+const HASH_AUTO_DIST = 56; // Auto-Übernahme: Distanz-Obergrenze
+const HASH_AUTO_MARGIN = 18; // Auto-Übernahme: klarer Abstand zur zweitbesten fremden Karte
 
 const isNativeApp =
   typeof window !== 'undefined' &&
@@ -404,16 +406,21 @@ export function ScannerPanel() {
       const [topText, wholeText] = await Promise.all([rec(bandTop), rec(whole)]);
       const text = `${topText} ${wholeText}`.replace(/\s+/g, ' ').trim();
       setOcrText(text);
-      const result = await matchOcr(text, { topN: 5, threshold: 0.55 });
+      // OCR-Schwelle etwas strenger (0.62): schwammige Reads wie „TY rt w" sollen
+      // keine falschen Namenstreffer erzeugen — den Rest holt der Bild-Abgleich.
+      const result = await matchOcr(text, { topN: 5, threshold: 0.62 });
       const shown = await enrich(result.candidates);
 
-      // Bild-Treffer (falls eindeutig genug) an die Spitze — er ist bei
-      // schwierigen Rahmen zuverlässiger als OCR.
-      let finalMatches = shown;
+      // Bild-Treffer (falls eindeutig genug) an die Spitze — er ist bei schwierigen
+      // Rahmen zuverlässiger als OCR.
       const hashHit =
         hashMatch && hashMatch.distance <= HASH_MAX_DIST && hashMatch.margin >= HASH_MIN_MARGIN
           ? hashMatch
           : null;
+      // „stark" = eindeutig genug für Auto-Übernahme (Distanz + klarer Margin).
+      const strong =
+        !!hashHit && hashHit.distance <= HASH_AUTO_DIST && hashHit.margin >= HASH_AUTO_MARGIN;
+      let finalMatches = shown;
       if (hashHit) {
         const card = (await getCards([hashHit.oracleId])).get(hashHit.oracleId);
         if (card) {
@@ -427,7 +434,8 @@ export function ScannerPanel() {
             method: 'bild',
             lang: 'en',
           };
-          finalMatches = [hm, ...shown.filter((m) => m.oracleId !== hm.oracleId)];
+          // Starker Bildtreffer: nur ihn zeigen (kein OCR-Rauschen wie „Dirty Rat").
+          finalMatches = strong ? [hm] : [hm, ...shown.filter((m) => m.oracleId !== hm.oracleId)];
         }
       }
       setMatches(finalMatches);
@@ -445,10 +453,11 @@ export function ScannerPanel() {
       };
 
       const best = finalMatches[0];
-      // Auto-Übernahme: sehr sicherer Bildtreffer ODER sehr sicherer OCR-Treffer.
-      const strongHash = !!hashHit && hashHit.distance <= HASH_STRONG_DIST && best?.method === 'bild';
+      // Auto-Übernahme: eindeutiger Bildtreffer ODER sehr sicherer OCR-Treffer.
       const confident =
-        !!best && (strongHash || (best.method !== 'bild' && best.score >= 0.85 && !result.ambiguous));
+        !!best &&
+        ((best.method === 'bild' && strong) ||
+          (best.method !== 'bild' && best.score >= 0.85 && !result.ambiguous));
       if (autoAdd && best && confident) {
         if (lastAutoRef.current !== best.oracleId) {
           lastAutoRef.current = best.oracleId;

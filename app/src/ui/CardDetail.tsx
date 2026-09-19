@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, addOwned } from '../db/db';
+import { db, addOwned, setOwnedPrinting } from '../db/db';
 import { getCard } from '../data/cards';
 import { LEGALITY_FORMATS, FORMAT_LABELS, isLegal, type Card, type Finish, type Owned, type Printing } from '../domain/types';
 import { CardImage } from './CardImage';
@@ -40,12 +40,20 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
             a.lang.localeCompare(b.lang),
         );
         setPrintings(ps);
-        // Start bei der ersten englischen Ausgabe (der „Standard"-Anblick).
-        const en = ps.findIndex((p) => p.lang === 'en');
-        setIdx(en >= 0 ? en : 0);
       });
     return () => { alive = false; };
   }, [oracleId]);
+
+  // Startausgabe EINMAL setzen: gemerkte Ausgabe (owned.printingId), sonst erste EN.
+  const inited = useRef(false);
+  useEffect(() => {
+    if (inited.current || printings.length === 0 || owned === undefined) return;
+    const savedPid = owned.find((o) => o.printingId)?.printingId;
+    let start = savedPid ? printings.findIndex((p) => p.scryfallId === savedPid) : -1;
+    if (start < 0) start = printings.findIndex((p) => p.lang === 'en');
+    setIdx(start >= 0 ? start : 0);
+    inited.current = true;
+  }, [printings, owned]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -60,7 +68,13 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
 
   function step(delta: number) {
     if (printings.length === 0) return;
-    setIdx((i) => (i + delta + printings.length) % printings.length);
+    setIdx((i) => {
+      const n = (i + delta + printings.length) % printings.length;
+      const sid = printings[n]?.scryfallId;
+      // Gewählte Ausgabe als „meine" merken → Sammlung/Detail zeigen dieses Artwork.
+      if (sid && owned && owned.length > 0) void setOwnedPrinting(oracleId, sid);
+      return n;
+    });
   }
 
   const legal = card ? LEGALITY_FORMATS.filter((f) => isLegal(card.legalities, f)) : [];
