@@ -8,6 +8,8 @@ import {
 import { invalidateNameIndex } from './data/matcher';
 import { invalidateSearchIndex } from './data/search';
 import { syncHashes, loadHashIndex } from './data/imageHash';
+import { getCachedNextSet, refreshNextSet } from './data/nextSet';
+import { nextSetLabel, type UpcomingSet } from './domain/nextSet';
 import { ScannerPanel } from './ui/ScannerPanel';
 import { CollectionView } from './ui/CollectionView';
 import { DecksPanel } from './ui/DecksPanel';
@@ -99,7 +101,7 @@ export default function App() {
         <h1 className="font-hud text-sm">
           <span className="text-muted">Scry</span><span className="text-paper">Glass</span>
         </h1>
-        <span className="font-mono text-xs text-muted">MTG · local-first</span>
+        <NextSetBadge />
       </header>
 
       {update && (
@@ -151,6 +153,28 @@ export default function App() {
         </div>
       </nav>
     </div>
+  );
+}
+
+/**
+ * Header-Untertitel: Countdown zum nächsten regulären MTG-Set (Quelle: Scryfall
+ * `/sets`, gecacht in Dexie). Bis Daten da sind (bzw. offline ohne Cache) fällt es
+ * still auf „MTG · local-first" zurück.
+ */
+function NextSetBadge() {
+  const [next, setNext] = useState<UpcomingSet | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void getCachedNextSet().then((c) => { if (alive && c) setNext(c); });
+    void refreshNextSet().then((n) => { if (alive && n) setNext(n); });
+    return () => { alive = false; };
+  }, []);
+  const label = nextSetLabel(next, new Date());
+  if (!label) return <span className="font-mono text-xs text-muted">MTG · local-first</span>;
+  return (
+    <span className="font-mono text-xs text-muted" title={next ? `${next.name} · ${next.releasedAt}` : undefined}>
+      {label}
+    </span>
   );
 }
 
