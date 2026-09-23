@@ -4,7 +4,7 @@
  * Ausführung. Set kennen wir nur bei Beständen mit gemerkter Ausgabe (printingId).
  */
 import type { Card, Finish, Owned } from './types';
-import { matchesCardFilter, cmcBucket } from './cardFilter';
+import { matchesCardFilter, cmcBucket, EMPTY_CARD_FILTER } from './cardFilter';
 
 export { cmcBucket };
 
@@ -56,7 +56,7 @@ export function matchesFilter(r: FilterRow, f: CollectionFilter): boolean {
     return false;
   }
   // Farbe/Typ/Manawert genauso wie in der Katalogsuche (domain/cardFilter).
-  if (!matchesCardFilter(c, { color: f.color, type: f.type, cmc: f.cmc, format: null })) return false;
+  if (!matchesCardFilter(c, { ...EMPTY_CARD_FILTER, colors: f.color ? [f.color] : [], type: f.type, cmc: f.cmc })) return false;
   if (f.set && r.set !== f.set) return false;
   if (f.finish && r.owned.finish !== f.finish) return false;
   return true;

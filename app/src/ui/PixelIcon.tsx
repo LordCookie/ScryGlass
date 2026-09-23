@@ -36,6 +36,16 @@ const ICONS = {
     '..........##',
     '............',
   ],
+  // Haken (Pixel-Checkbox) — 7×7 = genau das Innere des Kästchens
+  check: [
+    '.......',
+    '.....#.',
+    '....##.',
+    '.#.##..',
+    '.###...',
+    '..#....',
+    '.......',
+  ],
   // Handy mit Zickzack-Linien (Vibration)
   vibrate: [
     '...######...',

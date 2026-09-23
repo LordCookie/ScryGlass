@@ -36,6 +36,7 @@ import {
 } from '../peer/peerStore';
 import { pair, sendBasket, PeerError } from '../peer/peerClient';
 import { parsePairingUrl, type BasketPayload } from '../peer/protocol';
+import { PixelCheckbox } from './PixelCheckbox';
 
 /**
  * Kartenscanner (PLAN.md § 6). OCR-Ansatz: Titelbalken oben lesen, Namen unscharf
@@ -1423,15 +1424,12 @@ export function ScannerPanel() {
                 <span className="w-10 text-right">{zoom.toFixed(1)}×</span>
               </label>
             )}
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
+            <PixelCheckbox checked={live} onChange={setLive}>
               <span>Live-Erkennung (Dauer-/Bulk-Scan)</span>
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={autoAdd} onChange={(e) => toggleAuto(e.target.checked)} />
+            </PixelCheckbox>
+            <PixelCheckbox checked={autoAdd} onChange={toggleAuto}>
               <span>Auto-Korb: erkannte Karten einzeln in den Korb (Karte für Karte hinlegen)</span>
-
-            </label>
+            </PixelCheckbox>
           </div>
         )}
 

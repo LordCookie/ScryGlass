@@ -1,7 +1,7 @@
 import { db } from '../db/db';
 import { normalizeName } from '../domain/nameMatch';
 import type { Card } from '../domain/types';
-import { matchesCardFilter, hasCardFilter, type CardFilter } from '../domain/cardFilter';
+import { matchesCardFilter, hasCardFilter, germanTypeWords, collectSubtypes, type CardFilter } from '../domain/cardFilter';
 
 /**
  * Katalogsuche für Deckbau, manuelles Hinzufügen und den Scanner-Fallback.
@@ -28,6 +28,7 @@ let building: Promise<SearchEntry[]> | null = null;
 export function invalidateSearchIndex(): void {
   index = null;
   building = null;
+  subtypes = null;
 }
 
 async function ensureIndex(): Promise<SearchEntry[]> {
@@ -54,7 +55,10 @@ async function ensureIndex(): Promise<SearchEntry[]> {
           ' ' +
           c.oracleText +
           ' ' +
-          (deByOracle.get(c.oracleId)?.join(' ') ?? '')
+          (deByOracle.get(c.oracleId)?.join(' ') ?? '') +
+          ' ' +
+          // „kreatur", „kobold" … — damit auch deutsche Typwörter treffen.
+          germanTypeWords(c.typeLine)
         ).toLowerCase(),
       }));
       index = built;
@@ -99,6 +103,16 @@ export async function searchCatalog(
     ? scoreEntries(idx, query).map((s) => s.entry.card).filter(keep)
     : idx.map((e) => e.card).filter(keep).sort((a, b) => a.name.localeCompare(b.name));
   return { cards: hits.slice(0, limit), total: hits.length };
+}
+
+let subtypes: string[] | null = null;
+
+/** Alle Untertypen im Katalog (Goblin, Elf, Equipment …) — Vorschläge im Such-Filter. */
+export async function catalogSubtypes(): Promise<string[]> {
+  if (subtypes) return subtypes;
+  const idx = await ensureIndex();
+  subtypes = collectSubtypes(idx.map((e) => e.card.typeLine));
+  return subtypes;
 }
 
 /** Relevanz-Bewertung aller Einträge, die alle Suchwörter enthalten (absteigend). */
