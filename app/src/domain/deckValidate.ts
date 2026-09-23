@@ -46,6 +46,17 @@ export function canBeCommander(card: Card): boolean {
   return card.oracleText.toLowerCase().includes('can be your commander');
 }
 
+/**
+ * Farben, die ein Commander-Deck spielen darf: die Farbidentität des Commanders plus
+ * immer Farblos („C") — farblose Karten (Artefakte, Eldrazi, Länder ohne Farbsymbol)
+ * passen in jedes Deck. Reihenfolge WUBRG, farblos zuletzt.
+ */
+export function availableColors(commanderCI: readonly string[]): string[] {
+  const out = ['W', 'U', 'B', 'R', 'G'].filter((c) => commanderCI.includes(c));
+  out.push('C');
+  return out;
+}
+
 /** Ist die Farbidentität von `card` eine Teilmenge von `commanderCI`? */
 export function colorIdentityWithin(card: Card, commanderCI: readonly string[]): boolean {
   const allowed = new Set(commanderCI);

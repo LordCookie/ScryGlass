@@ -4,7 +4,7 @@ import { db, saveDeck, deleteDeck, listDecks } from '../db/db';
 import { getCards, ownedByOracle, ownedPrintingByOracle, previewImageIds, previewPrinting } from '../data/cards';
 import { searchCards } from '../data/search';
 import { normalizeName } from '../domain/nameMatch';
-import { validateDeck } from '../domain/deckValidate';
+import { validateDeck, availableColors } from '../domain/deckValidate';
 import { computeStats, CURVE_BUCKETS, COLOR_KEYS } from '../domain/deckStats';
 import { computeMissing } from '../domain/deckMissing';
 import { parseDeckText, serializeDeckText } from '../domain/deckText';
@@ -12,6 +12,7 @@ import { LEGALITY_FORMATS, FORMAT_LABELS, type Card, type Deck, type DeckCard, t
 import { ColorPips } from './mana';
 import { CardImage } from './CardImage';
 import { CardDetail } from './CardDetail';
+import { feedbackAdded, hapticTap } from '../native/feedback';
 
 const COLOR_NAME: Record<string, string> = {
   W: 'Weiß', U: 'Blau', B: 'Schwarz', R: 'Rot', G: 'Grün', C: 'Farblos',
@@ -134,6 +135,9 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
       if (qty <= 0) arr.splice(i, 1);
       else arr[i] = { ...arr[i], qty };
     } else if (delta > 0) arr.push({ oracleId, qty: delta });
+    // Spürbares Feedback wie im Scanner: Hinzufügen = Ton + Vibration, Entfernen = kurzes Tippen.
+    if (delta > 0) feedbackAdded();
+    else hapticTap();
     void update({ [list]: arr } as Partial<Deck>);
   }
 
@@ -239,9 +243,10 @@ function CommanderSection({ commander, chosenScryfallId, onSet }: {
             <div className="mt-3">
               <div className="mb-1 font-hud text-[9px] text-muted">VERFÜGBARE FARBEN</div>
               <div className="flex items-center gap-2">
-                <ColorPips colors={commander.colorIdentity} />
-                <span className="text-sm text-text">{colorNames(commander.colorIdentity)}</span>
+                <ColorPips colors={availableColors(commander.colorIdentity)} />
+                <span className="text-sm text-text">{colorNames(availableColors(commander.colorIdentity))}</span>
               </div>
+              <div className="mt-1 text-[10px] text-muted">Farblose Karten passen immer.</div>
             </div>
           </div>
         </div>
@@ -262,7 +267,7 @@ function CommanderSection({ commander, chosenScryfallId, onSet }: {
         <ul className="mt-2 divide-y divide-white/5 overflow-hidden border-2 border-border">
           {results.map((c) => (
             <li key={c.oracleId}>
-              <button onClick={() => { onSet(c.oracleId); setQ(''); setEditing(false); }}
+              <button onClick={() => { feedbackAdded(); onSet(c.oracleId); setQ(''); setEditing(false); }}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-sm hover:bg-white/10">
                 <ColorPips colors={c.colorIdentity} />
                 <span className="min-w-0 flex-1">

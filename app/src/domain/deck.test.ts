@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Card, Deck } from './types';
 import { parseDeckText, serializeDeckText } from './deckText';
-import { validateDeck, canBeCommander, colorIdentityWithin } from './deckValidate';
+import { validateDeck, canBeCommander, colorIdentityWithin, availableColors } from './deckValidate';
 import { computeStats, primaryType, isLand } from './deckStats';
 import { computeMissing } from './deckMissing';
 
@@ -118,6 +118,12 @@ describe('validateDeck', () => {
     expect(canBeCommander(CARDS.get('bolt')!)).toBe(false);
     expect(colorIdentityWithin(CARDS.get('bolt')!, ['R'])).toBe(true);
     expect(colorIdentityWithin(CARDS.get('counter')!, ['R'])).toBe(false);
+  });
+
+  it('availableColors: Commander-Farben + immer farblos, WUBRG-Reihenfolge', () => {
+    expect(availableColors(['R', 'U'])).toEqual(['U', 'R', 'C']);
+    expect(availableColors([])).toEqual(['C']);
+    expect(availableColors(['W', 'U', 'B', 'R', 'G'])).toEqual(['W', 'U', 'B', 'R', 'G', 'C']);
   });
 });
 
