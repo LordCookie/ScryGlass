@@ -1,5 +1,5 @@
 import { getMeta, setMeta } from '../db/db';
-import { pickNextSet, type ScryfallSet, type UpcomingSet } from '../domain/nextSet';
+import { pickNextSet, toSetInfos, type ScryfallSet, type SetInfo, type UpcomingSet } from '../domain/nextSet';
 
 /**
  * Holt die Set-Liste von Scryfall (dieselbe Quelle wie der Katalog) und merkt sich
@@ -8,6 +8,8 @@ import { pickNextSet, type ScryfallSet, type UpcomingSet } from '../domain/nextS
  */
 
 const META_KEY = 'nextSet';
+/** Kompakte Set-Liste (Code/Name/Datum) für den Scanner-Set-Modus — derselbe Abruf. */
+const SET_LIST_KEY = 'setList';
 const SETS_URL = 'https://api.scryfall.com/sets';
 
 interface CachedNextSet extends UpcomingSet {
@@ -25,10 +27,16 @@ export async function refreshNextSet(now: Date = new Date()): Promise<UpcomingSe
     const res = await fetch(SETS_URL, { headers: { Accept: 'application/json' } });
     if (!res.ok) return getCachedNextSet();
     const json = (await res.json()) as { data?: ScryfallSet[] };
+    if (json.data?.length) await setMeta(SET_LIST_KEY, toSetInfos(json.data));
     const next = pickNextSet(json.data ?? [], now);
     if (next) await setMeta(META_KEY, { ...next, fetchedAt: Date.now() } satisfies CachedNextSet);
     return next ?? getCachedNextSet();
   } catch {
     return getCachedNextSet();
   }
+}
+
+/** Gecachte Set-Liste (leer, solange die App noch nie online war). */
+export async function getSetList(): Promise<SetInfo[]> {
+  return (await getMeta<SetInfo[]>(SET_LIST_KEY)) ?? [];
 }

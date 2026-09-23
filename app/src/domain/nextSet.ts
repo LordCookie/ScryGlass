@@ -38,6 +38,48 @@ export function daysUntil(releasedAt: string, now: Date): number {
   return Math.max(0, Math.ceil(ms / 86_400_000));
 }
 
+// --- Set-Liste für den Scanner-Set-Modus -------------------------------------
+
+/** Kompakte Set-Info (aus Scryfall `/sets`), offline gecacht. */
+export interface SetInfo {
+  code: string;
+  name: string;
+  releasedAt?: string;
+}
+
+/** Scryfall-Sets → kompakte Liste (ohne reine Digital-Sets). */
+export function toSetInfos(sets: readonly ScryfallSet[]): SetInfo[] {
+  return sets
+    .filter((s) => !s.digital)
+    .map((s) => ({ code: s.code.toLowerCase(), name: s.name, releasedAt: s.released_at }));
+}
+
+export interface SetOption {
+  code: string;
+  label: string;
+}
+
+/**
+ * Auswahl-Optionen für den Set-Modus: nur Sets, die im Katalog vorkommen. Bekannte
+ * (mit Name) zuerst, neueste oben; unbekannte (offline, noch kein Cache) als Kürzel.
+ */
+export function setPickerOptions(catalogCodes: readonly string[], infos: readonly SetInfo[]): SetOption[] {
+  const byCode = new Map(infos.map((i) => [i.code, i]));
+  const known: SetInfo[] = [];
+  const unknown: string[] = [];
+  for (const c of catalogCodes) {
+    const info = byCode.get(c);
+    if (info) known.push(info);
+    else unknown.push(c);
+  }
+  known.sort((a, b) => (b.releasedAt ?? '').localeCompare(a.releasedAt ?? '') || a.code.localeCompare(b.code));
+  unknown.sort();
+  return [
+    ...known.map((i) => ({ code: i.code, label: `${i.name} (${i.code.toUpperCase()})` })),
+    ...unknown.map((c) => ({ code: c, label: c.toUpperCase() })),
+  ];
+}
+
 /** Header-Text „Next Set in N days" (englisch, bzw. Sonderfälle). */
 export function nextSetLabel(set: UpcomingSet | null, now: Date): string | null {
   if (!set) return null;

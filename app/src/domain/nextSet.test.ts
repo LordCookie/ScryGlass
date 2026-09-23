@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pickNextSet, daysUntil, nextSetLabel, type ScryfallSet } from './nextSet';
+import { pickNextSet, daysUntil, nextSetLabel, toSetInfos, setPickerOptions, type ScryfallSet } from './nextSet';
 
 const SETS: ScryfallSet[] = [
   { code: 'old', name: 'Altes Set', set_type: 'expansion', released_at: '2025-01-01' },
@@ -56,5 +56,21 @@ describe('nextSetLabel', () => {
 
   it('gibt null zurück ohne Set', () => {
     expect(nextSetLabel(null, new Date())).toBeNull();
+  });
+});
+
+describe('Set-Liste (Scanner-Set-Modus)', () => {
+  it('toSetInfos lässt Digital-Sets weg und normalisiert den Code', () => {
+    const infos = toSetInfos(SETS);
+    expect(infos.map((i) => i.code)).not.toContain('dig');
+    expect(infos.find((i) => i.code === 'fra')).toEqual({ code: 'fra', name: 'Reality Fracture', releasedAt: '2026-10-02' });
+  });
+
+  it('setPickerOptions: nur Katalog-Sets, bekannte neueste zuerst, unbekannte als Kürzel', () => {
+    const infos = toSetInfos(SETS);
+    const opts = setPickerOptions(['old', 'trk', 'zzz', 'fra'], infos);
+    expect(opts.map((o) => o.code)).toEqual(['trk', 'fra', 'old', 'zzz']);
+    expect(opts[0].label).toBe('Star Trek (TRK)');
+    expect(opts[3].label).toBe('ZZZ');
   });
 });

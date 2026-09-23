@@ -243,17 +243,28 @@ export interface HashMatch {
   score: number;
 }
 
+/** Positionen im Hash-Index, deren Ausgabe in `ids` liegt (Set-Modus). */
+export function hashIndicesFor(ids: ReadonlySet<string>): Int32Array {
+  const out: number[] = [];
+  for (let i = 0; i < count; i++) if (ids.has(scryfallIds[i])) out.push(i);
+  return Int32Array.from(out);
+}
+
 /**
  * Nächster Referenz-Hash zum Query-Hash (linearer Hamming-Scan). `null`, wenn kein
  * Index geladen ist. Der lineare Scan über ~155k × 32 Byte ist wenige ms.
+ * `subset` (Set-Modus): nur diese Index-Positionen vergleichen — auch der Margin
+ * zählt dann nur Karten aus dem Set als Konkurrenz.
  */
-export function nearestByHash(hashHex: string): HashMatch | null {
+export function nearestByHash(hashHex: string, subset?: Int32Array): HashMatch | null {
   if (!buf || count === 0) return null;
   const q = hexToBytes(hashHex);
+  const n = subset ? subset.length : count;
   // Pass 1: bester Treffer.
   let best = 257;
   let bi = -1;
-  for (let i = 0; i < count; i++) {
+  for (let s = 0; s < n; s++) {
+    const i = subset ? subset[s] : s;
     const off = i * HASH_BYTES;
     let dist = 0;
     for (let k = 0; k < HASH_BYTES; k++) dist += POPCOUNT[q[k] ^ buf[off + k]];
@@ -267,7 +278,8 @@ export function nearestByHash(hashHex: string): HashMatch | null {
   // Pass 2: nächste ANDERE Karte (Reprints desselben Oracle zählen nicht als
   // Konkurrenz — der Margin misst „wie klar besser als eine fremde Karte").
   let secondDiff = 257;
-  for (let i = 0; i < count; i++) {
+  for (let s = 0; s < n; s++) {
+    const i = subset ? subset[s] : s;
     if (oracleIds[i] === bestOracle) continue;
     const off = i * HASH_BYTES;
     let dist = 0;
@@ -289,11 +301,11 @@ export function nearestByHash(hashHex: string): HashMatch | null {
  * und wir nehmen die Variante mit der KLEINSTEN Distanz (bei Gleichstand größerer
  * Margin). So fangen wir schiefes/lockeres Framing und kopfüber gehaltene Karten ab.
  */
-export function nearestByHashMulti(hashes: readonly string[]): HashMatch | null {
+export function nearestByHashMulti(hashes: readonly string[], subset?: Int32Array): HashMatch | null {
   let best: HashMatch | null = null;
   for (const h of hashes) {
     if (!h) continue;
-    const m = nearestByHash(h);
+    const m = nearestByHash(h, subset);
     if (!m) continue;
     if (!best || m.distance < best.distance || (m.distance === best.distance && m.margin > best.margin)) {
       best = m;
