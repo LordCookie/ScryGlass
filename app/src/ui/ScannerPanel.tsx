@@ -6,6 +6,7 @@ import { getCards, previewImageIds } from '../data/cards';
 import { searchCards } from '../data/search';
 import { phashFromCanvas, nearestByHashMulti, hashCount, type HashMatch } from '../data/imageHash';
 import { fuseScan, type FuseConfig } from '../domain/scanFuse';
+import { laplacianVariance, normalizedPoint } from '../domain/focus';
 import { addOwnedBatch, getMeta, setMeta, logScan } from '../db/db';
 import type { Card, Finish, Lang, BasketEntry } from '../domain/types';
 import { ManaCost, ColorPips } from './mana';
@@ -56,6 +57,10 @@ const FUSE_CFG: FuseConfig = {
 // Zeitlicher Konsens: so viele Frames hintereinander dieselbe Karte, bevor im Live-
 // Modus automatisch übernommen wird (Kreuz-Bestätigung darf sofort).
 const AUTO_CONSENSUS = 2;
+
+// Schärfe-Gate (Autofokus, Tier 1): Laplace-Varianz unter diesem Wert = unscharf →
+// Live-Frames überspringen. Startwert konservativ; per Scan-Protokoll nachtunen.
+const SHARP_MIN = 30;
 
 const isNativeApp =
   typeof window !== 'undefined' &&
@@ -172,6 +177,10 @@ export function ScannerPanel() {
   const [live, setLive] = useState(false);
   const [scanDelay] = useState(350);
   const [autoAdd, setAutoAdd] = useState(false);
+  const [blurry, setBlurry] = useState(false); // Schärfe-Gate: aktuelles Bild unscharf
+  const [focusFx, setFocusFx] = useState<{ x: number; y: number } | null>(null); // Tap-Feedback
+  const [focusHint, setFocusHint] = useState<string | null>(null);
+  const focusFxTimer = useRef<number>();
 
   const [scanning, setScanning] = useState(false);
   const [ocrText, setOcrText] = useState('');
@@ -207,6 +216,7 @@ export function ScannerPanel() {
     hashOracle?: string;
     hashDist?: number;
     hashMargin?: number;
+    sharpness?: number;
   } | null>(null);
   const lastThumbRef = useRef<Uint8Array | null>(null);
   const thumbCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -383,6 +393,27 @@ export function ScannerPanel() {
     return variants.map((v) => phashFromCanvas(v)).filter((h): h is string => !!h);
   }
 
+  /** Graustufen der Kartenregion (fürs Schärfemaß, Autofokus/Tier 1). */
+  function regionGray(targetW = 128): { gray: Uint8Array; w: number; h: number } | null {
+    const video = videoRef.current;
+    const region = cropRegion();
+    if (!video || !region) return null;
+    const w = targetW;
+    const h = Math.max(1, Math.round((targetW * region.sh) / region.sw));
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(video, region.sx, region.sy, region.sw, region.sh, 0, 0, w, h);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const gray = new Uint8Array(w * h);
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+      gray[j] = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0;
+    }
+    return { gray, w, h };
+  }
+
   function frameThumb(): Uint8Array | null {
     const video = videoRef.current;
     const region = cropRegion();
@@ -433,6 +464,14 @@ export function ScannerPanel() {
         lastThumbRef.current = thumb;
       }
     }
+    // Schärfe-Gate (Autofokus/Tier 1): Laplace-Varianz messen. Unscharfe Live-Frames
+    // überspringen (spart OCR/Hash und verhindert schlechte Treffer). Beim manuellen
+    // „Scannen" trotzdem lesen (expliziter Wunsch), nur Hinweis zeigen.
+    let sharpness = 0;
+    const g = regionGray(128);
+    if (g) sharpness = laplacianVariance(g.gray, g.w, g.h);
+    setBlurry(sharpness > 0 && sharpness < SHARP_MIN);
+    if (mode === 'live' && g && sharpness < SHARP_MIN) return;
     // Titelbalken (oben ~12 %, § 6) + Ganzkarte als Sicherheitsnetz (auch live —
     // hilft bei Showcase-/Borderless-Rahmen, wo der Titel-Crop danebenliegt).
     const bandTop = regionCanvas([0.04, 0.045, 0.92, 0.13], 900, 'adaptive');
@@ -498,6 +537,7 @@ export function ScannerPanel() {
         hashOracle: hashMatch?.oracleId,
         hashDist: hashMatch?.distance,
         hashMargin: hashMatch?.margin,
+        sharpness,
       };
 
       const best = finalMatches[0];
@@ -597,6 +637,10 @@ export function ScannerPanel() {
       if (caps?.focusMode?.includes('continuous')) {
         void track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] } as unknown as MediaTrackConstraints);
       }
+      // POI initial auf die Mitte (dort ist die Karte) — AF soll nicht den Hintergrund nehmen.
+      void track
+        .applyConstraints({ advanced: [{ pointsOfInterest: [{ x: 0.5, y: 0.5 }] }] } as unknown as MediaTrackConstraints)
+        .catch(() => {});
       setTorchAvailable(!!caps?.torch);
       setTorchOn(false);
       setCamOn(true);
@@ -619,6 +663,9 @@ export function ScannerPanel() {
     lastThumbRef.current = null;
     lastAutoRef.current = null;
     consensusRef.current = { oracleId: '', count: 0 };
+    setBlurry(false);
+    setFocusFx(null);
+    setFocusHint(null);
     setAutoToast(null);
   }
 
@@ -626,6 +673,34 @@ export function ScannerPanel() {
     setZoom(value);
     const track = streamRef.current?.getVideoTracks()[0];
     void track?.applyConstraints({ advanced: [{ zoom: value }] } as unknown as MediaTrackConstraints);
+  }
+
+  /** Tap-to-Focus (Autofokus/Tier 1): Fokuspunkt auf die getippte Stelle setzen.
+   *  Kann das Gerät kein `pointsOfInterest`, wird wenigstens der AF neu angestoßen. */
+  async function focusAt(clientX: number, clientY: number, rect: DOMRect) {
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (!track || pairing) return;
+    const pt = normalizedPoint(clientX, clientY, rect);
+    setFocusFx(pt);
+    window.clearTimeout(focusFxTimer.current);
+    focusFxTimer.current = window.setTimeout(() => setFocusFx(null), 900);
+    const caps = track.getCapabilities?.() as unknown as { focusMode?: string[] };
+    const continuous = caps?.focusMode?.includes('continuous');
+    try {
+      await track.applyConstraints({
+        advanced: [{ ...(continuous ? { focusMode: 'continuous' } : {}), pointsOfInterest: [pt] }],
+      } as unknown as MediaTrackConstraints);
+    } catch {
+      try {
+        if (continuous) {
+          await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] } as unknown as MediaTrackConstraints);
+        }
+      } catch {
+        /* AF-Nudge nicht möglich — ignorieren */
+      }
+      setFocusHint('Tap-to-Focus wird vom Gerät nicht unterstützt.');
+      window.setTimeout(() => setFocusHint(null), 2000);
+    }
   }
 
   async function toggleTorch() {
@@ -655,6 +730,7 @@ export function ScannerPanel() {
         hashOracle: recent ? ls!.hashOracle : undefined,
         hashDist: recent ? ls!.hashDist : undefined,
         hashMargin: recent ? ls!.hashMargin : undefined,
+        sharpness: recent ? ls!.sharpness : undefined,
         chosenOracle: m.oracleId,
         chosenName: m.card.name,
         via,
@@ -817,11 +893,19 @@ export function ScannerPanel() {
             playsInline
             muted
             onLoadedMetadata={(e) => setVdim({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })}
-            className="block h-auto w-full"
+            onClick={(e) => { if (camOn && !pairing) void focusAt(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect()); }}
+            className={`block h-auto w-full ${camOn && !pairing ? 'cursor-crosshair' : ''}`}
           />
+          {/* Tap-to-Focus-Feedback: kurzes Quadrat an der getippten Stelle. */}
+          {focusFx && (
+            <span
+              className="pointer-events-none absolute z-20 h-10 w-10 -translate-x-1/2 -translate-y-1/2 border-2 border-paper"
+              style={{ left: `${focusFx.x * 100}%`, top: `${focusFx.y * 100}%` }}
+            />
+          )}
           {camOn && !pairing && (
             <div
-              className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 border-2 border-fill/80"
+              className={`pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 border-2 ${blurry ? 'border-warn/80' : 'border-fill/80'}`}
               style={{ height: `${boxScale * 100}%`, width: `${boxWidthPct}%` }}
             >
               {/* Titelbalken-Zone: Reticle-Ecken (DESIGN § 5 A2) — der Scanner liest hier. */}
@@ -902,6 +986,10 @@ export function ScannerPanel() {
         {autoToast && (
           <p className="mt-2 rounded-md bg-ok/15 px-2 py-1 font-mono text-sm text-ok">✓ {autoToast} in den Korb</p>
         )}
+        {camOn && !pairing && blurry && !scanning && (
+          <p className="mt-2 text-xs text-warn">Unscharf — Abstand ändern &amp; ruhig halten. Aufs Bild tippen stellt scharf.</p>
+        )}
+        {focusHint && <p className="mt-1 font-mono text-xs text-muted">{focusHint}</p>}
         {ocrText && <p className="mt-2 break-words font-mono text-[10px] text-muted">Gelesen: „{ocrText.slice(0, 120)}"</p>}
         {camOn && typeof best === 'number' && best < 0.6 && !scanning && (
           <p className="mt-1 text-xs text-danger">

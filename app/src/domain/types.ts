@@ -68,6 +68,8 @@ export interface ScanLog {
   hashOracle?: string;
   hashDist?: number;
   hashMargin?: number;
+  /** Schärfemaß des Frames (Laplace-Varianz) — zum Tunen des Schärfe-Gates. */
+  sharpness?: number;
   /** Ground Truth: was der Nutzer tatsächlich übernommen hat. */
   chosenOracle: string;
   chosenName: string;
