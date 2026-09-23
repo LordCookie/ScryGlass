@@ -74,6 +74,27 @@ describe('fuseScan', () => {
     expect(r.confident).toBe(false);
   });
 
+  it('Druckinfo + passender Name → sicher, auch wenn der Name allein zu schwach wäre', () => {
+    const ocr: OcrSignal = { oracleId: 'A', score: 0.65, ambiguous: false };
+    const r = fuseScan(ocr, null, CFG, { oracleId: 'A' });
+    expect(r).toMatchObject({ method: 'druck', oracleId: 'A', confident: true });
+  });
+
+  it('Druckinfo + passendes Bild → sicher', () => {
+    const r = fuseScan(noOcr, { oracleId: 'A', distance: 68, margin: 2 }, CFG, { oracleId: 'A' });
+    expect(r).toMatchObject({ method: 'druck', confident: true });
+  });
+
+  it('Druckinfo allein ist nicht auto-sicher (Ziffern können falsch gelesen sein)', () => {
+    const r = fuseScan(noOcr, null, CFG, { oracleId: 'A' });
+    expect(r).toMatchObject({ method: 'druck', oracleId: 'A', confident: false });
+  });
+
+  it('widersprüchliche Druckinfo verdrängt keinen starken Bildtreffer', () => {
+    const r = fuseScan(noOcr, { oracleId: 'B', distance: 40, margin: 30 }, CFG, { oracleId: 'A' });
+    expect(r).toMatchObject({ method: 'bild', oracleId: 'B', confident: true });
+  });
+
   it('nichts Brauchbares → none', () => {
     const r = fuseScan(noOcr, null, CFG);
     expect(r.method).toBe('none');

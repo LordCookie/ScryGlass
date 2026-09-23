@@ -9,6 +9,8 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // Eigenes Peer-Scanning-Plugin registrieren (PLAN.md § 8).
         registerPlugin(PeerServerPlugin.class);
+        // Native Scanner-Kamera: CameraX + ML-Kit-Texterkennung auf dem Gerät.
+        registerPlugin(ScryCameraPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

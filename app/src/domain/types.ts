@@ -70,8 +70,10 @@ export interface ScanLog {
   hashMargin?: number;
   /** Schärfemaß des Frames (Laplace-Varianz) — zum Tunen des Schärfe-Gates. */
   sharpness?: number;
-  /** Tesseract-Sicherheit der gewählten Titel-Lesung (0..100). */
+  /** Sicherheit der gewählten Titel-Lesung (0..100; Tesseract oder ML Kit). */
   ocrConf?: number;
+  /** Gelesene Druckinfo „set nummer sprache" (native Kamera), z. B. „dmu 123 en". */
+  printRead?: string;
   /** Nutzer hat die Übernahme rückgängig gemacht → Fehltreffer, keine Ground Truth. */
   rejected?: boolean;
   /** Ground Truth: was der Nutzer tatsächlich übernommen hat. */

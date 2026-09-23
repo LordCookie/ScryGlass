@@ -1,6 +1,9 @@
 ext {
     kotlinVersion = '1.9.22'
     nanohttpdVersion = '2.3.1'
+    // Native Scanner-Kamera + gebündelte (offline) Texterkennung.
+    cameraxVersion = '1.3.4'
+    mlkitTextVersion = '16.0.1'
     minSdkVersion = 22
     compileSdkVersion = 34
     targetSdkVersion = 34

@@ -4,12 +4,13 @@
  * ob sie sicher genug für die Auto-Übernahme ist, und ob OCR und Bild sich
  * gegenseitig bestätigen (das stärkste Signal überhaupt).
  *
- * Prioritätsreihenfolge (bewusst wie bisher „Bild vor OCR", plus Kreuz-Bestätigung
- * ganz oben):
+ * Prioritätsreihenfolge (bewusst wie bisher „Bild vor OCR", plus Bestätigungen oben):
+ *   0. druck  — Ausgabe per Set + Sammlernummer, bestätigt durch Name ODER Bild → sicher
  *   1. agree  — OCR-Bester == Bild-Bester (Bild im lockeren Confirm-Gate) → sicher
  *   2. bild   — Bildtreffer im Anzeige-Gate; sicher nur, wenn „stark"
  *   3. ocr    — OCR-Bester; sicher nur bei hohem Score und nicht mehrdeutig
- *   4. none   — nichts Brauchbares
+ *   4. druck  — unbestätigte Ausgabe per Nummer (Ziffern können falsch gelesen sein)
+ *   5. none   — nichts Brauchbares
  */
 
 export interface OcrSignal {
@@ -35,7 +36,12 @@ export interface FuseConfig {
   ocrConfirm: number; // OCR zählt als Bestätigung (z. B. 0.6)
 }
 
-export type FuseMethod = 'bild+ocr' | 'bild' | 'ocr' | 'none';
+/** Ausgabe, die über Set-Code + Sammlernummer (Druckinfo unten links) gefunden wurde. */
+export interface PrintSignal {
+  oracleId: string;
+}
+
+export type FuseMethod = 'druck' | 'bild+ocr' | 'bild' | 'ocr' | 'none';
 
 export interface FuseResult {
   method: FuseMethod;
@@ -54,7 +60,22 @@ function imageScore(distance: number): number {
   return Math.max(0.5, 1 - distance / 128);
 }
 
-export function fuseScan(ocr: OcrSignal, hash: HashSignal | null, cfg: FuseConfig): FuseResult {
+export function fuseScan(
+  ocr: OcrSignal,
+  hash: HashSignal | null,
+  cfg: FuseConfig,
+  print: PrintSignal | null = null,
+): FuseResult {
+  // Druckinfo + Bestätigung: die Nummer ist sehr präzise, aber einzelne Ziffern können
+  // falsch gelesen sein — deshalb nur mit Name ODER Bild zusammen „sicher".
+  if (print) {
+    const byName = ocr.oracleId === print.oracleId && ocr.score >= cfg.ocrConfirm;
+    const byImage = !!hash && hash.oracleId === print.oracleId && hash.distance <= cfg.hashConfirmDist;
+    if (byName || byImage) {
+      return { method: 'druck', oracleId: print.oracleId, agree: true, confident: true, showAlone: false, score: 0.99 };
+    }
+  }
+
   const hashShown =
     hash && hash.distance <= cfg.hashMaxDist && hash.margin >= cfg.hashMinMargin ? hash : null;
   const hashStrong =
@@ -87,6 +108,9 @@ export function fuseScan(ocr: OcrSignal, hash: HashSignal | null, cfg: FuseConfi
   if (ocr.oracleId) {
     const ocrConfident = ocr.score >= cfg.ocrConfident && !ocr.ambiguous;
     return { method: 'ocr', oracleId: ocr.oracleId, agree: false, confident: ocrConfident, showAlone: false, score: ocr.score };
+  }
+  if (print) {
+    return { method: 'druck', oracleId: print.oracleId, agree: false, confident: false, showAlone: false, score: 0.7 };
   }
   return { method: 'none', agree: false, confident: false, showAlone: false, score: 0 };
 }

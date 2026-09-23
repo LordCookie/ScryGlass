@@ -65,6 +65,16 @@ body,
   height: 100%;
 }
 
+/* Native Scanner-Kamera: das Kamerabild liegt HINTER der WebView → Seite transparent,
+   nur das Scanner-Overlay (Portal direkt in <body>) bleibt sichtbar. */
+html.scan-native,
+html.scan-native body {
+  background: transparent !important;
+}
+html.scan-native #root {
+  visibility: hidden;
+}
+
 body {
   margin: 0;
   background: rgb(var(--c-bg));

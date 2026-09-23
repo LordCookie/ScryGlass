@@ -124,6 +124,7 @@ function ScanLogSection() {
       // Tuning-Signale (Schärfe-Gate, OCR-Sicherheit) + vom Nutzer verworfene Übernahmen.
       sharpness: s.sharpness != null ? Math.round(s.sharpness) : null,
       ocrConf: s.ocrConf != null ? Math.round(s.ocrConf) : null,
+      printRead: s.printRead ?? null,
       rejected: s.rejected ?? false,
     }));
     return JSON.stringify(rows, null, 2);

@@ -4,8 +4,15 @@ import jsQR from 'jsqr';
 import { matchOcr } from '../data/matcher';
 import { getCards, previewImageIds } from '../data/cards';
 import { searchCards } from '../data/search';
-import { phashFromCanvas, nearestByHashMulti, hashCount, type HashMatch } from '../data/imageHash';
-import { fuseScan, type FuseConfig } from '../domain/scanFuse';
+import { phashFromCanvas, nearestByHashMulti, hashCount, hashIndicesFor, type HashMatch } from '../data/imageHash';
+import { fuseScan, type FuseConfig, type FuseResult } from '../domain/scanFuse';
+import { pickNameLine, cleanNameText, collectorText, parseCollectorText, type CollectorInfo } from '../domain/cardText';
+import { setPickerOptions, type SetOption } from '../domain/nextSet';
+import { getSetList } from '../data/nextSet';
+import { findPrinting, setMembers, catalogSetCodes, type SetMembers } from '../data/printingLookup';
+import { ScryCamera, hasNativeCamera, reticleOf, type NativeFrame } from '../native/scryCamera';
+import type { PluginListenerHandle } from '@capacitor/core';
+import { NativeScanOverlay } from './NativeScanOverlay';
 import { laplacianVariance, normalizedPoint } from '../domain/focus';
 import { pickBestRead, ocrEffectiveScore, type OcrRead } from '../domain/ocrQuality';
 import {
@@ -13,7 +20,7 @@ import {
 } from '../domain/scanHistory';
 import { addOwned, addOwnedBatch, getMeta, setMeta, logScan, markScanRejected } from '../db/db';
 import { CardImage } from './CardImage';
-import type { Card, Finish, Lang, BasketEntry } from '../domain/types';
+import type { Card, Finish, Lang, BasketEntry, Printing } from '../domain/types';
 import { ManaCost, ColorPips } from './mana';
 import {
   subscribe as subscribePeers,
@@ -58,6 +65,15 @@ const FUSE_CFG: FuseConfig = {
   hashConfirmMargin: 4,
   ocrConfident: 0.85,
   ocrConfirm: 0.6,
+};
+// Set-Modus: nur ~800 statt 155.000 Kandidaten → deutlich weniger Verwechsler, die
+// Bild-Schwellen dürfen lockerer sein (Startwerte, per Scan-Protokoll nachtunen).
+const FUSE_CFG_SET: FuseConfig = {
+  ...FUSE_CFG,
+  hashMaxDist: 70,
+  hashMinMargin: 8,
+  hashAutoDist: 64,
+  hashAutoMargin: 12,
 };
 // Zeitlicher Konsens: so viele Frames hintereinander dieselbe Karte, bevor im Live-
 // Modus automatisch übernommen wird (Kreuz-Bestätigung darf sofort).
@@ -139,6 +155,21 @@ interface ScanMatch {
   lang: Lang;
 }
 
+/** Eingabe der gemeinsamen Auswertung (Web- und nativer Kamerapfad). */
+interface EvalInput {
+  mode: 'live' | 'full';
+  /** saubere Namenszeile (Titel) — zuerst exakt/Präfix abgleichen */
+  titleText: string;
+  /** gesamter gelesener Text — Fuzzy-Fallback */
+  fullText: string;
+  /** Sicherheit der Namenslesung 0..100 */
+  ocrConf: number;
+  hashMatch: HashMatch | null;
+  sharpness: number;
+  /** Druckinfo (Set/Nummer) — nur die native Kamera liest sie */
+  collector: CollectorInfo | null;
+}
+
 interface BasketItem {
   oracleId: string;
   card: Card;
@@ -155,6 +186,7 @@ function methodLabel(method: string): string {
   if (method === 'bild+ocr') return 'Bild+Text';
   if (method === 'bild') return 'Bild';
   if (method === 'manuell') return 'manuell';
+  if (method === 'druck') return 'Sammlernr.';
   return 'Text'; // exact | prefix | fuzzy aus dem Namensabgleich
 }
 
@@ -222,6 +254,21 @@ export function ScannerPanel() {
   const [manualResults, setManualResults] = useState<Card[]>([]);
 
   const lastAutoRef = useRef<string | null>(null);
+
+  // Set-Modus: '' = alle Sets. Mitglieder + Hash-Teilmenge des gewählten Sets.
+  const [scanSet, setScanSet] = useState('');
+  const [setOptions, setSetOptions] = useState<SetOption[]>([]);
+  const setDataRef = useRef<{ members: SetMembers; subset: Int32Array | null } | null>(null);
+  const userChoseSetRef = useRef(false);
+
+  // Native Kamera (ScryCamera-Plugin, nur Android-App): Overlay statt <video>.
+  const [nativeOn, setNativeOn] = useState(false);
+  const nativeOnRef = useRef(false);
+  const nativeListenerRef = useRef<PluginListenerHandle | null>(null);
+  const reticleElRef = useRef<HTMLDivElement>(null);
+  // Frame-Handler über eine Ref, damit das einmal registrierte Event immer den
+  // aktuellen Zustand (Auto, Ausführung, Set …) sieht.
+  const onFrameRef = useRef<(f: NativeFrame) => void>(() => {});
   // Zeitlicher Konsens fürs Auto-Add: gleiche Karte über mehrere Frames zählen.
   const consensusRef = useRef<{ oracleId: string; count: number }>({ oracleId: '', count: 0 });
   // Letzter Scan (OCR + Bild-Hash) — Rohdaten fürs Fixture-Protokoll (§ 5).
@@ -236,6 +283,7 @@ export function ScannerPanel() {
     hashMargin?: number;
     sharpness?: number;
     ocrConf?: number;
+    printRead?: string;
   } | null>(null);
   const lastThumbRef = useRef<Uint8Array | null>(null);
   const thumbCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -301,6 +349,60 @@ export function ScannerPanel() {
     else setManualResults([]);
     return () => { alive = false; };
   }, [manualQuery]);
+
+  // Set-Modus: zuletzt gewähltes Set sofort wiederherstellen; die Auswahl-Liste
+  // (Katalog-Sets + gecachte Namen) kommt danach — sie zu bauen dauert einen Moment.
+  useEffect(() => {
+    void getMeta<string>('scanSet').then((last) => {
+      // Kam die Nutzerwahl schneller (auch „Alle Sets"), gewinnt sie.
+      if (last && !userChoseSetRef.current) setScanSet(last);
+    });
+    void Promise.all([catalogSetCodes(), getSetList()]).then(([codes, infos]) =>
+      setSetOptions(setPickerOptions(codes, infos)),
+    );
+  }, []);
+
+  /** Nur eine echte Auswahl des Nutzers wird gemerkt (nicht der Startzustand). */
+  function chooseSet(code: string) {
+    userChoseSetRef.current = true;
+    setScanSet(code);
+    void setMeta('scanSet', code);
+  }
+
+  // Set gewechselt → seine Ausgaben laden (Hash-Teilmenge baut sich lazy).
+  useEffect(() => {
+    setDataRef.current = null;
+    consensusRef.current = { oracleId: '', count: 0 };
+    if (!scanSet) return;
+    let alive = true;
+    void setMembers(scanSet).then((m) => {
+      if (alive) setDataRef.current = { members: m, subset: null };
+    });
+    return () => { alive = false; };
+  }, [scanSet]);
+
+  // Native Kamera beim Verlassen des Scanners sicher beenden.
+  useEffect(() => {
+    nativeOnRef.current = nativeOn;
+  }, [nativeOn]);
+  useEffect(
+    () => () => {
+      if (!nativeOnRef.current) return;
+      document.documentElement.classList.remove('scan-native');
+      void nativeListenerRef.current?.remove();
+      void ScryCamera.stop().catch(() => {});
+    },
+    [],
+  );
+
+  // Fenstergröße/Drehung ändert die Rahmenlage → dem nativen Ausschnitt mitteilen.
+  useEffect(() => {
+    if (!nativeOn) return;
+    const h = () => sendReticle();
+    window.addEventListener('resize', h);
+    return () => window.removeEventListener('resize', h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nativeOn]);
 
   function cropRegion() {
     if (!vdim) return null;
@@ -475,6 +577,151 @@ export function ScannerPanel() {
     return out;
   }
 
+  /** Set-Modus-Daten; die Hash-Teilmenge entsteht, sobald der Bild-Index geladen ist. */
+  function currentSetData(): { members: SetMembers; subset: Int32Array | null } | null {
+    const d = setDataRef.current;
+    if (d && !d.subset && hashCount() > 0) d.subset = hashIndicesFor(d.members.scryfallIds);
+    return d;
+  }
+
+  /** Hash-Varianten aus einem fertigen Kartenausschnitt (native Kamera): Basis, enger, 180°. */
+  function hashesFromImage(img: HTMLImageElement): string[] {
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+    const mk = (inset: number): HTMLCanvasElement | null => {
+      const c = document.createElement('canvas');
+      c.width = 146;
+      c.height = 204;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return null;
+      const dx = w * inset;
+      const dy = h * inset;
+      ctx.drawImage(img, dx, dy, w - 2 * dx, h - 2 * dy, 0, 0, 146, 204);
+      return c;
+    };
+    const base = mk(0);
+    const tight = mk(0.05);
+    const variants: HTMLCanvasElement[] = [];
+    if (base) {
+      variants.push(base);
+      const rot = rotate180(base);
+      if (rot) variants.push(rot);
+    }
+    if (tight) variants.push(tight);
+    return variants.map((v) => phashFromCanvas(v)).filter((x): x is string => !!x);
+  }
+
+  function decodeJpeg(b64: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Ausschnitt nicht lesbar'));
+      img.src = `data:image/jpeg;base64,${b64}`;
+    });
+  }
+
+  /** Top-Treffer für Bild- oder Druckinfo-Entscheidungen — mit exaktem Artwork. */
+  async function topMatch(fused: FuseResult, hash: HashMatch | null, print: Printing | undefined): Promise<ScanMatch | null> {
+    let oracleId: string | undefined;
+    let scryfallId: string | undefined;
+    if (fused.method === 'druck' && print) {
+      oracleId = print.oracleId;
+      scryfallId = print.scryfallId;
+    } else if ((fused.method === 'bild' || fused.method === 'bild+ocr') && hash) {
+      oracleId = hash.oracleId;
+      scryfallId = hash.scryfallId;
+    } else {
+      return null;
+    }
+    const card = (await getCards([oracleId])).get(oracleId);
+    if (!card) return null;
+    if (!scryfallId) scryfallId = (await previewImageIds([oracleId])).get(oracleId);
+    return { oracleId, card, scryfallId, score: fused.score, method: fused.method, lang: print?.lang ?? 'en' };
+  }
+
+  /**
+   * Gemeinsame Auswertung für beide Kamerawege (Web: Tesseract, nativ: ML Kit):
+   * Name abgleichen → Druckinfo nachschlagen → fusionieren → anzeigen → Konsens →
+   * ggf. automatisch in den Korb.
+   */
+  async function evaluate(inp: EvalInput): Promise<void> {
+    const setData = currentSetData();
+    setOcrText(inp.titleText || inp.fullText);
+
+    // 1) Name: saubere Titelzeile zuerst (exakt/Präfix), sonst Volltext (Fuzzy).
+    //    OCR-Schwelle 0.62: schwammige Reads sollen keine falschen Namen erzeugen.
+    let result = inp.titleText ? await matchOcr(inp.titleText, { topN: 5, threshold: 0.62 }) : null;
+    if (!result?.best && inp.fullText) result = await matchOcr(inp.fullText, { topN: 5, threshold: 0.62 });
+    let cands = result?.candidates ?? [];
+    if (setData) cands = cands.filter((c) => setData.members.oracleIds.has(c.oracleId));
+    const shown = await enrich(cands);
+
+    // 2) Druckinfo → exakte Ausgabe. Im Set-Modus genügt die Nummer.
+    const col = inp.collector;
+    const printSet = setData?.members.code ?? col?.set;
+    const print = printSet && col?.number ? await findPrinting(printSet, col.number, col.lang) : undefined;
+
+    // 3) Fusion: Druckinfo/Kreuz-Bestätigung > starker Bildtreffer > sicheres OCR.
+    const ocrBest = shown[0];
+    const fused = fuseScan(
+      // Unsichere Lesung → OCR allein nicht mehr auto-fähig, bestätigen geht noch.
+      { oracleId: ocrBest?.oracleId, score: ocrEffectiveScore(ocrBest?.score ?? 0, inp.ocrConf), ambiguous: result?.ambiguous ?? false },
+      inp.hashMatch ? { oracleId: inp.hashMatch.oracleId, distance: inp.hashMatch.distance, margin: inp.hashMatch.margin } : null,
+      setData ? FUSE_CFG_SET : FUSE_CFG,
+      print ? { oracleId: print.oracleId } : null,
+    );
+
+    // 4) Anzeige: fusionierter Bester oben.
+    let finalMatches = shown;
+    const top = await topMatch(fused, inp.hashMatch, print);
+    if (top) {
+      // Starker Alleingang des Bildes: nur ihn zeigen (kein OCR-Rauschen).
+      finalMatches = fused.showAlone ? [top] : [top, ...shown.filter((m) => m.oracleId !== top.oracleId)];
+    }
+    setMatches(finalMatches);
+
+    // Rohdaten des Scans fürs Fixture-Protokoll merken (ungefiltert).
+    const text = inp.fullText || inp.titleText;
+    lastScanRef.current = {
+      at: Date.now(),
+      ocrRaw: text,
+      ocrBestOracle: shown[0]?.oracleId,
+      ocrScore: shown[0]?.score,
+      ocrMethod: shown[0]?.method,
+      hashOracle: inp.hashMatch?.oracleId,
+      hashDist: inp.hashMatch?.distance,
+      hashMargin: inp.hashMatch?.margin,
+      sharpness: inp.sharpness,
+      ocrConf: inp.ocrConf,
+      printRead: col ? [printSet ?? '?', col.number ?? '?', col.lang ?? ''].join(' ').trim() : undefined,
+    };
+
+    const best = finalMatches[0];
+    // Zeitlicher Konsens: gleiche Karte über mehrere Frames zählen (Bestätigungen
+    // dürfen sofort). Verhindert, dass ein Ausreißer-Frame eine falsche Karte auto-addet.
+    if (fused.oracleId && fused.confident) {
+      if (consensusRef.current.oracleId === fused.oracleId) consensusRef.current.count += 1;
+      else consensusRef.current = { oracleId: fused.oracleId, count: 1 };
+    } else {
+      consensusRef.current = { oracleId: '', count: 0 };
+    }
+    const required = inp.mode === 'live' && !fused.agree ? AUTO_CONSENSUS : 1;
+    const consensusOk = fused.confident && consensusRef.current.count >= required;
+    if (autoAdd && best && consensusOk) {
+      if (lastAutoRef.current !== best.oracleId) {
+        lastAutoRef.current = best.oracleId;
+        const entryId = addToBasket(best, text, true);
+        setAutoToast({ name: best.card.name, entryId });
+        window.clearTimeout(autoToastTimer.current);
+        // Länger sichtbar als früher, damit „Rückgängig" gut erreichbar ist.
+        autoToastTimer.current = window.setTimeout(() => setAutoToast(null), 4000);
+      }
+    } else if (!best) {
+      lastAutoRef.current = null;
+    }
+  }
+
+  /** Web-Kamera-Pfad (Browser/PWA, oder Fallback): <video> + Tesseract. */
   async function scan(mode: 'live' | 'full' = 'full') {
     const scheduler = schedulerRef.current;
     if (!scheduler || busyRef.current) return;
@@ -494,21 +741,18 @@ export function ScannerPanel() {
     if (g) sharpness = laplacianVariance(g.gray, g.w, g.h);
     setBlurry(sharpness > 0 && sharpness < SHARP_MIN);
     if (mode === 'live' && g && sharpness < SHARP_MIN) return;
-    // Titelbalken (oben ~12 %, § 6) + Ganzkarte als Sicherheitsnetz (auch live —
-    // hilft bei Showcase-/Borderless-Rahmen, wo der Titel-Crop danebenliegt).
     // Titel in zwei Varianten (Graustufe + adaptives Schwarzweiß) — die Lesung mit der
-    // höheren Tesseract-Sicherheit gewinnt (bessere Texterkennung, Tier 2 light).
+    // höheren Tesseract-Sicherheit gewinnt; Ganzkarte als Sicherheitsnetz.
     const TITLE: [number, number, number, number] = [0.04, 0.045, 0.92, 0.13];
     const bandGray = regionCanvas(TITLE, 900, 'none');
     const bandBin = regionCanvas(TITLE, 900, 'adaptive');
     const whole = regionCanvas([0, 0, 1, 1], 820, 'otsu');
-    // Bild-Hash (Scanner v2) synchron vom aktuellen Frame — matcht das ARTWORK,
-    // nicht den Text (rettet Showcase-/Borderless-/Full-Art-Rahmen).
+    // Bild-Hash vom aktuellen Frame — matcht das ARTWORK (rettet Showcase-/Full-Art).
     let hashMatch: HashMatch | null = null;
     if (hashCount() > 0) {
       // Mehrere Ausschnitt-Varianten + 180°-Drehung → besten Treffer nehmen (Tier 1).
       const hashes = frameHashes();
-      if (hashes.length) hashMatch = nearestByHashMulti(hashes);
+      if (hashes.length) hashMatch = nearestByHashMulti(hashes, currentSetData()?.subset ?? undefined);
     }
     if (!bandBin) return;
     busyRef.current = true;
@@ -522,80 +766,10 @@ export function ScannerPanel() {
       const title = pickBestRead([grayRead, binRead]);
       // Sicherheit der Namenslesung; ohne Titel-Text zählt die Ganzkarten-Lesung.
       const ocrConf = title.text ? title.confidence : wholeRead.confidence;
-      const text = `${title.text} ${wholeRead.text}`.replace(/\s+/g, ' ').trim();
-      setOcrText(text);
-      // OCR-Schwelle etwas strenger (0.62): schwammige Reads wie „TY rt w" sollen
-      // keine falschen Namenstreffer erzeugen — den Rest holt der Bild-Abgleich.
-      const result = await matchOcr(text, { topN: 5, threshold: 0.62 });
-      const shown = await enrich(result.candidates);
-
-      // Fusion OCR + Bild (Tier 1): Kreuz-Bestätigung > starker Bildtreffer > sicheres OCR.
-      const ocrBest = shown[0];
-      const fused = fuseScan(
-        // Unsichere Tesseract-Lesung → OCR allein nicht mehr auto-fähig, bestätigen geht noch.
-        { oracleId: ocrBest?.oracleId, score: ocrEffectiveScore(ocrBest?.score ?? 0, ocrConf), ambiguous: result.ambiguous },
-        hashMatch ? { oracleId: hashMatch.oracleId, distance: hashMatch.distance, margin: hashMatch.margin } : null,
-        FUSE_CFG,
-      );
-
-      // Anzeige: fusionierter Bester oben. Bei (Kreuz-)Bildtreffer die Bild-Karte bauen.
-      let finalMatches = shown;
-      if ((fused.method === 'bild' || fused.method === 'bild+ocr') && hashMatch) {
-        const card = (await getCards([hashMatch.oracleId])).get(hashMatch.oracleId);
-        if (card) {
-          const imgs = await previewImageIds([hashMatch.oracleId]);
-          const hm: ScanMatch = {
-            oracleId: hashMatch.oracleId,
-            card,
-            scryfallId: hashMatch.scryfallId ?? imgs.get(hashMatch.oracleId),
-            score: fused.score,
-            method: fused.method,
-            lang: 'en',
-          };
-          // Starker Alleingang des Bildes: nur ihn zeigen (kein OCR-Rauschen); bei
-          // Kreuz-Bestätigung ruhig die OCR-Alternativen mit anzeigen.
-          finalMatches = fused.showAlone ? [hm] : [hm, ...shown.filter((m) => m.oracleId !== hm.oracleId)];
-        }
-      }
-      setMatches(finalMatches);
-
-      // Rohdaten des Scans fürs Fixture-Protokoll merken (OCR + Bild-Hash, ungefiltert).
-      lastScanRef.current = {
-        at: Date.now(),
-        ocrRaw: text,
-        ocrBestOracle: shown[0]?.oracleId,
-        ocrScore: shown[0]?.score,
-        ocrMethod: shown[0]?.method,
-        hashOracle: hashMatch?.oracleId,
-        hashDist: hashMatch?.distance,
-        hashMargin: hashMatch?.margin,
-        sharpness,
-        ocrConf,
-      };
-
-      const best = finalMatches[0];
-      // Zeitlicher Konsens: gleiche Karte über mehrere Frames zählen (Kreuz-Bestätigung
-      // darf sofort). Verhindert, dass ein Ausreißer-Frame eine falsche Karte auto-addet.
-      if (fused.oracleId && fused.confident) {
-        if (consensusRef.current.oracleId === fused.oracleId) consensusRef.current.count += 1;
-        else consensusRef.current = { oracleId: fused.oracleId, count: 1 };
-      } else {
-        consensusRef.current = { oracleId: '', count: 0 };
-      }
-      const required = mode === 'live' && !fused.agree ? AUTO_CONSENSUS : 1;
-      const consensusOk = fused.confident && consensusRef.current.count >= required;
-      if (autoAdd && best && consensusOk) {
-        if (lastAutoRef.current !== best.oracleId) {
-          lastAutoRef.current = best.oracleId;
-          const entryId = addToBasket(best, text, true);
-          setAutoToast({ name: best.card.name, entryId });
-          window.clearTimeout(autoToastTimer.current);
-          // Länger sichtbar als früher, damit „Rückgängig" gut erreichbar ist.
-          autoToastTimer.current = window.setTimeout(() => setAutoToast(null), 4000);
-        }
-      } else if (!best) {
-        lastAutoRef.current = null;
-      }
+      const fullText = `${title.text} ${wholeRead.text}`.replace(/\s+/g, ' ').trim();
+      await evaluate({
+        mode, titleText: title.text.replace(/\s+/g, ' ').trim(), fullText, ocrConf, hashMatch, sharpness, collector: null,
+      });
     } catch {
       /* einzelne Erkennung fehlgeschlagen — nächster Versuch */
     } finally {
@@ -603,6 +777,42 @@ export function ScannerPanel() {
       setScanning(false);
     }
   }
+
+  /** Nativer Kamera-Pfad: ein ausgewertetes Bild vom ScryCamera-Plugin (ML Kit). */
+  async function onNativeFrame(f: NativeFrame) {
+    if (f.blurry) {
+      setBlurry(true);
+      return;
+    }
+    setBlurry(false);
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setScanning(true);
+    try {
+      const lines = f.lines ?? [];
+      const nameLine = pickNameLine(lines);
+      const fullText = lines.map((l) => l.text).join(' ').replace(/\s+/g, ' ').trim();
+      const collector = parseCollectorText(collectorText(lines));
+      let hashMatch: HashMatch | null = null;
+      if (f.crop && hashCount() > 0) {
+        const hashes = hashesFromImage(await decodeJpeg(f.crop));
+        if (hashes.length) hashMatch = nearestByHashMulti(hashes, currentSetData()?.subset ?? undefined);
+      }
+      // ML-Kit-Sicherheit 0..1 → 0..100; fehlt sie (0/undefined), nicht deckeln.
+      const conf = nameLine?.conf;
+      const ocrConf = nameLine ? (conf && conf > 0 ? conf * 100 : 100) : 0;
+      await evaluate({
+        mode: 'live', titleText: nameLine ? cleanNameText(nameLine.text) : '', fullText, ocrConf, hashMatch,
+        sharpness: f.sharpness, collector,
+      });
+    } catch {
+      /* einzelnes Bild fehlgeschlagen — das nächste kommt gleich */
+    } finally {
+      busyRef.current = false;
+      setScanning(false);
+    }
+  }
+  onFrameRef.current = (f) => void onNativeFrame(f);
 
   // QR-Pairing: scannt den Bildschirm-QR des Empfängers (§ 8).
   async function scanQr() {
@@ -645,7 +855,59 @@ export function ScannerPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camOn, pairing, live, workerReady, boxScale, vdim, autoAdd, scanDelay]);
 
-  async function startCamera() {
+  /** Scanner starten: in der App die native Kamera (CameraX + ML Kit), sonst die Web-Kamera. */
+  function startScanner() {
+    if (hasNativeCamera()) void startNative();
+    else void startWebCamera();
+  }
+
+  async function startNative() {
+    setCamError(null);
+    document.documentElement.classList.add('scan-native');
+    nativeOnRef.current = true;
+    setNativeOn(true);
+    try {
+      // Overlay muss gerendert sein, bevor wir die Lage des Scan-Rahmens messen.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
+      const el = reticleElRef.current;
+      const rect = el ? reticleOf(el) : { left: 0.1, top: 0.2, width: 0.8, height: 0.55 };
+      nativeListenerRef.current = await ScryCamera.addListener('frame', (f) => onFrameRef.current(f));
+      const caps = await ScryCamera.start(rect);
+      setTorchAvailable(caps.torch);
+      setTorchOn(false);
+    } catch (e) {
+      await stopNative();
+      setCamError(`${e instanceof Error ? e.message : 'Native Kamera nicht verfügbar'} — nutze die Browser-Kamera.`);
+      void startWebCamera();
+    }
+  }
+
+  async function stopNative() {
+    document.documentElement.classList.remove('scan-native');
+    nativeOnRef.current = false;
+    setNativeOn(false);
+    await nativeListenerRef.current?.remove();
+    nativeListenerRef.current = null;
+    try {
+      await ScryCamera.stop();
+    } catch {
+      /* war schon aus */
+    }
+    setTorchAvailable(false);
+    setTorchOn(false);
+    lastAutoRef.current = null;
+    consensusRef.current = { oracleId: '', count: 0 };
+    setBlurry(false);
+    setAutoToast(null);
+  }
+
+  /** Aktuelle Lage des Scan-Rahmens an den nativen Ausschnitt melden. */
+  function sendReticle() {
+    const el = reticleElRef.current;
+    if (el && nativeOnRef.current) void ScryCamera.setReticle(reticleOf(el));
+  }
+
+  async function startWebCamera() {
     setCamError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -738,6 +1000,12 @@ export function ScannerPanel() {
   }
 
   async function toggleTorch() {
+    if (nativeOnRef.current) {
+      const next = !torchOn;
+      await ScryCamera.setTorch({ on: next });
+      setTorchOn(next);
+      return;
+    }
     const track = streamRef.current?.getVideoTracks()[0];
     if (!track) return;
     const next = !torchOn;
@@ -769,6 +1037,7 @@ export function ScannerPanel() {
         hashMargin: recent ? ls!.hashMargin : undefined,
         sharpness: recent ? ls!.sharpness : undefined,
         ocrConf: recent ? ls!.ocrConf : undefined,
+        printRead: recent ? ls!.printRead : undefined,
         chosenOracle: m.oracleId,
         chosenName: m.card.name,
         via,
@@ -886,6 +1155,21 @@ export function ScannerPanel() {
   const boxWidthPct = region && vdim ? (region.sw / vdim.w) * 100 : 60;
   const best = matches[0]?.score;
 
+  /** Set-Auswahl (im Scanner und im nativen Overlay). */
+  const setSelect = (className: string) => (
+    <select value={scanSet} onChange={(e) => chooseSet(e.target.value)} aria-label="Set" className={className}>
+      <option value="">Alle Sets</option>
+      {setOptions.map((o) => (
+        <option key={o.code} value={o.code}>{o.label}</option>
+      ))}
+    </select>
+  );
+
+  function undoToast() {
+    const e = autoToast ? history.find((x) => x.id === autoToast.entryId) : undefined;
+    if (e) void undoEntry(e);
+  }
+
   return (
     <section className="space-y-4">
       <div className="rounded-lg bg-surface p-4">
@@ -912,7 +1196,7 @@ export function ScannerPanel() {
               if (v === '__pair') {
                 setPairing(true);
                 setPairMsg('QR-Code des Empfängers in den Rahmen halten…');
-                if (!camOn) void startCamera();
+                if (!camOn) void startWebCamera(); // QR-Pairing liest das <video>-Bild
                 return;
               }
               const p = peers.find((x) => x.url === v);
@@ -941,6 +1225,16 @@ export function ScannerPanel() {
             </select>
           </label>
         </div>
+        {/* Set-Modus: nur ein Set durchsuchen (Booster öffnen, Sortieren). */}
+        <label className="mb-3 flex items-center gap-2 font-mono text-xs text-muted">
+          <span className="shrink-0">Set:</span>
+          {setSelect('min-w-0 flex-1 rounded border border-border bg-bg px-2 py-1 text-sm text-text outline-none focus:border-accent')}
+        </label>
+        {scanSet && (
+          <p className="-mt-2 mb-3 font-mono text-[10px] text-muted">
+            Sucht nur in {scanSet.toUpperCase()} — weniger Verwechslungen; die Sammlernummer reicht dann schon.
+          </p>
+        )}
         {target.kind === 'peer' && (
           <p className="mb-2 rounded bg-accent/10 px-2 py-1 font-mono text-xs text-accent">
             Ziel: Korb geht an „{target.deviceName}" — deine eigene Sammlung bleibt unberührt.
@@ -1012,7 +1306,7 @@ export function ScannerPanel() {
 
         <div className="mt-3 flex flex-wrap gap-2">
           {!camOn ? (
-            <button onClick={() => void startCamera()}
+            <button onClick={startScanner}
               className="rounded border border-border px-3 py-1.5 font-mono text-sm hover:border-accent">
               Kamera starten
             </button>
@@ -1233,6 +1527,37 @@ export function ScannerPanel() {
             ))}
           </ul>
         </div>
+      )}
+      {/* Native Kamera: Vollbild-Overlay über dem Kamerabild (Portal in <body>). */}
+      {nativeOn && (
+        <NativeScanOverlay
+          reticleRef={reticleElRef}
+          onTap={(x, y) => void ScryCamera.focus({ x, y })}
+          onClose={() => void stopNative()}
+          blurry={blurry}
+          scanning={scanning}
+          best={
+            matches[0]
+              ? {
+                  name: matches[0].card.name,
+                  typeLine: matches[0].card.typeLine,
+                  scryfallId: matches[0].scryfallId,
+                  score: matches[0].score,
+                  method: methodLabel(matches[0].method),
+                }
+              : undefined
+          }
+          onAdd={() => { if (matches[0]) addToBasket(matches[0], ocrText); }}
+          autoAdd={autoAdd}
+          onToggleAuto={() => setAutoAdd((a) => !a)}
+          torchAvailable={torchAvailable}
+          torchOn={torchOn}
+          onToggleTorch={() => void toggleTorch()}
+          basketCount={basketTotal}
+          toast={autoToast?.name ?? null}
+          onUndoToast={undoToast}
+          setPicker={setSelect('w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text outline-none')}
+        />
       )}
     </section>
   );
