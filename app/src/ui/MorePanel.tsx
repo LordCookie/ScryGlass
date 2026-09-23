@@ -8,8 +8,10 @@ import { toMoxfieldCsv, type CsvRow } from '../domain/collectionCsv';
 import { getCards } from '../data/cards';
 import { fetchRemoteVersion, applyUpdate, getLocalCatalogVersion, type CatalogVersion, type SyncProgress } from '../data/catalog';
 import { invalidateNameIndex } from '../data/matcher';
+import { initFeedbackPrefs, getVibration, setVibration, hapticTap } from '../native/feedback';
+import { PixelIcon } from './PixelIcon';
 
-/** „Mehr": Backup/Export, Katalog-Update, Rechtliches (PLAN.md § 5, § 4, § 12). */
+/** „Mehr": Einstellungen, Backup/Export, Katalog-Update, Rechtliches (PLAN.md § 5, § 4, § 12). */
 
 function downloadWeb(filename: string, content: string, type = 'application/json') {
   const blob = new Blob([content], { type });
@@ -75,11 +77,47 @@ async function copyToClipboard(text: string): Promise<boolean> {
 export function MorePanel() {
   return (
     <section className="space-y-3">
+      <SettingsSection />
       <BackupSection />
       <CatalogSection />
       <ScanLogSection />
       <AboutSection />
     </section>
+  );
+}
+
+/** Einstellungen: Vibration beim Scannen (gilt app-weit, siehe native/feedback.ts). */
+function SettingsSection() {
+  const [vibrate, setVibrate] = useState(getVibration());
+
+  useEffect(() => {
+    void initFeedbackPrefs().then(() => setVibrate(getVibration()));
+  }, []);
+
+  function toggle() {
+    const next = !vibrate;
+    setVibration(next);
+    setVibrate(next);
+    if (next) hapticTap(); // gleich spüren, dass es wieder an ist
+  }
+
+  return (
+    <div className="rounded-lg bg-surface p-4">
+      <h2 className="mb-3 font-mono text-lg">Einstellungen</h2>
+      <div className="flex items-center gap-3">
+        <PixelIcon name="vibrate" className={vibrate ? 'text-paper' : 'text-muted'} />
+        <div className="min-w-0 flex-1">
+          <div className="font-mono text-sm">Vibration beim Scannen</div>
+          <div className="text-xs text-muted">
+            Beim Hinzufügen in den Korb und beim Antippen. Den Ton regelst du über die Android-Lautstärke.
+          </div>
+        </div>
+        <button onClick={toggle} aria-pressed={vibrate}
+          className={`shrink-0 px-3 py-1.5 font-mono text-sm ${vibrate ? 'bg-fill text-paper' : 'bg-bg text-muted'}`}>
+          {vibrate ? 'An' : 'Aus'}
+        </button>
+      </div>
+    </div>
   );
 }
 

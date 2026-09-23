@@ -2,6 +2,7 @@ import { useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { CardImage } from './CardImage';
 import { hapticTap } from '../native/feedback';
+import { PixelIcon } from './PixelIcon';
 
 /**
  * Vollbild-Oberfläche über der NATIVEN Kamera (ScryCamera-Plugin). Das Kamerabild
@@ -30,8 +31,6 @@ interface Props {
   onAdd: () => void;
   autoAdd: boolean;
   onToggleAuto: () => void;
-  vibrate: boolean;
-  onToggleVibrate: () => void;
   torchAvailable: boolean;
   torchOn: boolean;
   onToggleTorch: () => void;
@@ -103,15 +102,10 @@ export function NativeScanOverlay(p: Props) {
         <div className="min-w-0 flex-1">{p.setPicker}</div>
         {p.torchAvailable && (
           <button onClick={withTick(p.onToggleTorch)} aria-pressed={p.torchOn} aria-label="Licht"
-            className={`px-2 py-1 text-xs ${p.torchOn ? 'bg-accent text-on-accent' : 'bg-surface text-muted'}`}>
-            🔦
+            className={`px-2 py-1.5 ${p.torchOn ? 'bg-accent text-on-accent' : 'bg-surface text-muted'}`}>
+            <PixelIcon name="torch" />
           </button>
         )}
-        {/* Vibration an/aus (Ton regelt man über die Android-Lautstärke). */}
-        <button onClick={p.onToggleVibrate} aria-pressed={p.vibrate} aria-label="Vibration"
-          className={`px-2 py-1 text-xs ${p.vibrate ? 'bg-surface text-paper' : 'bg-surface text-muted opacity-60'}`}>
-          {p.vibrate ? '📳' : '📴'}
-        </button>
         <button onClick={withTick(p.onToggleAuto)} aria-pressed={p.autoAdd}
           className={`px-2 py-1 text-xs ${p.autoAdd ? 'bg-accent text-on-accent' : 'bg-surface text-muted'}`}>
           Auto-Korb {p.autoAdd ? 'an' : 'aus'}

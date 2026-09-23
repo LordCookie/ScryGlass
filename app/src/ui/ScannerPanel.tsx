@@ -16,7 +16,8 @@ import { NativeScanOverlay } from './NativeScanOverlay';
 import {
   observeFrame, mayAutoAdd, afterAutoAdd, AUTO_BASKET_START, type AutoBasketState,
 } from '../domain/autoBasket';
-import { feedbackAdded, unlockAudio, setVibration } from '../native/feedback';
+import { feedbackAdded, unlockAudio } from '../native/feedback';
+import { PixelIcon } from './PixelIcon';
 import { laplacianVariance, normalizedPoint } from '../domain/focus';
 import { pickBestRead, ocrEffectiveScore, type OcrRead } from '../domain/ocrQuality';
 import {
@@ -262,9 +263,7 @@ export function ScannerPanel() {
 
   // Auto-Korb: Kartenwechsel-Erkennung (Stapel-Scan), siehe domain/autoBasket.ts.
   const autoBasketRef = useRef<AutoBasketState>(AUTO_BASKET_START);
-  // Vibration beim Hinzufügen/Antippen (Ton folgt der Android-Lautstärke). Beide
-  // Schalter (Auto-Korb, Vibration) werden gemerkt.
-  const [vibrate, setVibrate] = useState(true);
+  // Auto-Korb wird gemerkt (Vibration: Einstellung unter „Mehr", native/feedback.ts).
   const prefsTouchedRef = useRef(false);
 
   // Set-Modus: '' = alle Sets. Mitglieder + Hash-Teilmenge des gewählten Sets.
@@ -377,12 +376,10 @@ export function ScannerPanel() {
     );
   }, []);
 
-  // Auto-Korb und Ton wie zuletzt eingestellt (eine schnellere Nutzerwahl gewinnt).
+  // Auto-Korb wie zuletzt eingestellt (eine schnellere Nutzerwahl gewinnt).
   useEffect(() => {
-    void Promise.all([getMeta<boolean>('scanAuto'), getMeta<boolean>('scanVibrate')]).then(([a, v]) => {
-      if (prefsTouchedRef.current) return;
-      if (typeof a === 'boolean') setAutoAdd(a);
-      if (typeof v === 'boolean') setVibrate(v);
+    void getMeta<boolean>('scanAuto').then((a) => {
+      if (!prefsTouchedRef.current && typeof a === 'boolean') setAutoAdd(a);
     });
   }, []);
 
@@ -393,16 +390,6 @@ export function ScannerPanel() {
     void setMeta('scanAuto', on);
   }
 
-  function toggleVibrate(on: boolean) {
-    prefsTouchedRef.current = true;
-    setVibrate(on);
-    void setMeta('scanVibrate', on);
-  }
-
-  // Schalter ans Feedback-Modul geben (gilt auch für die Knopf-Ticks im Overlay).
-  useEffect(() => {
-    setVibration(vibrate);
-  }, [vibrate]);
 
   /** Unscharfes Live-Bild: zählt als Kartenwechsel (Hand in Bewegung) und bricht den Konsens. */
   function noteBlurryFrame() {
@@ -1361,10 +1348,7 @@ export function ScannerPanel() {
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={autoAdd} onChange={(e) => toggleAuto(e.target.checked)} />
               <span>Auto-Korb: erkannte Karten einzeln in den Korb (Karte für Karte hinlegen)</span>
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={vibrate} onChange={(e) => toggleVibrate(e.target.checked)} />
-              <span>Vibration beim Hinzufügen</span>
+
             </label>
           </div>
         )}
@@ -1391,7 +1375,7 @@ export function ScannerPanel() {
               {torchAvailable && !pairing && (
                 <button onClick={() => void toggleTorch()} aria-pressed={torchOn}
                   className={`rounded border px-3 py-1.5 font-mono text-sm ${torchOn ? 'border-accent bg-accent text-on-accent' : 'border-border text-muted hover:border-accent'}`}>
-                  {torchOn ? '🔦 an' : '🔦 aus'}
+                  <PixelIcon name="torch" className="mr-1.5" />{torchOn ? 'Licht an' : 'Licht aus'}
                 </button>
               )}
               <button onClick={stopCamera}
@@ -1615,8 +1599,6 @@ export function ScannerPanel() {
           onAdd={() => { if (matches[0]) addToBasket(matches[0], ocrText); }}
           autoAdd={autoAdd}
           onToggleAuto={() => toggleAuto(!autoAdd)}
-          vibrate={vibrate}
-          onToggleVibrate={() => toggleVibrate(!vibrate)}
           torchAvailable={torchAvailable}
           torchOn={torchOn}
           onToggleTorch={() => void toggleTorch()}

@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
+import { getMeta, setMeta } from '../db/db';
 
 /**
  * Rückmeldung beim Scannen: native Vibration (Capacitor Haptics — die Browser-
@@ -11,11 +12,31 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics';
 
 const native = Capacitor.isNativePlatform();
 let audio: AudioContext | null = null;
-// Vibration abschaltbar (Nutzer-Schalter); der Ton folgt der Android-Lautstärke.
+// Vibration abschaltbar (Einstellung unter „Mehr"); der Ton folgt der Android-Lautstärke.
+const VIBRATE_KEY = 'scanVibrate';
 let vibrationOn = true;
+let prefsLoaded: Promise<void> | null = null;
+let userChanged = false;
 
+/** Gespeicherte Einstellung laden — nur einmal; eine schnellere Nutzerwahl gewinnt. */
+export function initFeedbackPrefs(): Promise<void> {
+  prefsLoaded ??= getMeta<boolean>(VIBRATE_KEY)
+    .then((v) => {
+      if (!userChanged && typeof v === 'boolean') vibrationOn = v;
+    })
+    .catch(() => {});
+  return prefsLoaded;
+}
+
+export function getVibration(): boolean {
+  return vibrationOn;
+}
+
+/** Vibration an/aus schalten und merken. */
 export function setVibration(on: boolean): void {
+  userChanged = true;
   vibrationOn = on;
+  void setMeta(VIBRATE_KEY, on);
 }
 
 /** Audio freischalten — muss aus einer Nutzer-Geste heraus passieren (z. B. Kamera starten). */

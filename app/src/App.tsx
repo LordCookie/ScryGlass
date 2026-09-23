@@ -10,6 +10,7 @@ import { invalidateSearchIndex } from './data/search';
 import { syncHashes, loadHashIndex } from './data/imageHash';
 import { getCachedNextSet, refreshNextSet } from './data/nextSet';
 import { nextSetLabel, type UpcomingSet } from './domain/nextSet';
+import { initFeedbackPrefs } from './native/feedback';
 import { ScannerPanel } from './ui/ScannerPanel';
 import { CollectionView } from './ui/CollectionView';
 import { DecksPanel } from './ui/DecksPanel';
@@ -65,6 +66,8 @@ export default function App() {
   }
 
   useEffect(() => { void runSync(); }, []);
+  // Vibrations-Einstellung (unter „Mehr") gleich beim Start laden — gilt app-weit.
+  useEffect(() => { void initFeedbackPrefs(); }, []);
 
   async function doUpdate() {
     if (!update) return;
