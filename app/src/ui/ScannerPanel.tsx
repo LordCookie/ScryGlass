@@ -442,11 +442,24 @@ export function ScannerPanel() {
   }, [nativeMode, nativeOn]);
 
   // Fenstergröße/Drehung ändert die Rahmenlage → dem nativen Ausschnitt mitteilen.
+  // Erst messen, wenn das (evtl. auf Querformat umgebaute) Overlay gezeichnet ist;
+  // der ResizeObserver fängt zusätzlich jede Größenänderung des Rahmens selbst.
   useEffect(() => {
     if (!nativeOn) return;
-    const h = () => sendReticle();
+    let id = 0;
+    const h = () => {
+      cancelAnimationFrame(id);
+      id = requestAnimationFrame(() => { id = requestAnimationFrame(() => sendReticle()); });
+    };
     window.addEventListener('resize', h);
-    return () => window.removeEventListener('resize', h);
+    const el = reticleElRef.current;
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(h) : null;
+    if (el) ro?.observe(el);
+    return () => {
+      cancelAnimationFrame(id);
+      window.removeEventListener('resize', h);
+      ro?.disconnect();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nativeOn]);
 

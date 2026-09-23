@@ -1,4 +1,4 @@
-import { useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { CardImage } from './CardImage';
 import { hapticTap } from '../native/feedback';
@@ -17,6 +17,8 @@ import { PixelIcon } from './PixelIcon';
  *
  * Feste Leistenhöhen (oben/unten) → der Scan-Rahmen bleibt stehen, auch wenn unten
  * ein Treffer erscheint. Sonst stimmte der native Ausschnitt nicht mehr.
+ * Querformat: Leisten wandern in eine feste Seitenleiste rechts, das Kamerafenster
+ * bekommt die volle Höhe (sonst bliebe für die Karte nur ein Streifen übrig).
  */
 
 export interface OverlayMatch {
@@ -53,9 +55,24 @@ interface Props {
 
 const TOP_H = 'h-14';
 const BOTTOM_H = 'h-40';
+/** Seitenleiste im Querformat (Klasse + gleiche Breite als CSS-Länge). */
+const SIDE_W = 'w-64';
+const SIDE_W_CSS = '16rem';
 const SURE = 0.85;
 
 type FrameState = 'search' | 'sure' | 'unsure';
+
+/** Querformat = breiter als hoch; folgt Drehung/Größenänderung live. */
+function useLandscape(): boolean {
+  const get = () => window.innerWidth > window.innerHeight;
+  const [landscape, setLandscape] = useState(get);
+  useEffect(() => {
+    const h = () => setLandscape(get());
+    window.addEventListener('resize', h);
+    return () => window.removeEventListener('resize', h);
+  }, []);
+  return landscape;
+}
 
 /** Vier Pixelecken (L-Form) in der Zustandsfarbe; pulsieren beim Suchen (A2).
  *  Farbe steht mit im Inline-Border — die Kurzschreibweise würde eine Farbklasse sonst
@@ -76,6 +93,7 @@ function Corners({ color, pulse }: { color: 'ok' | 'warn' | 'paper'; pulse: bool
 export function NativeScanOverlay(p: Props) {
   const [fx, setFx] = useState<{ x: number; y: number; k: number } | null>(null);
   const qr = p.mode === 'qr';
+  const landscape = useLandscape();
 
   /** Knopf mit leichtem Vibrations-Tick (spürbar, dass der Druck ankam). */
   const withTick = (fn: () => void) => () => {
@@ -104,23 +122,83 @@ export function NativeScanOverlay(p: Props) {
           ? 'Lese…'
           : 'Kartenname in den oberen Balken';
 
+  // Platz fürs Kamerafenster: Hochformat = Höhe minus Leisten (3.5rem + 10rem),
+  // Querformat = volle Höhe, Breite minus Seitenleiste.
+  const availW = landscape ? `(100vw - ${SIDE_W_CSS})` : '100vw';
+  const availH = landscape ? '100vh' : '(100vh - 13.5rem)';
+  const reticleStyle: React.CSSProperties = qr
+    ? { width: `min(calc(${availW} * 0.7), calc(${availH} * 0.8))`, aspectRatio: '1 / 1', boxShadow: '0 0 0 9999px rgb(var(--c-bg) / 0.55)' }
+    : {
+        // Kartenformat; 12 % Luft in der Höhe für die Statuszeile.
+        width: `min(calc(${availW} * 0.8), calc(${availH} * 0.7163 * 0.88))`,
+        aspectRatio: '745 / 1040',
+        boxShadow: '0 0 0 9999px rgb(var(--c-bg) / 0.55)', // folgt dem Farbschema
+      };
+
+  const closeBtn = (
+    <button onClick={withTick(p.onClose)} aria-label="Scanner schließen" className="px-2 py-1 text-lg text-paper">✕</button>
+  );
+  const title = (
+    <div className="min-w-0 flex-1">
+      {qr ? <span className="font-hud text-[9px] text-paper">GERÄT VERBINDEN</span> : p.setPicker}
+    </div>
+  );
+  const torchBtn = p.torchAvailable && (
+    <button onClick={withTick(p.onToggleTorch)} aria-pressed={p.torchOn} aria-label="Licht"
+      className={`shrink-0 px-2 py-1.5 ${p.torchOn ? 'bg-accent text-on-accent' : 'bg-surface text-muted'}`}>
+      <PixelIcon name="torch" />
+    </button>
+  );
+  const autoBtn = !qr && (
+    <button onClick={withTick(p.onToggleAuto)} aria-pressed={p.autoAdd}
+      className={`shrink-0 px-2 py-1 text-xs ${p.autoAdd ? 'bg-accent text-on-accent' : 'bg-surface text-muted'}`}>
+      Auto-Korb {p.autoAdd ? 'an' : 'aus'}
+    </button>
+  );
+  const toast = p.toast && (
+    <div className="mb-1 flex items-center gap-2 bg-ok/15 px-2 py-0.5 text-xs text-ok">
+      <span className="min-w-0 flex-1 truncate">✓ {p.toast} in den Korb</span>
+      <button onClick={withTick(p.onUndoToast)} className="shrink-0 px-1 text-paper underline">Rückgängig</button>
+    </div>
+  );
+  const matchInfo = p.best && (
+    <>
+      <CardImage scryfallId={p.best.scryfallId} name={p.best.name} size="small" className="h-20 w-[3.6rem] shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-text">{p.best.name}</div>
+        <div className="truncate text-[10px] text-muted">{p.best.typeLine}</div>
+        <div className="text-[10px] text-muted">
+          {p.best.method} · <span className="font-hud text-[9px] text-text">{Math.round(p.best.score * 100)}%</span>
+        </div>
+      </div>
+    </>
+  );
+  const addBtn = <button onClick={p.onAdd} className="shrink-0 bg-accent px-3 py-2 text-on-accent">＋ Korb</button>;
+  const qrHelp = (
+    <p className="pt-3 text-center text-xs text-muted">
+      Auf dem anderen Gerät: Mehr → Gemeinsam scannen → Empfang starten. Dann dessen QR-Code hierher halten.
+    </p>
+  );
+  const noMatch = <p className="pt-3 text-center text-xs text-muted">Noch kein Treffer.</p>;
+  const autoHint = !qr && p.autoAdd ? 'Auto-Korb an · Karte für Karte hinlegen' : '';
+  const doneBtn = (
+    <button onClick={withTick(p.onClose)} className="shrink-0 bg-surface px-3 py-1 text-xs text-paper">
+      {qr ? 'Abbrechen' : `Korb (${p.basketCount}) · Fertig`}
+    </button>
+  );
+
   return createPortal(
     <div className="scan-overlay fixed inset-0 z-50 font-mono text-sm text-text">
       {/* Kamerafenster mit Rahmen; außen abgedunkelt (box-shadow-Aussparung). */}
-      <div className="absolute inset-x-0 top-14 bottom-40" onClick={tap}>
+      <div
+        className={landscape ? 'absolute inset-y-0 left-0' : 'absolute inset-x-0 top-14 bottom-40'}
+        style={landscape ? { right: SIDE_W_CSS } : undefined}
+        onClick={tap}
+      >
         <div
           ref={p.reticleRef}
           className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-          style={
-            qr
-              ? { width: 'min(70vw, calc((100vh - 13.5rem) * 0.8))', aspectRatio: '1 / 1', boxShadow: '0 0 0 9999px rgb(var(--c-bg) / 0.55)' }
-              : {
-                  // Höhe = Fensterhöhe minus Leisten (3.5rem + 10rem), 12 % Luft für die Statuszeile.
-                  width: 'min(80vw, calc((100vh - 13.5rem) * 0.7163 * 0.88))',
-                  aspectRatio: '745 / 1040',
-                  boxShadow: '0 0 0 9999px rgb(var(--c-bg) / 0.55)', // folgt dem Farbschema
-                }
-          }
+          style={reticleStyle}
         >
           {/* Kartenkontur: 1 Design-Pixel, dezent */}
           <div className="absolute inset-0" style={{ border: 'var(--px) solid rgb(var(--c-paper) / 0.35)' }} />
@@ -167,67 +245,63 @@ export function NativeScanOverlay(p: Props) {
         />
       )}
 
-      {/* Obere Leiste */}
-      <div className={`absolute inset-x-0 top-0 flex ${TOP_H} items-center gap-2 bg-bg/90 px-3`}>
-        <button onClick={withTick(p.onClose)} aria-label="Scanner schließen" className="px-2 py-1 text-lg text-paper">✕</button>
-        <div className="min-w-0 flex-1">
-          {qr ? <span className="font-hud text-[9px] text-paper">GERÄT VERBINDEN</span> : p.setPicker}
-        </div>
-        {p.torchAvailable && (
-          <button onClick={withTick(p.onToggleTorch)} aria-pressed={p.torchOn} aria-label="Licht"
-            className={`px-2 py-1.5 ${p.torchOn ? 'bg-accent text-on-accent' : 'bg-surface text-muted'}`}>
-            <PixelIcon name="torch" />
-          </button>
-        )}
-        {!qr && (
-          <button onClick={withTick(p.onToggleAuto)} aria-pressed={p.autoAdd}
-            className={`px-2 py-1 text-xs ${p.autoAdd ? 'bg-accent text-on-accent' : 'bg-surface text-muted'}`}>
-            Auto-Korb {p.autoAdd ? 'an' : 'aus'}
-          </button>
-        )}
-      </div>
-
-      {/* Untere Leiste: aktueller Treffer, Rückgängig-Hinweis, Korb */}
-      <div className={`absolute inset-x-0 bottom-0 ${BOTTOM_H} bg-bg/95 px-3 py-2`}>
-        {qr ? (
-          <p className="pt-3 text-center text-xs text-muted">
-            Auf dem anderen Gerät: Mehr → Gemeinsam scannen → Empfang starten. Dann dessen QR-Code hierher halten.
-          </p>
-        ) : (
-          <>
-            {p.toast && (
-              <div className="mb-1 flex items-center gap-2 bg-ok/15 px-2 py-0.5 text-xs text-ok">
-                <span className="min-w-0 flex-1 truncate">✓ {p.toast} in den Korb</span>
-                <button onClick={withTick(p.onUndoToast)} className="shrink-0 px-1 text-paper underline">Rückgängig</button>
-              </div>
-            )}
-            {p.best ? (
-              <div className="flex items-center gap-2">
-                <CardImage scryfallId={p.best.scryfallId} name={p.best.name} size="small" className="h-20 w-[3.6rem] shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-text">{p.best.name}</div>
-                  <div className="truncate text-[10px] text-muted">{p.best.typeLine}</div>
-                  <div className="text-[10px] text-muted">
-                    {p.best.method} · <span className="font-hud text-[9px] text-text">{Math.round(p.best.score * 100)}%</span>
+      {landscape ? (
+        /* Querformat: alle Bedienelemente in einer Seitenleiste rechts. */
+        <div className={`absolute inset-y-0 right-0 ${SIDE_W} flex flex-col gap-2 bg-bg/95 py-2 pl-3`}
+          style={{ paddingRight: 'max(0.75rem, env(safe-area-inset-right))' }}>
+          <div className="flex items-center gap-2">
+            {closeBtn}
+            {title}
+            {torchBtn}
+          </div>
+          {autoBtn && <div className="flex">{autoBtn}</div>}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {qr ? qrHelp : (
+              <>
+                {toast}
+                {p.best ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">{matchInfo}</div>
+                    <div className="flex">{addBtn}</div>
                   </div>
-                </div>
-                <button onClick={p.onAdd} className="shrink-0 bg-accent px-3 py-2 text-on-accent">＋ Korb</button>
-              </div>
-            ) : (
-              <p className="pt-3 text-center text-xs text-muted">Noch kein Treffer.</p>
+                ) : noMatch}
+              </>
             )}
-          </>
-        )}
-        {/* Fußzeile: Hinweis kürzt sich, statt unter den Knopf zu laufen. */}
-        <div className="absolute inset-x-3 bottom-2 flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate text-[10px] text-accent">
-            {!qr && p.autoAdd ? 'Auto-Korb an · Karte für Karte hinlegen' : ''}
-          </span>
-          <button onClick={withTick(p.onClose)} className="shrink-0 bg-surface px-3 py-1 text-xs text-paper">
-            {qr ? 'Abbrechen' : `Korb (${p.basketCount}) · Fertig`}
-          </button>
+          </div>
+          {autoHint && <span className="truncate text-[10px] text-accent">{autoHint}</span>}
+          <div className="flex">{doneBtn}</div>
         </div>
-      </div>
+      ) : (
+        <>
+          {/* Obere Leiste */}
+          <div className={`absolute inset-x-0 top-0 flex ${TOP_H} items-center gap-2 bg-bg/90 px-3`}>
+            {closeBtn}
+            {title}
+            {torchBtn}
+            {autoBtn}
+          </div>
+
+          {/* Untere Leiste: aktueller Treffer, Rückgängig-Hinweis, Korb */}
+          <div className={`absolute inset-x-0 bottom-0 ${BOTTOM_H} bg-bg/95 px-3 py-2`}>
+            {qr ? qrHelp : (
+              <>
+                {toast}
+                {p.best ? (
+                  <div className="flex items-center gap-2">
+                    {matchInfo}
+                    {addBtn}
+                  </div>
+                ) : noMatch}
+              </>
+            )}
+            {/* Fußzeile: Hinweis kürzt sich, statt unter den Knopf zu laufen. */}
+            <div className="absolute inset-x-3 bottom-2 flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-[10px] text-accent">{autoHint}</span>
+              {doneBtn}
+            </div>
+          </div>
+        </>
+      )}
     </div>,
     document.body,
   );

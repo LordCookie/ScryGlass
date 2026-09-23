@@ -64,6 +64,10 @@ class ScryCameraPlugin : Plugin() {
     private var analysisExecutor: ExecutorService? = null
     private var recognizer: TextRecognizer? = null
     private var layoutListener: View.OnLayoutChangeListener? = null
+    // Use-Cases merken: bei Drehung (Activity wird NICHT neu erzeugt, configChanges)
+    // muss ihnen die neue Displaylage mitgeteilt werden — sonst liegt das Analysebild quer.
+    private var previewUseCase: Preview? = null
+    private var analysisUseCase: ImageAnalysis? = null
 
     // Reticle normiert auf die WebView (0..1) — von JS gesetzt.
     @Volatile private var retL = 0.1f
@@ -154,6 +158,9 @@ class ScryCameraPlugin : Plugin() {
                             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                             .build()
                         analysis.setAnalyzer(executor) { proxy -> analyze(proxy) }
+                        previewUseCase = preview
+                        analysisUseCase = analysis
+                        updateGeometry()
                         prov.unbindAll()
                         val cam = prov.bindToLifecycle(activity, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
                         camera = cam
@@ -267,6 +274,11 @@ class ScryCameraPlugin : Plugin() {
         wvH = wv.height.toFloat()
         viewW = pv.width
         viewH = pv.height
+        // Hoch-/Querformat: Analysebild „aufrecht" relativ zum Display halten.
+        pv.display?.rotation?.let { rot ->
+            previewUseCase?.targetRotation = rot
+            analysisUseCase?.targetRotation = rot
+        }
     }
 
     private fun teardown() {
@@ -277,6 +289,8 @@ class ScryCameraPlugin : Plugin() {
         }
         provider = null
         camera = null
+        previewUseCase = null
+        analysisUseCase = null
         val listener = layoutListener
         previewView?.let { pv ->
             if (listener != null) pv.removeOnLayoutChangeListener(listener)
