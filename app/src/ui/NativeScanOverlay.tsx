@@ -1,6 +1,7 @@
 import { useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { CardImage } from './CardImage';
+import { hapticTap } from '../native/feedback';
 
 /**
  * Vollbild-Oberfläche über der NATIVEN Kamera (ScryCamera-Plugin). Das Kamerabild
@@ -29,6 +30,8 @@ interface Props {
   onAdd: () => void;
   autoAdd: boolean;
   onToggleAuto: () => void;
+  sound: boolean;
+  onToggleSound: () => void;
   torchAvailable: boolean;
   torchOn: boolean;
   onToggleTorch: () => void;
@@ -44,7 +47,14 @@ const BOTTOM_H = 'h-40';
 export function NativeScanOverlay(p: Props) {
   const [fx, setFx] = useState<{ x: number; y: number; k: number } | null>(null);
 
+  /** Knopf mit leichtem Vibrations-Tick (spürbar, dass der Druck ankam). */
+  const withTick = (fn: () => void) => () => {
+    hapticTap();
+    fn();
+  };
+
   function tap(e: React.MouseEvent) {
+    hapticTap();
     p.onTap(e.clientX / (window.innerWidth || 1), e.clientY / (window.innerHeight || 1));
     const k = Date.now();
     setFx({ x: e.clientX, y: e.clientY, k });
@@ -89,17 +99,21 @@ export function NativeScanOverlay(p: Props) {
 
       {/* Obere Leiste */}
       <div className={`absolute inset-x-0 top-0 flex ${TOP_H} items-center gap-2 bg-bg/90 px-3`}>
-        <button onClick={p.onClose} aria-label="Scanner schließen" className="px-2 py-1 text-lg text-paper">✕</button>
+        <button onClick={withTick(p.onClose)} aria-label="Scanner schließen" className="px-2 py-1 text-lg text-paper">✕</button>
         <div className="min-w-0 flex-1">{p.setPicker}</div>
         {p.torchAvailable && (
-          <button onClick={p.onToggleTorch} aria-pressed={p.torchOn}
+          <button onClick={withTick(p.onToggleTorch)} aria-pressed={p.torchOn} aria-label="Licht"
             className={`px-2 py-1 text-xs ${p.torchOn ? 'bg-accent text-on-accent' : 'bg-surface text-muted'}`}>
             🔦
           </button>
         )}
-        <button onClick={p.onToggleAuto} aria-pressed={p.autoAdd}
+        <button onClick={withTick(p.onToggleSound)} aria-pressed={p.sound} aria-label="Ton"
+          className={`px-2 py-1 text-xs ${p.sound ? 'bg-surface text-paper' : 'bg-surface text-muted'}`}>
+          {p.sound ? '🔊' : '🔇'}
+        </button>
+        <button onClick={withTick(p.onToggleAuto)} aria-pressed={p.autoAdd}
           className={`px-2 py-1 text-xs ${p.autoAdd ? 'bg-accent text-on-accent' : 'bg-surface text-muted'}`}>
-          Auto
+          Auto-Korb {p.autoAdd ? 'an' : 'aus'}
         </button>
       </div>
 
@@ -108,7 +122,7 @@ export function NativeScanOverlay(p: Props) {
         {p.toast && (
           <div className="mb-1 flex items-center gap-2 bg-ok/15 px-2 py-0.5 text-xs text-ok">
             <span className="min-w-0 flex-1 truncate">✓ {p.toast} in den Korb</span>
-            <button onClick={p.onUndoToast} className="shrink-0 px-1 text-paper underline">Rückgängig</button>
+            <button onClick={withTick(p.onUndoToast)} className="shrink-0 px-1 text-paper underline">Rückgängig</button>
           </div>
         )}
         {p.best ? (
@@ -126,7 +140,10 @@ export function NativeScanOverlay(p: Props) {
         ) : (
           <p className="pt-3 text-center text-xs text-muted">Noch kein Treffer.</p>
         )}
-        <button onClick={p.onClose} className="absolute bottom-2 right-3 bg-surface px-3 py-1 text-xs text-paper">
+        {p.autoAdd && (
+          <p className="absolute bottom-3 left-3 text-[10px] text-accent">Auto-Korb an · nächste Karte einfach drauflegen</p>
+        )}
+        <button onClick={withTick(p.onClose)} className="absolute bottom-2 right-3 bg-surface px-3 py-1 text-xs text-paper">
           Korb ({p.basketCount}) · Fertig
         </button>
       </div>

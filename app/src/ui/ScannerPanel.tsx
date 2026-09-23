@@ -13,6 +13,10 @@ import { findPrinting, setMembers, catalogSetCodes, type SetMembers } from '../d
 import { ScryCamera, hasNativeCamera, reticleOf, type NativeFrame } from '../native/scryCamera';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { NativeScanOverlay } from './NativeScanOverlay';
+import {
+  observeFrame, mayAutoAdd, afterAutoAdd, AUTO_BASKET_START, type AutoBasketState,
+} from '../domain/autoBasket';
+import { feedbackAdded, unlockAudio } from '../native/feedback';
 import { laplacianVariance, normalizedPoint } from '../domain/focus';
 import { pickBestRead, ocrEffectiveScore, type OcrRead } from '../domain/ocrQuality';
 import {
@@ -253,7 +257,11 @@ export function ScannerPanel() {
   const [manualQuery, setManualQuery] = useState('');
   const [manualResults, setManualResults] = useState<Card[]>([]);
 
-  const lastAutoRef = useRef<string | null>(null);
+  // Auto-Korb: Kartenwechsel-Erkennung (Stapel-Scan), siehe domain/autoBasket.ts.
+  const autoBasketRef = useRef<AutoBasketState>(AUTO_BASKET_START);
+  // Ton beim Hinzufügen (Vibration kommt immer). Beide Schalter werden gemerkt.
+  const [sound, setSound] = useState(true);
+  const prefsTouchedRef = useRef(false);
 
   // Set-Modus: '' = alle Sets. Mitglieder + Hash-Teilmenge des gewählten Sets.
   const [scanSet, setScanSet] = useState('');
@@ -361,6 +369,34 @@ export function ScannerPanel() {
       setSetOptions(setPickerOptions(codes, infos)),
     );
   }, []);
+
+  // Auto-Korb und Ton wie zuletzt eingestellt (eine schnellere Nutzerwahl gewinnt).
+  useEffect(() => {
+    void Promise.all([getMeta<boolean>('scanAuto'), getMeta<boolean>('scanSound')]).then(([a, s]) => {
+      if (prefsTouchedRef.current) return;
+      if (typeof a === 'boolean') setAutoAdd(a);
+      if (typeof s === 'boolean') setSound(s);
+    });
+  }, []);
+
+  function toggleAuto(on: boolean) {
+    prefsTouchedRef.current = true;
+    setAutoAdd(on);
+    autoBasketRef.current = AUTO_BASKET_START; // frischer Start: die Karte im Bild darf sofort
+    void setMeta('scanAuto', on);
+  }
+
+  function toggleSound(on: boolean) {
+    prefsTouchedRef.current = true;
+    setSound(on);
+    void setMeta('scanSound', on);
+  }
+
+  /** Unscharfes Live-Bild: zählt als Kartenwechsel (Hand in Bewegung) und bricht den Konsens. */
+  function noteBlurryFrame() {
+    autoBasketRef.current = observeFrame(autoBasketRef.current, { blurry: true, hasCard: false });
+    consensusRef.current = { oracleId: '', count: 0 };
+  }
 
   /** Nur eine echte Auswahl des Nutzers wird gemerkt (nicht der Startzustand). */
   function chooseSet(code: string) {
@@ -707,17 +743,16 @@ export function ScannerPanel() {
     }
     const required = inp.mode === 'live' && !fused.agree ? AUTO_CONSENSUS : 1;
     const consensusOk = fused.confident && consensusRef.current.count >= required;
-    if (autoAdd && best && consensusOk) {
-      if (lastAutoRef.current !== best.oracleId) {
-        lastAutoRef.current = best.oracleId;
-        const entryId = addToBasket(best, text, true);
-        setAutoToast({ name: best.card.name, entryId });
-        window.clearTimeout(autoToastTimer.current);
-        // Länger sichtbar als früher, damit „Rückgängig" gut erreichbar ist.
-        autoToastTimer.current = window.setTimeout(() => setAutoToast(null), 4000);
-      }
-    } else if (!best) {
-      lastAutoRef.current = null;
+    // Auto-Korb (Stapel-Scan): Bild verbuchen; eine andere Karte darf sofort, dieselbe
+    // erst nach einem echten Wechsel (Hand/Leere) — sonst würde die liegende Karte
+    // bei jedem Bild erneut gezählt.
+    autoBasketRef.current = observeFrame(autoBasketRef.current, { blurry: false, hasCard: !!best });
+    if (autoAdd && best && consensusOk && mayAutoAdd(autoBasketRef.current, best.oracleId)) {
+      const entryId = addToBasket(best, text, true); // setzt den Kartenwechsel-Zustand
+      setAutoToast({ name: best.card.name, entryId });
+      window.clearTimeout(autoToastTimer.current);
+      // Länger sichtbar als früher, damit „Rückgängig" gut erreichbar ist.
+      autoToastTimer.current = window.setTimeout(() => setAutoToast(null), 4000);
     }
   }
 
@@ -740,7 +775,10 @@ export function ScannerPanel() {
     const g = regionGray(128);
     if (g) sharpness = laplacianVariance(g.gray, g.w, g.h);
     setBlurry(sharpness > 0 && sharpness < SHARP_MIN);
-    if (mode === 'live' && g && sharpness < SHARP_MIN) return;
+    if (mode === 'live' && g && sharpness < SHARP_MIN) {
+      noteBlurryFrame();
+      return;
+    }
     // Titel in zwei Varianten (Graustufe + adaptives Schwarzweiß) — die Lesung mit der
     // höheren Tesseract-Sicherheit gewinnt; Ganzkarte als Sicherheitsnetz.
     const TITLE: [number, number, number, number] = [0.04, 0.045, 0.92, 0.13];
@@ -782,6 +820,7 @@ export function ScannerPanel() {
   async function onNativeFrame(f: NativeFrame) {
     if (f.blurry) {
       setBlurry(true);
+      noteBlurryFrame();
       return;
     }
     setBlurry(false);
@@ -857,6 +896,7 @@ export function ScannerPanel() {
 
   /** Scanner starten: in der App die native Kamera (CameraX + ML Kit), sonst die Web-Kamera. */
   function startScanner() {
+    unlockAudio(); // Ton darf nur nach einer Nutzer-Geste starten — die ist genau hier
     if (hasNativeCamera()) void startNative();
     else void startWebCamera();
   }
@@ -895,7 +935,7 @@ export function ScannerPanel() {
     }
     setTorchAvailable(false);
     setTorchOn(false);
-    lastAutoRef.current = null;
+    autoBasketRef.current = AUTO_BASKET_START;
     consensusRef.current = { oracleId: '', count: 0 };
     setBlurry(false);
     setAutoToast(null);
@@ -957,7 +997,7 @@ export function ScannerPanel() {
     setTorchOn(false);
     setPairing(false);
     lastThumbRef.current = null;
-    lastAutoRef.current = null;
+    autoBasketRef.current = AUTO_BASKET_START;
     consensusRef.current = { oracleId: '', count: 0 };
     setBlurry(false);
     setFocusFx(null);
@@ -1021,6 +1061,9 @@ export function ScannerPanel() {
    *  Gibt die Verlaufs-id zurück (für Rückgängig). */
   function addToBasket(m: ScanMatch, ocrRaw: string, auto = false): number {
     const entryId = ++historyIdRef.current;
+    // Egal ob automatisch oder per Knopf: dieselbe liegende Karte erst nach einem
+    // Kartenwechsel wieder automatisch zählen (kein Doppel durch Knopf + Auto-Korb).
+    autoBasketRef.current = afterAutoAdd(m.oracleId);
     // Fixture protokollieren (§ 5): der bestätigte Treffer ist die Ground Truth.
     const via = m.method.startsWith('bild') ? 'bild' : m.method === 'manuell' ? 'manuell' : 'ocr';
     const ls = lastScanRef.current;
@@ -1071,7 +1114,8 @@ export function ScannerPanel() {
     });
     setAdded(0);
     setSendState('idle');
-    if (typeof navigator.vibrate === 'function') navigator.vibrate(20);
+    // Spürbare Rückmeldung (native Vibration) + optional kurzer Ton — auch beim Antippen.
+    feedbackAdded(sound);
     return entryId;
   }
 
@@ -1298,8 +1342,12 @@ export function ScannerPanel() {
               <span>Live-Erkennung (Dauer-/Bulk-Scan)</span>
             </label>
             <label className="flex items-center gap-2">
-              <input type="checkbox" checked={autoAdd} onChange={(e) => setAutoAdd(e.target.checked)} />
-              <span>Sicheren Treffer automatisch in den Korb</span>
+              <input type="checkbox" checked={autoAdd} onChange={(e) => toggleAuto(e.target.checked)} />
+              <span>Auto-Korb: erkannte Karten einzeln in den Korb (Karte für Karte hinlegen)</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={sound} onChange={(e) => toggleSound(e.target.checked)} />
+              <span>Ton beim Hinzufügen (Vibration kommt immer)</span>
             </label>
           </div>
         )}
@@ -1549,7 +1597,9 @@ export function ScannerPanel() {
           }
           onAdd={() => { if (matches[0]) addToBasket(matches[0], ocrText); }}
           autoAdd={autoAdd}
-          onToggleAuto={() => setAutoAdd((a) => !a)}
+          onToggleAuto={() => toggleAuto(!autoAdd)}
+          sound={sound}
+          onToggleSound={() => toggleSound(!sound)}
           torchAvailable={torchAvailable}
           torchOn={torchOn}
           onToggleTorch={() => void toggleTorch()}
