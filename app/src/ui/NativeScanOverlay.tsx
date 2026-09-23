@@ -30,8 +30,8 @@ interface Props {
   onAdd: () => void;
   autoAdd: boolean;
   onToggleAuto: () => void;
-  sound: boolean;
-  onToggleSound: () => void;
+  vibrate: boolean;
+  onToggleVibrate: () => void;
   torchAvailable: boolean;
   torchOn: boolean;
   onToggleTorch: () => void;
@@ -107,9 +107,10 @@ export function NativeScanOverlay(p: Props) {
             🔦
           </button>
         )}
-        <button onClick={withTick(p.onToggleSound)} aria-pressed={p.sound} aria-label="Ton"
-          className={`px-2 py-1 text-xs ${p.sound ? 'bg-surface text-paper' : 'bg-surface text-muted'}`}>
-          {p.sound ? '🔊' : '🔇'}
+        {/* Vibration an/aus (Ton regelt man über die Android-Lautstärke). */}
+        <button onClick={p.onToggleVibrate} aria-pressed={p.vibrate} aria-label="Vibration"
+          className={`px-2 py-1 text-xs ${p.vibrate ? 'bg-surface text-paper' : 'bg-surface text-muted opacity-60'}`}>
+          {p.vibrate ? '📳' : '📴'}
         </button>
         <button onClick={withTick(p.onToggleAuto)} aria-pressed={p.autoAdd}
           className={`px-2 py-1 text-xs ${p.autoAdd ? 'bg-accent text-on-accent' : 'bg-surface text-muted'}`}>

@@ -16,7 +16,7 @@ import { NativeScanOverlay } from './NativeScanOverlay';
 import {
   observeFrame, mayAutoAdd, afterAutoAdd, AUTO_BASKET_START, type AutoBasketState,
 } from '../domain/autoBasket';
-import { feedbackAdded, unlockAudio } from '../native/feedback';
+import { feedbackAdded, unlockAudio, setVibration } from '../native/feedback';
 import { laplacianVariance, normalizedPoint } from '../domain/focus';
 import { pickBestRead, ocrEffectiveScore, type OcrRead } from '../domain/ocrQuality';
 import {
@@ -215,6 +215,9 @@ export function ScannerPanel() {
   const busyRef = useRef(false);
 
   const [workerReady, setWorkerReady] = useState(false);
+  // Tesseract nur für die Browser-Kamera: in der App liest ML Kit, dann wird es erst
+  // geladen, wenn doch die Browser-Kamera läuft (QR-Pairing, Rückfall).
+  const [needOcr, setNeedOcr] = useState(() => !hasNativeCamera());
   const [camOn, setCamOn] = useState(false);
   const [camBoot, setCamBoot] = useState(false); // Pixel-„Power-on" beim Start
   const [camError, setCamError] = useState<string | null>(null);
@@ -259,8 +262,9 @@ export function ScannerPanel() {
 
   // Auto-Korb: Kartenwechsel-Erkennung (Stapel-Scan), siehe domain/autoBasket.ts.
   const autoBasketRef = useRef<AutoBasketState>(AUTO_BASKET_START);
-  // Ton beim Hinzufügen (Vibration kommt immer). Beide Schalter werden gemerkt.
-  const [sound, setSound] = useState(true);
+  // Vibration beim Hinzufügen/Antippen (Ton folgt der Android-Lautstärke). Beide
+  // Schalter (Auto-Korb, Vibration) werden gemerkt.
+  const [vibrate, setVibrate] = useState(true);
   const prefsTouchedRef = useRef(false);
 
   // Set-Modus: '' = alle Sets. Mitglieder + Hash-Teilmenge des gewählten Sets.
@@ -299,6 +303,7 @@ export function ScannerPanel() {
 
   // OCR-Worker-Pool laden (dynamischer Import → eigener Chunk, schneller App-Start).
   useEffect(() => {
+    if (!needOcr) return;
     let alive = true;
     void (async () => {
       const { createWorker, createScheduler, PSM } = await import('tesseract.js');
@@ -332,9 +337,11 @@ export function ScannerPanel() {
       alive = false;
       void schedulerRef.current?.terminate();
       schedulerRef.current = null;
-      streamRef.current?.getTracks().forEach((t) => t.stop());
     };
-  }, []);
+  }, [needOcr]);
+
+  // Browser-Kamera beim Verlassen des Scanners stoppen.
+  useEffect(() => () => streamRef.current?.getTracks().forEach((t) => t.stop()), []);
 
   // Gemerktes Ziel bei verlorener Verbindung zurücksetzen.
   useEffect(() => {
@@ -372,10 +379,10 @@ export function ScannerPanel() {
 
   // Auto-Korb und Ton wie zuletzt eingestellt (eine schnellere Nutzerwahl gewinnt).
   useEffect(() => {
-    void Promise.all([getMeta<boolean>('scanAuto'), getMeta<boolean>('scanSound')]).then(([a, s]) => {
+    void Promise.all([getMeta<boolean>('scanAuto'), getMeta<boolean>('scanVibrate')]).then(([a, v]) => {
       if (prefsTouchedRef.current) return;
       if (typeof a === 'boolean') setAutoAdd(a);
-      if (typeof s === 'boolean') setSound(s);
+      if (typeof v === 'boolean') setVibrate(v);
     });
   }, []);
 
@@ -386,11 +393,16 @@ export function ScannerPanel() {
     void setMeta('scanAuto', on);
   }
 
-  function toggleSound(on: boolean) {
+  function toggleVibrate(on: boolean) {
     prefsTouchedRef.current = true;
-    setSound(on);
-    void setMeta('scanSound', on);
+    setVibrate(on);
+    void setMeta('scanVibrate', on);
   }
+
+  // Schalter ans Feedback-Modul geben (gilt auch für die Knopf-Ticks im Overlay).
+  useEffect(() => {
+    setVibration(vibrate);
+  }, [vibrate]);
 
   /** Unscharfes Live-Bild: zählt als Kartenwechsel (Hand in Bewegung) und bricht den Konsens. */
   function noteBlurryFrame() {
@@ -948,6 +960,7 @@ export function ScannerPanel() {
   }
 
   async function startWebCamera() {
+    setNeedOcr(true);
     setCamError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -1115,7 +1128,7 @@ export function ScannerPanel() {
     setAdded(0);
     setSendState('idle');
     // Spürbare Rückmeldung (native Vibration) + optional kurzer Ton — auch beim Antippen.
-    feedbackAdded(sound);
+    feedbackAdded();
     return entryId;
   }
 
@@ -1286,9 +1299,14 @@ export function ScannerPanel() {
         )}
         {pairMsg && <p className="mb-2 font-mono text-xs text-muted">{pairMsg}</p>}
 
-        <div className="relative overflow-hidden rounded-md bg-black">
+        {/* Kamerabild der Browser-Kamera — nur sichtbar, solange sie läuft (der Knopf
+            „Kamera starten" reicht; die App nutzt ohnehin das native Vollbild-Overlay).
+            Das <video> bleibt im DOM, weil getUserMedia es beim Start braucht. */}
+        <div className={`relative overflow-hidden rounded-md bg-black ${camOn ? '' : 'hidden'}`}>
           <video
             ref={videoRef}
+            // leeres Poster statt des grauen WebView-„Play"-Platzhalters
+            poster="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
             playsInline
             muted
             onLoadedMetadata={(e) => setVdim({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })}
@@ -1318,7 +1336,6 @@ export function ScannerPanel() {
             </div>
           )}
           {camBoot && <div className="cam-boot" />}
-          {!camOn && <div className="flex h-40 items-center justify-center text-sm text-muted">Kamera aus</div>}
         </div>
 
         {camOn && !pairing && (
@@ -1346,8 +1363,8 @@ export function ScannerPanel() {
               <span>Auto-Korb: erkannte Karten einzeln in den Korb (Karte für Karte hinlegen)</span>
             </label>
             <label className="flex items-center gap-2">
-              <input type="checkbox" checked={sound} onChange={(e) => toggleSound(e.target.checked)} />
-              <span>Ton beim Hinzufügen (Vibration kommt immer)</span>
+              <input type="checkbox" checked={vibrate} onChange={(e) => toggleVibrate(e.target.checked)} />
+              <span>Vibration beim Hinzufügen</span>
             </label>
           </div>
         )}
@@ -1383,7 +1400,7 @@ export function ScannerPanel() {
               </button>
             </>
           )}
-          {!workerReady && <span className="self-center font-mono text-xs text-muted">Texterkennung lädt…</span>}
+          {needOcr && !workerReady && <span className="self-center font-mono text-xs text-muted">Texterkennung lädt…</span>}
         </div>
 
         {autoToast && (
@@ -1598,8 +1615,8 @@ export function ScannerPanel() {
           onAdd={() => { if (matches[0]) addToBasket(matches[0], ocrText); }}
           autoAdd={autoAdd}
           onToggleAuto={() => toggleAuto(!autoAdd)}
-          sound={sound}
-          onToggleSound={() => toggleSound(!sound)}
+          vibrate={vibrate}
+          onToggleVibrate={() => toggleVibrate(!vibrate)}
           torchAvailable={torchAvailable}
           torchOn={torchOn}
           onToggleTorch={() => void toggleTorch()}

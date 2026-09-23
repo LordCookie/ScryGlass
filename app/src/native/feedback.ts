@@ -4,12 +4,19 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics';
 /**
  * Rückmeldung beim Scannen: native Vibration (Capacitor Haptics — die Browser-
  * `navigator.vibrate` verpufft in der Android-WebView ohne VIBRATE-Berechtigung)
- * und ein kurzer, selbst erzeugter Ton (Web Audio, keine Sounddatei).
+ * und ein kurzer, selbst erzeugter Ton (Web Audio, keine Sounddatei). Die Vibration
+ * lässt sich abschalten; den Ton regelt man einfach über die Android-Lautstärke.
  * Alles best effort: Feedback darf den Scanner nie stören.
  */
 
 const native = Capacitor.isNativePlatform();
 let audio: AudioContext | null = null;
+// Vibration abschaltbar (Nutzer-Schalter); der Ton folgt der Android-Lautstärke.
+let vibrationOn = true;
+
+export function setVibration(on: boolean): void {
+  vibrationOn = on;
+}
 
 /** Audio freischalten — muss aus einer Nutzer-Geste heraus passieren (z. B. Kamera starten). */
 export function unlockAudio(): void {
@@ -45,16 +52,17 @@ function beep(): void {
 
 /** Leichtes Antippen-Feedback für Knöpfe. */
 export function hapticTap(): void {
+  if (!vibrationOn) return;
   if (native) void Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
   else navigator.vibrate?.(10);
 }
 
-/** Karte ist im Korb: spürbare Vibration + optional Ton. */
-export function feedbackAdded(sound: boolean): void {
-  if (native) void Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {});
-  else navigator.vibrate?.(30);
-  if (sound) {
-    if (!audio) unlockAudio(); // z. B. manuell hinzugefügt, ohne vorher die Kamera zu starten
-    beep();
+/** Karte ist im Korb: spürbare Vibration (falls an) + kurzer Ton. */
+export function feedbackAdded(): void {
+  if (vibrationOn) {
+    if (native) void Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {});
+    else navigator.vibrate?.(30);
   }
+  if (!audio) unlockAudio(); // z. B. manuell hinzugefügt, ohne vorher die Kamera zu starten
+  beep();
 }
