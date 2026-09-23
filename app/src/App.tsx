@@ -15,7 +15,7 @@ import { ScannerPanel } from './ui/ScannerPanel';
 import { CollectionView } from './ui/CollectionView';
 import { DecksPanel } from './ui/DecksPanel';
 import { SearchPanel } from './ui/SearchPanel';
-import { PixelIcon } from './ui/PixelIcon';
+import { PixelIcon, type PixelIconName } from './ui/PixelIcon';
 import { MorePanel } from './ui/MorePanel';
 
 type Tab = 'scan' | 'sammlung' | 'decks' | 'suche' | 'mehr';
@@ -31,13 +31,13 @@ const PHASE_LABEL: Record<SyncProgress['phase'], string> = {
 };
 const nfDe = new Intl.NumberFormat('de-DE');
 
-const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
-  { key: 'sammlung', label: 'Sammlung', icon: '▤' },
-  { key: 'scan', label: 'Scanner', icon: '⛶' },
-  { key: 'decks', label: 'Decks', icon: '♦' },
-  // Pixel-Lupe statt Emoji; 2 px je Icon-Pixel = so hoch wie die Glyphen daneben.
-  { key: 'suche', label: 'Suche', icon: <PixelIcon name="search" unit="2px" /> },
-  { key: 'mehr', label: 'Mehr', icon: '⋯' },
+// Navigation im Pixel-Look: 12×12-Bitmaps aus ui/PixelIcon, 2 px je Icon-Pixel (24 px).
+const TABS: { key: Tab; label: string; icon: PixelIconName }[] = [
+  { key: 'sammlung', label: 'Sammlung', icon: 'collection' },
+  { key: 'scan', label: 'Scanner', icon: 'scan' },
+  { key: 'decks', label: 'Decks', icon: 'decks' },
+  { key: 'suche', label: 'Suche', icon: 'search' },
+  { key: 'mehr', label: 'Mehr', icon: 'more' },
 ];
 
 export default function App() {
@@ -147,7 +147,7 @@ export default function App() {
               >
                 {/* Aktiver Tab: heller Balken oben drauf (mehr Highlight). */}
                 {active && <span className="absolute inset-x-0 top-0 h-[calc(var(--px)*1)] bg-paper" />}
-                <span className="flex h-6 items-center text-2xl leading-none">{t.icon}</span>
+                <span className="flex h-6 items-center"><PixelIcon name={t.icon} unit="2px" /></span>
                 <span>{t.label}</span>
                 {/* Peer-Eingang liegt jetzt unter „Mehr" → Badge dort. */}
                 {t.key === 'mehr' && inboxCount > 0 && (
