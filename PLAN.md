@@ -1,9 +1,14 @@
-# PLAN.md — MTG Sammlungs- & Deckbau-App
+# PLAN.md — ScryGlass (MTG Sammlungs- & Deckbau-App)
 
-> Arbeitstitel: `mtg-scanner` (Repo-Name noch offen).
+> **ScryGlass** — Stand **v0.2.2** (2026-09-23), Tester-Version für Android.
 > Local-first, offline-fähig, nicht-kommerziell. Basiert auf dem wiederverwendbaren
 > Kern von [engram](https://github.com/LordCookie/Engram) (Scanner, Sammlung, Dexie,
 > Offline-Bilder, Capacitor), aber mit komplett neuer Datenschicht.
+>
+> Die Abschnitte 0–13 sind der ursprüngliche v1-Plan, fortgeschrieben auf den
+> aktuellen Stand (Code-Kommentare verweisen auf die §-Nummern). Was nach v1 dazukam,
+> steht in den Entscheidungen E5–E7, in § 6.1–6.3 und in den Meilensteinen M9–M14;
+> die Release-Historie in § 14.
 
 ---
 
@@ -17,9 +22,15 @@
 - **Peer-Scanning:** mehrere Handys im selben WLAN scannen gemeinsam, ein Gerät
   sammelt ein und prüft vor der Übernahme
 
+**Nach v1 dazugekommen** (Details § 6.1, § 10, § 14):
+- Nativer Scanner (CameraX + ML Kit) mit Bilderkennung, Auto-Korb, Set-Modus
+- Katalog-Suche als eigener Tab mit Filtern
+- Richtpreise & Sammlungswert (zur Laufzeit, siehe E7)
+- Pixel-Art-Design (DESIGN.md) mit Farbschemata, Countdown zum nächsten Set
+
 **Explizit NICHT:**
 - Cloud, Accounts, Login, Server-Backend
-- Preise / Sammlungswert
+- Preise **im Katalog** oder Handel/Kauf-Links (Richtwerte zur Laufzeit sind ok, E7)
 - Synergie-Engine, Solver, Playtest-Simulation (engram-Spezifika, hier unnötig)
 - Monetarisierung jeder Art
 
@@ -70,6 +81,32 @@ Begründung: WebRTC im Android-WebView ist unangenehm (mDNS-verschleierte ICE-
 Kandidaten, Signalisierung trotzdem nötig). Ein HTTP-Server ist in einer Stunde
 debuggt und funktioniert garantiert ohne Internet.
 
+### E5 — Scanner nativ, Entscheidung in TypeScript (seit v0.0.12)
+
+Tesseract in der WebView war auf echten Handys zu langsam und zu unzuverlässig
+(Tester: „erkennt oft nichts, zu langsam, unscharf"). Deshalb liefert ein eigenes
+Kotlin-Plugin (`ScryCameraPlugin`: CameraX-Vorschau hinter der transparenten WebView,
+ML-Kit-Texterkennung gebündelt und offline, ~4 Bilder/s, Schärfeprüfung nativ) pro
+Bild nur **Textzeilen, Schärfe und einen kleinen Kartenausschnitt**. Abgleich, Fusion,
+Korb und Verlauf bleiben in TypeScript (`domain/`, getestet) — dieselbe Logik wie im
+Browser-Pfad. Kosten: APK +~11 MB (ML-Kit-Bibliotheken, nur ARM).
+
+### E6 — Zwei Signale statt einem: Text + Bild (seit v0.0.1, Fusion seit v0.0.10)
+
+OCR scheitert an Showcase/Borderless/Full-Art und stilisierter Schrift; ein Bild-Hash
+scheitert an lockerem Framing. Beide zusammen sind robust: **Perceptual Hash (pHash,
+256 Bit)** je Druckausgabe aus der Pipeline, die App hasht den Kamera-Ausschnitt
+gleich. `domain/scanFuse.ts` fusioniert: stimmen Text und Bild überein, ist der
+Treffer sofort sicher (Kreuz-Bestätigung); sonst gelten strengere Einzel-Schwellen.
+
+### E7 — Preise zur Laufzeit, nicht im Katalog (seit v0.2.0)
+
+Preise veralten binnen Stunden — deshalb bleiben sie aus dem Katalog (§ 2). Stattdessen
+fragt die App Scryfall (`/cards/collection`, 75 je Anfrage) nur für die eigene
+Sammlung bzw. die gerade angezeigte Karte ab und cacht die Werte 24 h in Dexie
+(offline: letzter Stand). Anzeige als **Richtwert** (Cardmarket-Euro), keine
+Kauf-Links, kein Handel.
+
 ---
 
 ## 2. Datenpipeline
@@ -93,13 +130,27 @@ debuggt und funktioniert garantiert ohne Internet.
 ### Output
 
 ```
-dist/
-  version.json      ~200 B    { catalogVersion, builtAt, scryfallBulkDate, counts }
-  cards.ndjson      ~14 MB    Oracle-Karten (eine Zeile pro oracle_id)
-  printings.ndjson   ~7 MB    Druckausgaben
-  names.ndjson       ~3 MB    Namensindex DE + EN
-  trigrams.ndjson    ~4 MB    Fuzzy-Fallback-Index
+dist/                       geplant   real (2026-09-18)
+  version.json      ~200 B              { catalogVersion, builtAt, scryfallBulkDate, counts }
+  cards.ndjson      ~14 MB    15 MB     Oracle-Karten (eine Zeile pro oracle_id) — 34.139
+  printings.ndjson   ~7 MB    28 MB     Druckausgaben — 155.822
+  names.ndjson       ~3 MB     6 MB     Namensindex DE + EN — 64.327
+  trigrams.ndjson    ~4 MB    34 MB     Fuzzy-Fallback-Index — 8.927 Trigramme
+  hashes.ndjson        —      25 MB     pHash je Druckausgabe (hash_images.py, E6)
 ```
+
+Real deutlich größer als geplant (v. a. Trigramm-Postings mit vollen UUID-oracleIds).
+In der APK zippt es gut; wenn Import/APK kleiner werden sollen: Trigramm-Index mit
+Integer-IDs (§ 10, M14).
+
+### Bild-Hashes
+
+`pipeline/hash_images.py` lädt für jede Druckausgabe das Scryfall-Bild (`small`),
+rechnet einen 256-Bit-pHash (32×32 Graustufe → 2D-DCT → obere 16×16 Koeffizienten >
+Median) und schreibt `hashes.ndjson` (`{id, o, h}`). Fortsetzbar (bereits gehashte IDs
+werden übersprungen). Die TS-Seite (`data/imageHash.ts`) rechnet **bitgleich**
+(gleiche DCT-Basis, Median, Bit-Reihenfolge). Gemessen: gleiches Bild Python↔Browser
+≈ 14 Bit Abstand, verschiedene Karten ≥ ~72.
 
 ### Abgeleitete Felder (Pipeline, nicht App)
 
@@ -113,16 +164,18 @@ dist/
 
 ### Nicht mit rein
 
-- Preise (veralten binnen Stunden, brauchen wir nicht)
+- Preise (veralten binnen Stunden → zur Laufzeit, E7)
 - Deutsche Regeltexte (verdoppelt den Textanteil; Namen reichen fürs Scannen,
   Oracle-Text auf Englisch reicht fürs Deckbauen). Nachrüstbar.
 - `rulings`, `artist`, `flavor_text`, `frame_effects`, `related_uris`, …
 
 ### CI
 
-`.github/workflows/catalog.yml` — wöchentlich + `workflow_dispatch`. Baut die vier
-NDJSON-Files, hängt sie an ein Release `catalog-YYYYMMDD`. **Generierte Kartendaten
-gehören nicht ins Repo** (gitignored, wie bei engram).
+`.github/workflows/catalog.yml` — wöchentlich (Mo 04:17 UTC) + `workflow_dispatch`.
+Baut die vier NDJSON-Files, hängt sie an ein Release `catalog-YYYYMMDD` und an das
+rollierende Release `catalog-latest`. `.github/workflows/hashes.yml` — monatlich:
+ergänzt `hashes.ndjson` fortsetzbar und lädt es nach `catalog-latest`. **Generierte
+Kartendaten gehören nicht ins Repo** (gitignored, wie bei engram).
 
 ---
 
@@ -132,14 +185,20 @@ gehören nicht ins Repo** (gitignored, wie bei engram).
 db.version(1).stores({
   cards:      'oracleId, normName, cmc, *colorIdentity',
   printings:  'scryfallId, oracleId, set, [set+collectorNumber]',
-  names:      'normName, oracleId, lang',
+  names:      '[normName+oracleId+lang], normName, oracleId, lang', // PK zusammengesetzt → Re-Import idempotent
   trigrams:   'trigram',
   owned:      '++id, oracleId, printingId, [oracleId+finish]',
   decks:      '++id, name, format, updatedAt',
   inbox:      'basketId, receivedAt, status',
   meta:       'key'
 })
+db.version(2).stores({ hashes: 'scryfallId, oracleId' })  // Bild-Hash-Index (E6)
+db.version(3).stores({ scans:  '++id, at' })              // Scan-Protokoll (§ 5 Fixtures)
+db.version(4).stores({ prices: 'key, at' })               // Preis-Cache (E7), key = printingId | oracle:<id>
 ```
+
+`meta` hält außerdem Einstellungen: Farbschema (`theme`), Vibration (`scanVibrate`),
+Auto-Korb, gewähltes Set im Scanner (`scanSet`), das nächste Set (Countdown).
 
 ### Records
 
@@ -194,8 +253,11 @@ Ein Byte statt eines Objekts mit 20 Keys × 30k Karten.
 ### Warum `printingId` schon in v1 im Schema steht
 
 v1 zählt auf Oracle-Ebene („sie besitzt 4× Blitzschlag"), weil das für „was habe ich"
-reicht und die UI massiv vereinfacht. Aber das Feld ist da und wird gefüllt, sobald
-ein Scan Set + Sammlernummer sicher liest. **Keine Migration später.**
+reicht und die UI massiv vereinfacht. Aber das Feld ist da. **Stand heute:** gefüllt
+wird es, wenn man im Kartendetail ein Artwork wählt (`setOwnedPrinting`) — Sammlung,
+Detail und Deckbau zeigen dann dieses Artwork, und der Preis bezieht sich auf diese
+Ausgabe. Den gescannten Druck automatisch zu merken war bewusst nicht gewünscht.
+**Keine Migration nötig.**
 
 ---
 
@@ -213,6 +275,15 @@ ein Scan Set + Sammlernummer sicher liest. **Keine Migration später.**
 ```
 
 **Die App muss ohne Netz starten.** Im Kartenladen gibt es kein WLAN.
+
+### Eingebetteter Katalog (Stand v0.2.x)
+
+`CATALOG_BASE_URL` ist per Default `/catalog` — der Katalog aus `app/public/catalog/`
+wandert beim Build **in die APK**. Der Erstimport läuft damit auch ohne Netz (~40 s),
+die Bild-Hashes werden danach im Hintergrund importiert. Neue Sets kommen derzeit nur
+mit einer neuen APK: ein Update über das Release `catalog-latest`
+(`VITE_CATALOG_BASE_URL`) scheitert, solange das Repo privat ist (Assets nur mit
+Anmeldung). Offen in M14.
 
 ### Import
 
@@ -272,6 +343,11 @@ app/src/domain/__tests__/fixtures/ocr-samples.json
   [{ raw: "Blitzschiag", expect: "lightning bolt", lang: "de" }, ...]
 ```
 
+**Quelle der Fixtures:** das Scan-Protokoll (Dexie `scans`). Jeder bestätigte Scan
+speichert gelesenen Text, Bild-Treffer (Karte, Abstand, Vorsprung), Schärfe,
+Text-Sicherheit, gelesene Druckinfo und die bestätigte Karte (bzw. „verworfen").
+Export unter *Mehr → Scanner-Protokoll*; daraus werden Fixtures und Schwellen getunt.
+
 ---
 
 ## 6. Scanner
@@ -279,7 +355,10 @@ app/src/domain/__tests__/fixtures/ocr-samples.json
 Übernommen aus engram: Kamera, kontinuierlicher Autofokus, Torch, Zoom, adaptive/Otsu-
 Binarisierung, 2-von-3-Frame-Konsens, Scan-Korb, Bulk-Auto-Add.
 
-### Anpassungen
+Seit v0.0.12 ist das der **Browser-Pfad** (Dev-Preview/PWA). In der APK arbeitet der
+native Scanner (E5, § 6.1). Die folgenden Anpassungen gelten für den Browser-Pfad.
+
+### Anpassungen (Browser-Pfad, Tesseract)
 
 - **Titelbalken-Crop:** MTG-Namen sitzen IMMER oben. Fester Zuschnitt auf die oberen
   ~8–12 % der erkannten Kartenfläche statt Vollbild-OCR. Deutlich schneller und
@@ -301,6 +380,72 @@ Binarisierung, 2-von-3-Frame-Konsens, Scan-Korb, Bulk-Auto-Add.
 
 Jeder Scan trägt `confidence` (Match-Score) und `ocrRaw` mit sich — bis in den
 Peer-Korb hinein (siehe §8). Das ist die Grundlage für die Prüfansicht.
+
+### 6.1 Stand v0.2.2 — nativer Scanner
+
+**Pro Bild (Kotlin, `ScryCameraPlugin`):** Analysebild (4:3, ≤ 1920×1440, ~4/s) →
+aufrecht drehen → Ausschnitt = Scan-Rahmen der Oberfläche → Schärfe (Laplace-Varianz,
+`SHARP_MIN` 30; unscharf → nur Hinweis, keine Texterkennung) → ML Kit → Event `frame`
+mit Textzeilen (Position relativ zur Karte), Schärfe und 146×204-JPEG des Ausschnitts.
+Modus `qr` liefert stattdessen nur den Ausschnitt fürs Pairing (jsQR in JS).
+
+**Pro Bild (TypeScript, `ScannerPanel` → `evaluate()`):**
+- Namenszeile + Druckinfo („DMU • EN 123/281" → Set/Nummer, `domain/cardText.ts`)
+  → Matcher (§ 5).
+- Bild-Hash des Ausschnitts in drei Varianten (Basis, 5 % enger, 180° gedreht) →
+  nächster Nachbar über ~156k Hashes (`nearestByHashMulti`), mit Vorsprung gegen die
+  nächste **fremde** Karte (Reprints verdrängen sich nicht). Schwellen: Kandidat
+  ≤ 60 / Vorsprung ≥ 12, Auto-Übernahme ≤ 56 / ≥ 18.
+- Fusion (`domain/scanFuse.ts`, E6): Kreuz-Bestätigung Text = Bild → sofort sicher;
+  Druckinfo zählt nur zusammen mit Name oder Bild.
+- **Set-Modus:** Suche auf ein Set beschränkt (Hash-Teilmenge, lockerere Schwellen) —
+  für Booster/Set-Stapel.
+- **Auto-Korb** (`domain/autoBasket.ts`): eine andere Karte wird sofort übernommen;
+  dieselbe Karte erneut erst, nachdem 3 Bilder in Folge unscharf/ohne Karte waren
+  (= Karte gewechselt). Zeitlicher Konsens im Live-Modus.
+- **Feedback** (`native/feedback.ts`): Ton (Web Audio, folgt der Android-Lautstärke)
+  + Vibration (Capacitor Haptics, abschaltbar unter *Mehr*) beim Hinzufügen, leichtes
+  Tippen bei Knöpfen.
+- **Bedienung:** Tap-to-Focus, Licht, Pixel-Scan-Rahmen mit Zustandsfarben
+  (DESIGN § 5), Querformat mit Seitenleiste (CameraX `targetRotation` folgt der
+  Drehung), Verlauf mit Rückgängig (Korb oder Sammlung).
+
+### 6.2 Nächster Schritt: Bilderkennung im nativen Pfad
+
+**Befund (Scan-Protokoll 2026-09-23, 25 native Scans):** Endergebnis 24/25 richtig —
+die Texterkennung trägt (20/21 richtig, wenn sie etwas fand). Der Bild-Hash traf nur
+**10/25** (Abstände meist 74–94), mit der Browser-Kamera am 19.09. dagegen 23/23
+(26–60). Dieselbe Karte hatte mal Abstand 40, mal 82 → nicht die Datenbank, sondern
+der **Ausschnitt**. Der erkannte Text (gleicher Ausschnitt!) enthielt teils Reste der
+vorherigen Karte oder eine Seitenüberschrift → der Ausschnitt sieht mehr als eine
+Karte.
+
+**Vermutete Ursachen:** (1) Abbildung Rahmen → Analysebild ist selbst gerechnet
+(FILL_CENTER-Annahme) und stimmt nur, wenn Vorschau und Analyse denselben Bildwinkel
+haben; (2) Karte füllt den Rahmen nicht passgenau (zu klein, versetzt, Stapel).
+
+**Plan:**
+1. **Messen** — Live-Vorschau des tatsächlich ausgewerteten Ausschnitts (abschaltbar);
+   Protokoll um den Abstand zur *bestätigten* Karte erweitern (knapp verfehlt vs.
+   völlig daneben) und optional das Ausschnitt-Bildchen (~6 KB, nur lokal bis zum
+   Export). Testlauf: ~20 Karten einzeln / auf dem Stapel / vom Bildschirm.
+2. **Exakte Abbildung** — CameraX `ViewPort` + `UseCaseGroup` (bzw.
+   `CoordinateTransform`) statt eigener Rechnung: Vorschau und Analyse teilen
+   garantiert denselben Ausschnitt.
+3. **Karte einrasten** — Ausschnitt mit Luft (Rahmen + ~15 %), Kartenkanten nativ
+   suchen (Kontrast des Kartenrands, Kantenprofile), exakt zuschneiden, dann hashen;
+   in JS zusätzlich eine kleine Suche über leicht verschobene/skalierte Varianten
+   (kleinster Abstand gewinnt, Vorsprung-Regel bleibt). Ohne neue Bibliothek.
+
+Unverändert bleiben Hash-Datenbank (kein Neubau) und Texterkennung. Umsetzung als
+M13, Schritt 3 erst nach Auswertung von Schritt 1+2.
+
+### 6.3 Später
+
+- Artwork-Hash als zweiter Bild-Kanal (nur die Illustration; braucht Pipeline-Neubau).
+- Perspektivische Entzerrung (Karten-Viereck → 745×1040) für schräg gehaltene Karten.
+- Neuronales Bild-Embedding (z. B. DINOv2, offline) — vorher Machbarkeitsprobe mit
+  30–50 echten Handyfotos gegen pHash.
 
 ---
 
@@ -330,7 +475,15 @@ Zählen:
 ### Formate
 
 Start mit **Commander** — deckt vermutlich den Großteil ab und ist der aufwendigste
-Validator. Der Rest ist danach fast geschenkt.
+Validator. Der Rest ist danach fast geschenkt. **Stand:** alle acht Formate der
+Legalitäts-Bitmaske (§ 3) sind wählbar.
+
+### Stand v0.2.2
+
+- Commander-Bereich mit Bild und **verfügbaren Farben** = Farbidentität + immer
+  Farblos (`availableColors`) — farblose Karten passen in jedes Deck.
+- Deckliste als Raster oder Liste, Artwork aus der Sammlung (gewählte Ausgabe).
+- Hinzufügen gibt Ton + Vibration wie im Scanner, Entfernen ein kurzes Tippen.
 
 ---
 
@@ -396,7 +549,8 @@ werden müsste.
 
 1. Receiver startet Server auf Port `8765`, zeigt QR-Code:
    `mtgscan://192.168.x.y:8765?t=<6-stelliger-Token>&n=<Gerätename>`
-2. Sender scannt den QR (`jsQR` auf der bestehenden Kamera-Pipeline)
+2. Sender scannt den QR — in der APK über die native Kamera (Modus `qr`, jsQR in
+   JS), im Browser über die Web-Kamera
 3. Sender ruft `GET /hello` → Handshake, Protokoll- und Katalog-Version vergleichen
 
 Token ist kein Krypto — nur damit nicht irgendein Handy im selben WLAN Müll pusht.
@@ -565,9 +719,9 @@ auseinander, die man abstrahieren würde.
 - [x] JSON-Backup + ManaBox/Moxfield-kompatibler CSV-Export
 
 ### M6 — Erste nutzbare APK
-- [ ] `npm run cap:sync` + `gradlew assembleDebug` (JDK 17!) — _Code fertig; Build braucht JDK 17 + Android SDK_
-- [ ] Auf echtem Gerät gegen echten Bulk testen — _offen (Hardware)_
-- [ ] **Ab hier kann sie scannen.**
+- [x] `npm run cap:sync` + `gradlew assembleDebug` (JDK 17!) — v0.0.1, 2026-09-18
+- [x] Auf echtem Gerät gegen echten Bulk testen — Tester seit v0.0.x
+- [x] **Ab hier kann sie scannen.**
 
 ### M7 — Deckbau
 - [x] Deck-Editor mit Bestandsanzeige aus der Sammlung
@@ -592,14 +746,53 @@ auseinander, die man abstrahieren würde.
 **Reihenfolge:** M8 kann vor M7, wenn der Bulk-Berg akut ist. Aber **nicht vor M5** —
 sonst debuggt man Netzwerk und OCR gleichzeitig.
 
+### M9 — Scanner v2: Bilderkennung (v0.0.1–0.0.11)
+- [x] `pipeline/hash_images.py` (pHash, fortsetzbar) + `hashes.yml`
+- [x] Hash-Index in Dexie/RAM, nächster Nachbar mit Vorsprung gegen fremde Karten
+- [x] Fusion Text + Bild mit Kreuz-Bestätigung, zeitlicher Konsens, Multi-Crop + 180°
+- [x] Schärfe-Gate + Tap-to-Focus, Scan-Verlauf mit Rückgängig, Scan-Protokoll
+
+### M10 — Nativer Scanner (v0.0.12–0.0.13)
+- [x] `ScryCameraPlugin` (CameraX + ML Kit, gebündelt), Overlay über der Kamera
+- [x] Druckinfo lesen, Set-Modus
+- [x] Auto-Korb mit Kartenwechsel-Erkennung, Ton + Vibration
+
+### M11 — Erste Tester-Version (v0.1.0)
+- [x] Vibration als Einstellung unter *Mehr*, Pixel-Icons statt Emojis
+
+### M12 — Komfort & Design (v0.2.0–0.2.2)
+- [x] Pixel-Design (DESIGN.md), Farbschemata Violett / Abendrot / Schwarz-Gold
+- [x] Pixel-App-Icon + Startbildschirm, animierter Pixel-Scan-Rahmen
+- [x] QR-Pairing über die native Kamera; *Gemeinsam scannen* unter *Mehr*
+- [x] Richtpreise & Sammlungswert (E7), Sortierung nach Wert
+- [x] Such-Tab: Katalog mit Mehrfarben-, Typ-, Manawert-, Format-, Regeltext- und
+      Kreaturentyp-Filter
+- [x] Commander: verfügbare Farben inkl. Farblos; Deck-Feedback
+- [x] Scanner im Querformat; Pixel-Checkbox; Pixel-Icons in der Navigation
+
+### M13 — Bilderkennung im nativen Pfad robuster (offen, § 6.2)
+- [ ] Schritt 1: Ausschnitt-Vorschau + erweitertes Scan-Protokoll, Testlauf auswerten
+- [ ] Schritt 2: exakte Abbildung per CameraX `ViewPort`/`CoordinateTransform`
+- [ ] Schritt 3: Karte einrasten (Kanten suchen) + Varianten-Suche in JS
+
+### M14 — Backlog
+- [ ] Katalog-Updates ohne neue APK (öffentliches Repo oder eigenes Hosting, § 4)
+- [ ] Android-Zurück-Taste abfangen (`@capacitor/app`), v. a. im Scanner-Overlay
+- [ ] Katalog verkleinern (Trigramm-Index mit Integer-IDs)
+- [ ] Scanner § 6.3 (Artwork-Hash, Entzerrung, Embedding)
+- [ ] Peer: Auto-Discovery (`NsdManager`), Geräte-Tests aus M8
+- [ ] Sprite-Animationen aus DESIGN § 7 (Flip, Stapeln, Stempel)
+
 ---
 
 ## 11. Risiken
 
 | Risiko | Umgang |
 |---|---|
-| OCR über alte/Showcase/Borderless/Foil-Rahmen | Titelbalken-Crop hilft, aber real testen. Fixtures sammeln, Schwellen tunen. Foils sind der schlimmste Fall (Reflexionen) → Torch aus probieren. |
-| Erster Import dauert gefühlt ewig | Fortschritt mit Zeilenzahlen, App bleibt bedienbar. 20 MB + Dexie-Import ≈ 30–60 s auf Mittelklasse. Einmalig. |
+| OCR über alte/Showcase/Borderless/Foil-Rahmen | Entschärft durch ML Kit (E5) + Bild-Hash (E6). Rest: Fixtures aus dem Scan-Protokoll, Schwellen tunen. Foils → Licht aus probieren. |
+| Bild-Hash im nativen Pfad empfindlich gegen den Ausschnitt | Befund & Plan in § 6.2 (M13). Bis dahin trägt die Texterkennung. |
+| Erster Import dauert gefühlt ewig | Fortschritt mit Zeilenzahlen, App bleibt bedienbar. Real ~108 MB roh (§ 2), Import ≈ 40 s. Einmalig, Katalog steckt in der APK. |
+| Katalog-Update nur per neuer APK | Solange das Repo privat ist (§ 4). Neue APK je Set bzw. M14. |
 | Doppelseitige Karten / Split / Adventure | `layout`-Feld ist die Wahrheit. Früh mit echten Karten testen. |
 | DE/EN-Namenskollisionen | Selten, aber existent. Bei Mehrdeutigkeit nachfragen statt raten. |
 | Scryfall ändert das Bulk-Format wieder | Ist 2026 schon passiert (JSON → JSONL). Pipeline-Code so klein halten, dass ein Umbau ein Abend ist. |
@@ -614,8 +807,11 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
 - **WotC Fan Content Policy:** deckt nicht-kommerzielle Fan-Tools. **Keine
   Monetarisierung** — keine Ads, kein IAP, kein Spendenbutton, kein Store-Verkauf.
 - **Keine Kartenbilder redistribuieren.** Nur Scryfall-URLs zur Laufzeit, lokal
-  gecacht, und **nur für Karten, die tatsächlich gescannt/besessen werden**. Nicht
-  30k Bilder prefetchen.
+  gecacht, und **nur für Karten, die tatsächlich angezeigt werden** (Sammlung, Suche,
+  Deck, Detail). Nicht 30k Bilder prefetchen. Der Hash-Index enthält nur
+  256-Bit-Fingerabdrücke, keine Bilder.
+- **Preise & Set-Termine** live über die Scryfall-API (Rate-Limit, `User-Agent`),
+  als Richtwerte ohne Kauf-Links (E7).
 - **Generierte Kartendaten nicht ins Repo** (gitignored, wie bei engram). Der
   Katalog entsteht in der CI und lebt im Release.
 - Source-Code MIT. Disclaimer im README: unofficial fan project, nicht affiliiert
@@ -625,7 +821,32 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
 
 ## 13. Offene Fragen
 
-- [ ] Welche Formate außer Commander?
-- [ ] Foils/Editionen in der UI getrennt zählen — oder reicht Oracle-Ebene?
+- [x] Welche Formate außer Commander? — alle acht der Bitmaske (§ 7)
+- [x] Foils/Editionen getrennt zählen? — Bestand auf Oracle-Ebene je Ausführung
+      (normal/foil/etched); Ausgabe optional über die Artwork-Wahl (§ 3)
 - [ ] Wie viele Helfer-Handys realistisch? (bei >3 lohnt Backpressure)
-- [ ] Repo-Name / App-Name
+- [x] Repo-Name / App-Name — **ScryGlass**
+
+---
+
+## 14. Release-Historie
+
+Tags `vX.Y.Z`, Release-Notes auf Deutsch, nur das neueste Release trägt die APK
+(Releases `catalog-*` sind CI-Daten und bleiben unangetastet). Schema: `0.1.x`
+Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zählt hoch.
+
+| Version | Datum | Inhalt |
+|---|---|---|
+| 0.0.1–0.0.2 | 2026-09-18/19 | Erste APK mit eingebettetem Katalog, Bild-Abgleich per pHash |
+| 0.0.3 | 2026-09-19 | Fix leerer Kartenname, Scan-Protokoll (Fixtures) |
+| 0.0.4–0.0.6 | 2026-09-19 | Commander prominent (Bild + Farben), Deck-Raster, Export/Teilen, Artwork im Detail durchblättern |
+| 0.0.7–0.0.8 | 2026-09-19 | Scanner-Feintuning aus echten Scans, gewähltes Artwork in Sammlung und Deckbau |
+| 0.0.9 | 2026-09-19 | Countdown „Next Set in N days" |
+| 0.0.10 | 2026-09-19 | Scanner Tier 1: Fusion mit Kreuz-Bestätigung, Konsens, Multi-Crop + 180° |
+| 0.0.11 | 2026-09-23 | Schärfe-Gate + Tap-to-Focus, Trefferbilder, Verlauf mit Rückgängig, Sammlungsfilter + Statistik, DFC-Rückseite |
+| 0.0.12 | 2026-09-23 | Nativer Scanner (CameraX + ML Kit), Druckinfo, Set-Modus |
+| 0.0.13 | 2026-09-23 | Auto-Korb mit Kartenwechsel-Erkennung, Ton + Vibration |
+| 0.1.0 | 2026-09-23 | Erste Tester-Version: Vibration unter *Mehr*, Pixel-Icons |
+| 0.2.0 | 2026-09-23 | Such-Tab, Preise & Sammlungswert, Farbschemata, Pixel-Scan-Rahmen, Pixel-App-Icon, QR über native Kamera, Peer unter *Mehr*, Commander inkl. Farblos, Deck-Feedback |
+| 0.2.1 | 2026-09-23 | Scanner im Querformat, Suche mit Mehrfarben-/Regeltext-/Typfilter, Pixel-Checkbox |
+| 0.2.2 | 2026-09-23 | Pixel-Icons in der Navigationsleiste |

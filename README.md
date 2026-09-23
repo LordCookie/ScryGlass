@@ -2,64 +2,86 @@
 
 **Local-first Sammlungs- & Deckbau-App für Magic: The Gathering.** Offline-fähig,
 nicht-kommerziell, ohne Cloud oder Accounts. Scanne Karten mit der Handykamera in
-deine Sammlung, baue Decks daraus und scanne im selben WLAN gemeinsam mit anderen
-(Peer-Scanning).
+deine Sammlung, durchsuche den kompletten Katalog, baue Decks daraus und scanne im
+selben WLAN gemeinsam mit anderen.
 
 > Unofficial fan project. **Nicht** affiliiert mit oder unterstützt von Wizards of
 > the Coast oder Scryfall. Magic: The Gathering und alle zugehörigen Marken sind
 > Eigentum von Wizards of the Coast. Kartendaten stammen von
 > [Scryfall](https://scryfall.com). Siehe [Rechtliches](#rechtliches).
 
----
-
-## Was es kann (v1)
-
-- **Vollständiger Kartenkatalog lokal** (Deutsch + Englisch), einmaliger Download
-  beim App-Start, danach offline nutzbar.
-- **Scannen** per Handykamera → Scan-Korb → Sammlung.
-- **Sammlung**: Bestand, Suche, Filter, Sortierung, JSON-Backup + CSV-Export
-  (ManaBox/Moxfield-kompatibel).
-- **Deckbau** aus der eigenen Sammlung inkl. Formatvalidierung (Commander +
-  Constructed), Manakurve, Farbverteilung, „Fehlt-mir"-Liste, Moxfield-Text-Im/Export.
-- **Peer-Scanning**: mehrere Handys im selben WLAN scannen gemeinsam, ein Gerät
-  sammelt ein und prüft vor der Übernahme.
-
-**Explizit nicht:** Cloud, Accounts, Login, Server-Backend, Preise/Sammlungswert,
-Monetarisierung jeder Art.
+**Stand:** v0.2.2 (Tester-Version, Android). Die APK hängt am jeweils neuesten
+[GitHub-Release](https://github.com/LordCookie/ScryGlass/releases).
 
 ---
 
-## Architektur in vier Sätzen
+## Was es kann
 
-1. **Der Katalog wird vorverarbeitet** (Python-Pipeline in der CI) und als vier
-   schlanke NDJSON-Files (~20 MB) ausgeliefert, nicht als roher Scryfall-Bulk (~2 GB).
-2. **NDJSON statt JSON-Array**, damit die App den Download zeilenweise streamen und
-   in Batches in IndexedDB schreiben kann.
-3. **Namen im RAM, Karten in IndexedDB** — pro Kamera-Frame gibt es null DB-Zugriffe,
-   die DB wird erst bei einem Treffer angefasst.
-4. **Peer-Scanning ohne Cloud** — der Empfänger startet einen nativen HTTP-Server,
-   die Sender pairen per QR-Code und pushen ihre Körbe per HTTP POST.
+- **Kompletter Kartenkatalog lokal** (Deutsch + Englisch, ~34.000 Karten, ~156.000
+  Druckausgaben) — steckt in der APK, funktioniert ab dem ersten Start ohne Netz.
+- **Scanner** mit nativer Kamera (CameraX) und Texterkennung auf dem Gerät (ML Kit,
+  offline), parallel dazu **Bilderkennung** per Perceptual Hash. Beide Signale
+  bestätigen sich gegenseitig. Dazu: Set-Modus, **Auto-Korb** für Stapel („Karte für
+  Karte hinlegen"), Ton + Vibration, Tap-to-Focus, Licht, Querformat, Scan-Verlauf
+  mit Rückgängig. Im Browser läuft ein Fallback mit Tesseract.
+- **Suche** über den ganzen Katalog: Name, Typ oder Regeltext (DE/EN), mehrere Farben
+  (enthält / genau / höchstens), Kartentyp, Manawert, Format, Regeltext- und
+  Kreaturentyp-Filter, „nur im Bestand".
+- **Sammlung**: Bild-Raster oder Liste, Filter, Sortierung (Name, Manawert, Anzahl,
+  Wert), Statistik, Artwork-Wahl je Karte, **Richtpreise** (Cardmarket-Euro über
+  Scryfall) und Sammlungswert. JSON-Backup + CSV-Export (ManaBox/Moxfield-kompatibel).
+- **Deckbau** aus der eigenen Sammlung: Standard, Pioneer, Modern, Legacy, Vintage,
+  Commander, Pauper, Brawl. Live-Validierung, Commander mit verfügbaren Farben,
+  Manakurve, Farbverteilung, „Fehlt mir"-Liste, Moxfield-Text-Im/Export.
+- **Gemeinsam scannen** (unter *Mehr*): mehrere Handys im selben WLAN, Pairing per
+  QR-Code, ein Gerät sammelt ein und prüft vor der Übernahme.
+- **Pixel-Art-Design** mit drei Farbschemata (Violett, Abendrot, Schwarz-Gold),
+  Countdown zum nächsten Set.
 
-Details in [PLAN.md](PLAN.md).
+**Explizit nicht:** Cloud, Accounts, Login, Server-Backend, Handel, Monetarisierung
+jeder Art. Preise sind reine Richtwerte zur Orientierung.
+
+---
+
+## Architektur in fünf Sätzen
+
+1. **Der Katalog wird vorverarbeitet** (Python-Pipeline in der CI) und als schlanke
+   NDJSON-Files ausgeliefert, nicht als roher Scryfall-Bulk (~2 GB).
+2. **NDJSON statt JSON-Array**, damit die App zeilenweise streamen und in Batches in
+   IndexedDB (Dexie) schreiben kann.
+3. **Namen und Bild-Hashes im RAM, Karten in IndexedDB** — pro Kamera-Bild gibt es
+   keine DB-Zugriffe, die DB wird erst bei einem Treffer angefasst.
+4. **Scanner nativ, Entscheidung in TypeScript** — das Kotlin-Plugin liefert Text-
+   zeilen, Schärfe und einen Kartenausschnitt; Abgleich, Fusion und Korb sind reine,
+   getestete Logik in `domain/`.
+5. **Gemeinsam scannen ohne Cloud** — der Empfänger startet einen nativen
+   HTTP-Server, die Helfer pairen per QR-Code und schicken ihre Körbe per HTTP POST.
+
+Details in [PLAN.md](PLAN.md), Gestaltung in [DESIGN.md](DESIGN.md).
 
 ---
 
 ## Projektstruktur
 
 ```
-pipeline/          Python-Datenpipeline (Scryfall-Bulk → Slim-Katalog)
-  fetch_scryfall.py
-  test_fetch_scryfall.py
-app/               Vite + React + TS + Tailwind + Capacitor (die App)
+pipeline/            Python-Datenpipeline
+  fetch_scryfall.py    Scryfall-Bulk → Slim-Katalog (NDJSON)
+  hash_images.py       pHash je Druckausgabe → hashes.ndjson (Bilderkennung)
+app/                 Vite + React + TS + Tailwind + Capacitor (die App)
   src/
-    domain/        Framework-freie Logik (Matcher, Deck-Validierung, IO) + Tests
-    data/          Katalog-Sync, Namensindex, Bild-URLs
-    db/            Dexie/IndexedDB-Schema
-    ui/            React-Komponenten (Scanner, Sammlung, Deck-Editor, Peer)
-    peer/          Peer-Scanning-Bridge (TS) zum nativen Kotlin-Plugin
-  android/         Capacitor-Android-Projekt (inkl. PeerServer-Plugin)
+    domain/          Framework-freie Logik + Tests (Matcher, Scan-Fusion, Filter,
+                     Deck-Validierung, Preise, IO …)
+    data/            Katalog-Sync, Namens-/Such-/Hash-Index, Preise, Bild-URLs
+    db/              Dexie/IndexedDB-Schema
+    native/          Brücken zu nativen Funktionen (Scanner-Kamera, Feedback)
+    peer/            Gemeinsam scannen: Protokoll, Client, Server-Bridge
+    ui/              React-Komponenten (Scanner, Suche, Sammlung, Decks, Mehr)
+  android/           Capacitor-Android-Projekt (Kotlin-Plugins ScryCamera + PeerServer)
+design/
+  make_icons.py      Pixel-App-Icon + Startbildschirm aus einem 32×32-Sprite
 .github/workflows/
-  catalog.yml      Baut den Katalog wöchentlich, hängt ihn ans Release
+  catalog.yml        Baut den Katalog wöchentlich (Mo), Release catalog-latest
+  hashes.yml         Ergänzt die Bild-Hashes monatlich (fortsetzbar)
 ```
 
 ---
@@ -71,13 +93,14 @@ app/               Vite + React + TS + Tailwind + Capacitor (die App)
 ```bash
 cd pipeline
 python -m pip install -r requirements.txt
-python fetch_scryfall.py --out dist        # zieht den echten Scryfall-Bulk (~2 GB Stream)
-python fetch_scryfall.py --out dist --sample tests/sample_bulk.jsonl   # aus einer lokalen Datei
-python -m pytest                            # Unit-Tests (kein Netz nötig)
+python fetch_scryfall.py --out dist                                   # echter Scryfall-Bulk (~2 GB Stream)
+python fetch_scryfall.py --out dist --sample tests/sample_bulk.jsonl  # aus einer lokalen Datei
+python hash_images.py --printings dist/printings.ndjson --out dist/hashes.ndjson   # Bild-Hashes (fortsetzbar)
+python -m pytest                                                      # Unit-Tests (kein Netz nötig)
 ```
 
-Output landet in `pipeline/dist/`: `version.json`, `cards.ndjson`, `printings.ndjson`,
-`names.ndjson`, `trigrams.ndjson`.
+Output in `pipeline/dist/`: `version.json`, `cards.ndjson`, `printings.ndjson`,
+`names.ndjson`, `trigrams.ndjson`, `hashes.ndjson`.
 
 ### App
 
@@ -85,45 +108,61 @@ Output landet in `pipeline/dist/`: `version.json`, `cards.ndjson`, `printings.nd
 cd app
 npm install
 npm run dev                # http://localhost:5174 (Desktop-Preview)
-LAN=1 npm run dev          # https://<LAN-IP>:5174 — nötig fürs Handy (Kamera braucht HTTPS)
-npm test                   # Vitest (Matcher, Deck-Validierung, IO …)
-npm run build              # Produktions-Build nach app/dist
+LAN=1 npm run dev          # https://<LAN-IP>:5174 — fürs Handy (Kamera braucht HTTPS)
+npm test                   # Vitest — muss grün sein vor Build/Commit
+npm run build              # tsc + Produktions-Build nach app/dist
 ```
 
 ### Android-APK
 
 ```bash
 cd app
-npm run cap:sync           # Build + Capacitor sync
+npm run cap:sync                          # Build + Capacitor sync
 cd android && ./gradlew assembleDebug     # JDK 17!
 ```
 
-Die APK liegt danach unter `app/android/app/build/outputs/apk/debug/`.
+Die APK liegt danach unter `app/android/app/build/outputs/apk/debug/`. Die native
+Kamera (ScryCamera) gibt es nur in der APK — im Browser nutzt der Scanner die
+Web-Kamera mit Tesseract.
 
 ---
 
-## Katalog fürs lokale Testen
+## Katalog
 
-Die App lädt den Katalog beim Start von der in `app/src/data/catalog.ts` konfigurierten
-Basis-URL (Default: das GitHub-Release `catalog-latest`). Zum lokalen Testen ohne CI:
+Die App lädt den Katalog von `CATALOG_BASE_URL` (`app/src/data/catalog.ts`). Default
+ist `/catalog` — also der Katalog, der beim Build aus `app/public/catalog/` mit in die
+APK wandert. Zum lokalen Befüllen:
 
 ```bash
 cd pipeline && python fetch_scryfall.py --out ../app/public/catalog --sample tests/sample_bulk.jsonl
 ```
 
-`app/public/catalog/` ist gitignored und wird beim Dev-Server unter `/catalog/` serviert.
+`app/public/catalog/` ist gitignored. Katalog-Updates ohne neue APK (per
+`VITE_CATALOG_BASE_URL` auf das Release `catalog-latest`) gehen erst, wenn die Assets
+ohne Anmeldung erreichbar sind (öffentliches Repo oder eigenes Hosting).
+
+---
+
+## Versionen & Releases
+
+- **0.x.y**: `0.1.x` = Fixes/Kleinkram, `0.2.x` = neue Funktionen, `1.0.0` = öffentlich.
+  `versionCode` in `app/android/app/build.gradle` zählt einfach hoch.
+- Jedes Release ist ein Tag `vX.Y.Z` mit deutschen Release-Notes. **Nur das neueste
+  Release trägt die APK**; ältere APK-Assets werden gelöscht. Die Releases
+  `catalog-*` enthalten die CI-Katalogdaten und werden dabei nie angefasst.
 
 ---
 
 ## Rechtliches
 
-- **Scryfall:** Kartendaten stammen aus den [Scryfall-Bulk-Data](https://scryfall.com/docs/api/bulk-data).
-  Attribution im About-Screen, `User-Agent` gesetzt, Rate-Limit eingehalten.
+- **Scryfall:** Kartendaten aus den [Scryfall-Bulk-Data](https://scryfall.com/docs/api/bulk-data),
+  Preise und Set-Termine live über die Scryfall-API. Attribution in der App,
+  `User-Agent` gesetzt, Rate-Limit eingehalten.
 - **WotC Fan Content Policy:** Dieses Projekt ist nicht-kommerziell. **Keine
   Monetarisierung** — keine Ads, kein In-App-Kauf, kein Spendenbutton, kein Verkauf.
-- **Keine Kartenbilder redistribuiert.** Bilder werden zur Laufzeit direkt vom
-  Scryfall-CDN geladen und nur lokal gecacht — und nur für Karten, die tatsächlich
-  gescannt/besessen werden.
+- **Keine Kartenbilder redistribuiert.** Bilder werden erst beim Anzeigen direkt vom
+  Scryfall-CDN geladen und nur lokal gecacht; nichts wird vorab geladen. Der
+  Bild-Hash-Index enthält nur 256-Bit-Fingerabdrücke, keine Bilder.
 - **Generierte Kartendaten** liegen nicht im Repo (gitignored). Der Katalog entsteht
   in der CI und lebt im Release.
 - Quellcode unter [MIT-Lizenz](LICENSE).
