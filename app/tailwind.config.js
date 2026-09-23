@@ -22,6 +22,15 @@ export default {
         ok: 'rgb(var(--c-ok) / <alpha-value>)',
         warn: 'rgb(var(--c-warn) / <alpha-value>)',
         danger: 'rgb(var(--c-danger) / <alpha-value>)',
+        // Manafarben für ManaCost/ColorPips (ui/mana.tsx) und die Statistik.
+        mtg: {
+          w: 'rgb(var(--c-mtg-w) / <alpha-value>)',
+          u: 'rgb(var(--c-mtg-u) / <alpha-value>)',
+          b: 'rgb(var(--c-mtg-b) / <alpha-value>)',
+          r: 'rgb(var(--c-mtg-r) / <alpha-value>)',
+          g: 'rgb(var(--c-mtg-g) / <alpha-value>)',
+          c: 'rgb(var(--c-mtg-c) / <alpha-value>)',
+        },
       },
       fontFamily: {
         // Body/Standard = Pixelify Sans (DESIGN § 3). `font-mono` bleibt im Code

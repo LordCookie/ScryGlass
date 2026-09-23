@@ -40,6 +40,13 @@
   --c-warn: 168 163 40;    /* etwas heller als #94901C für 5:1 */
   --c-warn-bg: 63 62 33;   /* #3F3E21 */
   --c-danger: 232 84 107;  /* #E8546B kein Treffer/Fehler */
+  /* MTG-Manafarben (Manasymbole, Farbpunkte, Statistik) — beim Pixel-Umbau verloren gegangen. */
+  --c-mtg-w: 249 246 233;
+  --c-mtg-u: 59 130 246;
+  --c-mtg-b: 120 113 108;
+  --c-mtg-r: 239 68 68;
+  --c-mtg-g: 34 197 94;
+  --c-mtg-c: 156 163 175;
 
   /* Alias, damit vorhandene Klassen (accent/on-accent) lesbar bleiben:
      accent = lilac-200 (Text/Fokus/subtile Füllung), on-accent = ink-900. */
