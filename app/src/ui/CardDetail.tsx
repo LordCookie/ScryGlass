@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, addOwned, setOwnedPrinting } from '../db/db';
 import { getCard } from '../data/cards';
 import { LEGALITY_FORMATS, FORMAT_LABELS, isLegal, type Card, type Finish, type Owned, type Printing } from '../domain/types';
+import { isDoubleFaced, type CardFace } from '../domain/cardFaces';
 import { CardImage } from './CardImage';
 import { ManaCost, ColorPips } from './mana';
 
@@ -18,6 +19,7 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
   const [card, setCard] = useState<Card | null>(null);
   const [printings, setPrintings] = useState<Printing[]>([]);
   const [idx, setIdx] = useState(0);
+  const [face, setFace] = useState<CardFace>('front'); // doppelseitige Karten umdrehen
   const owned = useLiveQuery<Owned[]>(
     () => db.owned.where('oracleId').equals(oracleId).toArray(),
     [oracleId],
@@ -80,6 +82,7 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
   const legal = card ? LEGALITY_FORMATS.filter((f) => isLegal(card.legalities, f)) : [];
   const current = printings[idx];
   const hasMany = printings.length > 1;
+  const dfc = isDoubleFaced(card?.layout);
   const setLabel = useMemo(
     () => (current ? `${current.set.toUpperCase()} · ${current.collectorNumber} · ${current.lang.toUpperCase()}` : ''),
     [current],
@@ -106,7 +109,14 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
                   aria-label="Nächste Ausgabe"
                   title={hasMany ? 'Tippen: nächste Ausgabe' : undefined}
                 >
-                  <CardImage scryfallId={current?.scryfallId} name={card.name} size="normal" className="h-auto w-full" />
+                  <CardImage
+                    key={`${current?.scryfallId}-${face}`}
+                    scryfallId={current?.scryfallId}
+                    name={card.name}
+                    size="normal"
+                    face={face}
+                    className="h-auto w-full"
+                  />
                   {hasMany && (
                     <span className="absolute right-0 top-0 bg-titlebar px-1 font-hud text-[8px] text-paper">
                       {idx + 1}/{printings.length}
@@ -122,6 +132,14 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
                 )}
                 {hasMany && <p className="mt-1 text-center text-[10px] text-muted">Bild antippen = Artwork wechseln</p>}
                 {!hasMany && current && <p className="mt-1 text-center text-[10px] text-muted">{setLabel}</p>}
+                {dfc && (
+                  <button
+                    onClick={() => setFace((f) => (f === 'front' ? 'back' : 'front'))}
+                    className="mt-1 w-full bg-fill/20 px-2 py-1 text-[11px] text-accent hover:bg-fill/40"
+                  >
+                    ↻ {face === 'front' ? 'Rückseite' : 'Vorderseite'}
+                  </button>
+                )}
               </div>
 
               <div className="min-w-0 flex-1 space-y-2">

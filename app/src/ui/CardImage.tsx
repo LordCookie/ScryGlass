@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { cardImageUrl, type ImageSize } from '../data/cardImages';
+import type { CardFace } from '../domain/cardFaces';
 
 /**
  * Kartenbild vom Scryfall-CDN (PLAN.md § 12: nur verlinkt, lokal via SW gecacht).
@@ -10,11 +11,14 @@ export function CardImage({
   name,
   size = 'small',
   className = 'h-16 w-11',
+  face = 'front',
 }: {
   scryfallId?: string;
   name?: string;
   size?: ImageSize;
   className?: string;
+  /** Rückseite doppelseitiger Karten. */
+  face?: CardFace;
 }) {
   const [failed, setFailed] = useState(false);
   if (!scryfallId || failed) {
@@ -29,7 +33,7 @@ export function CardImage({
   }
   return (
     <img
-      src={cardImageUrl(scryfallId, size)}
+      src={cardImageUrl(scryfallId, size, face)}
       alt={name ?? 'Karte'}
       loading="lazy"
       onError={() => setFailed(true)}
