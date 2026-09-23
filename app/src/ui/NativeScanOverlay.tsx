@@ -191,7 +191,7 @@ export function NativeScanOverlay(p: Props) {
       <div className={`absolute inset-x-0 bottom-0 ${BOTTOM_H} bg-bg/95 px-3 py-2`}>
         {qr ? (
           <p className="pt-3 text-center text-xs text-muted">
-            Auf dem anderen Gerät: Peer → Empfang starten. Dann dessen QR-Code hierher halten.
+            Auf dem anderen Gerät: Mehr → Gemeinsam scannen → Empfang starten. Dann dessen QR-Code hierher halten.
           </p>
         ) : (
           <>

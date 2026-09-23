@@ -4,6 +4,9 @@
  * Ausführung. Set kennen wir nur bei Beständen mit gemerkter Ausgabe (printingId).
  */
 import type { Card, Finish, Owned } from './types';
+import { matchesCardFilter, cmcBucket } from './cardFilter';
+
+export { cmcBucket };
 
 export interface CollectionFilter {
   query: string;
@@ -46,23 +49,14 @@ export interface FilterRow {
   set?: string;
 }
 
-export function cmcBucket(cmc: number): number {
-  return Math.min(7, Math.max(0, Math.floor(cmc)));
-}
-
 export function matchesFilter(r: FilterRow, f: CollectionFilter): boolean {
   const c = r.card;
   const q = f.query.trim().toLowerCase();
   if (q && !(c.name.toLowerCase().includes(q) || c.typeLine.toLowerCase().includes(q) || c.oracleText.toLowerCase().includes(q))) {
     return false;
   }
-  if (f.color) {
-    const ok = f.color === 'C' ? c.colorIdentity.length === 0 : c.colorIdentity.includes(f.color);
-    if (!ok) return false;
-  }
-  // „enthält den Typ" — Artefaktkreaturen zählen auch als Kreatur.
-  if (f.type && !new RegExp(`\\b${f.type}\\b`, 'i').test(c.typeLine)) return false;
-  if (f.cmc != null && cmcBucket(c.cmc) !== f.cmc) return false;
+  // Farbe/Typ/Manawert genauso wie in der Katalogsuche (domain/cardFilter).
+  if (!matchesCardFilter(c, { color: f.color, type: f.type, cmc: f.cmc, format: null })) return false;
   if (f.set && r.set !== f.set) return false;
   if (f.finish && r.owned.finish !== f.finish) return false;
   return true;

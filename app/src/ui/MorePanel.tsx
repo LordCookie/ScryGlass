@@ -11,6 +11,8 @@ import { invalidateNameIndex } from '../data/matcher';
 import { initFeedbackPrefs, getVibration, setVibration, hapticTap } from '../native/feedback';
 import { PixelIcon } from './PixelIcon';
 import { THEMES, currentTheme, chooseTheme, type ThemeKey } from './themes';
+import { PeerPanel } from './PeerPanel';
+import { APP_VERSION } from '../version';
 
 /** „Mehr": Einstellungen, Backup/Export, Katalog-Update, Rechtliches (PLAN.md § 5, § 4, § 12). */
 
@@ -79,6 +81,8 @@ export function MorePanel() {
   return (
     <section className="space-y-3">
       <SettingsSection />
+      {/* Gemeinsam scannen — früher eigener Tab, jetzt hier (Platz für die Suche). */}
+      <PeerPanel />
       <BackupSection />
       <CatalogSection />
       <ScanLogSection />
@@ -87,7 +91,7 @@ export function MorePanel() {
   );
 }
 
-/** Einstellungen: Vibration beim Scannen (app-weit, native/feedback.ts) und Farbschema (ui/themes.ts). */
+/** Einstellungen: Vibration für Scanner & Decks (app-weit, native/feedback.ts) und Farbschema (ui/themes.ts). */
 function SettingsSection() {
   const [vibrate, setVibrate] = useState(getVibration());
   const [theme, setTheme] = useState<ThemeKey>(currentTheme());
@@ -115,9 +119,9 @@ function SettingsSection() {
       <div className="flex items-center gap-3">
         <PixelIcon name="vibrate" className={vibrate ? 'text-paper' : 'text-muted'} />
         <div className="min-w-0 flex-1">
-          <div className="font-mono text-sm">Vibration beim Scannen</div>
+          <div className="font-mono text-sm">Vibration</div>
           <div className="text-xs text-muted">
-            Beim Hinzufügen in den Korb und beim Antippen. Den Ton regelst du über die Android-Lautstärke.
+            Beim Hinzufügen (Scan-Korb, Decks) und beim Antippen. Den Ton regelst du über die Android-Lautstärke.
           </div>
         </div>
         <button onClick={toggle} aria-pressed={vibrate}
@@ -348,7 +352,9 @@ function CatalogSection() {
 function AboutSection() {
   return (
     <div className="rounded-lg bg-surface p-4 text-xs leading-relaxed text-muted">
-      <h2 className="mb-2 font-mono text-lg text-text">Über ScryGlass</h2>
+      <h2 className="mb-2 font-mono text-lg text-text">
+        Über ScryGlass <span className="font-hud text-[10px] text-muted">v{APP_VERSION}</span>
+      </h2>
       <p className="mb-2">
         Inoffizielles Fan-Projekt. <b>Nicht</b> affiliiert mit oder unterstützt von Wizards of the
         Coast oder Scryfall. Magic: The Gathering und alle zugehörigen Marken sind Eigentum von
@@ -357,7 +363,8 @@ function AboutSection() {
       <p className="mb-2">
         Kartendaten von <a className="text-accent underline" href="https://scryfall.com" target="_blank" rel="noreferrer">Scryfall</a>.
         Kartenbilder werden zur Laufzeit vom Scryfall-CDN geladen und nur lokal gecacht — nichts wird
-        weiterverteilt. Keine Preise, keine Cloud, keine Konten, keine Monetarisierung.
+        weiterverteilt. Preise sind unverbindliche Richtwerte (Cardmarket in Euro, über
+        Scryfall). Keine Cloud, keine Konten, keine Monetarisierung.
       </p>
       <p>Quellcode: MIT-Lizenz.</p>
     </div>

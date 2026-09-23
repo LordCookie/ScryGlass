@@ -2,6 +2,10 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import basicSsl from '@vitejs/plugin-basic-ssl';
+import { readFileSync } from 'node:fs';
+
+// App-Version einmal aus package.json — landet als __APP_VERSION__ im Bundle (Über-Seite).
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as { version: string };
 
 // Heimnetz-Freigabe fürs Handy: `LAN=1 npm run dev` bindet an 0.0.0.0 und schaltet
 // HTTPS (selbstsigniert) ein — nötig, weil die Kamera (getUserMedia) nur in einem
@@ -12,6 +16,7 @@ const lan = process.env.LAN === '1' || process.env.LAN === 'true';
 // https://vitejs.dev/config/
 export default defineConfig({
   server: lan ? { host: true, port: 5174 } : { port: 5174 },
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   plugins: [
     react(),
     ...(lan ? [basicSsl()] : []),

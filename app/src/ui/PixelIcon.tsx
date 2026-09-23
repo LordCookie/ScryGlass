@@ -21,6 +21,21 @@ const ICONS = {
     '....####....',
     '....####....',
   ],
+  // Lupe (Suche) — dasselbe Motiv wie im App-Icon
+  search: [
+    '...####.....',
+    '..#....#....',
+    '.#.##...#...',
+    '.#.#....#...',
+    '.#......#...',
+    '.#......#...',
+    '..#....#....',
+    '...####.##..',
+    '........###.',
+    '.........###',
+    '..........##',
+    '............',
+  ],
   // Handy mit Zickzack-Linien (Vibration)
   vibrate: [
     '...######...',
@@ -59,7 +74,18 @@ function runs(rows: readonly string[]): { x: number; y: number; w: number }[] {
   return out;
 }
 
-export function PixelIcon({ name, className = '', title }: { name: PixelIconName; className?: string; title?: string }) {
+export function PixelIcon({
+  name,
+  className = '',
+  title,
+  unit = 'var(--px)',
+}: {
+  name: PixelIconName;
+  className?: string;
+  title?: string;
+  /** Kantenlänge eines Icon-Pixels (Standard: ein Design-Pixel). */
+  unit?: string;
+}) {
   const rows = ICONS[name];
   const h = rows.length;
   const w = rows[0].length;
@@ -71,7 +97,7 @@ export function PixelIcon({ name, className = '', title }: { name: PixelIconName
       role={title ? 'img' : undefined}
       aria-hidden={title ? undefined : true}
       className={`inline-block shrink-0 align-middle ${className}`}
-      style={{ width: `calc(var(--px) * ${w})`, height: `calc(var(--px) * ${h})` }}
+      style={{ width: `calc(${unit} * ${w})`, height: `calc(${unit} * ${h})` }}
     >
       {title && <title>{title}</title>}
       {runs(rows).map((r) => (

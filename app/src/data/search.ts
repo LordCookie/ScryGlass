@@ -1,6 +1,7 @@
 import { db } from '../db/db';
 import { normalizeName } from '../domain/nameMatch';
 import type { Card } from '../domain/types';
+import { matchesCardFilter, hasCardFilter, type CardFilter } from '../domain/cardFilter';
 
 /**
  * Katalogsuche für Deckbau, manuelles Hinzufügen und den Scanner-Fallback.
@@ -70,7 +71,39 @@ async function ensureIndex(): Promise<SearchEntry[]> {
 export async function searchCards(query: string, limit = 20): Promise<Card[]> {
   const q = query.trim().toLowerCase();
   if (!q) return [];
+  return scoreEntries(await ensureIndex(), query).slice(0, limit).map((s) => s.entry.card);
+}
+
+export interface CatalogResult {
+  cards: Card[];
+  /** alle Treffer (für „N Treffer" / „Mehr anzeigen") */
+  total: number;
+}
+
+/**
+ * Katalogsuche mit Filtern (Such-Tab). Mit Suchbegriff: Relevanz wie `searchCards`;
+ * nur mit Filtern: der ganze Katalog gefiltert, alphabetisch. Ohne beides: nichts.
+ * `onlyIds`: optional nur diese Karten (z. B. „nur im Bestand").
+ */
+export async function searchCatalog(
+  query: string,
+  filter: CardFilter,
+  limit: number,
+  onlyIds?: ReadonlySet<string>,
+): Promise<CatalogResult> {
+  const q = query.trim();
+  if (!q && !hasCardFilter(filter) && !onlyIds) return { cards: [], total: 0 };
   const idx = await ensureIndex();
+  const keep = (c: Card) => matchesCardFilter(c, filter) && (!onlyIds || onlyIds.has(c.oracleId));
+  const hits = q
+    ? scoreEntries(idx, query).map((s) => s.entry.card).filter(keep)
+    : idx.map((e) => e.card).filter(keep).sort((a, b) => a.name.localeCompare(b.name));
+  return { cards: hits.slice(0, limit), total: hits.length };
+}
+
+/** Relevanz-Bewertung aller Einträge, die alle Suchwörter enthalten (absteigend). */
+function scoreEntries(idx: readonly SearchEntry[], query: string): { entry: SearchEntry; score: number }[] {
+  const q = query.trim().toLowerCase();
   const words = q.split(/\s+/).filter(Boolean);
   // Auch die normalisierte Form testen (deutsche Namen liegen ohne Diakritika vor).
   const qNorm = normalizeName(query);
@@ -102,5 +135,5 @@ export async function searchCards(query: string, limit = 20): Promise<Card[]> {
       a.entry.card.name.length - b.entry.card.name.length ||
       a.entry.card.name.localeCompare(b.entry.card.name),
   );
-  return scored.slice(0, limit).map((s) => s.entry.card);
+  return scored;
 }
