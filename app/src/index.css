@@ -59,6 +59,42 @@
   --px: 3px;
 }
 
+/* Farbschemata (Mehr → Einstellungen). Weiter „dark only" (DESIGN § 2) — nur die
+   Tokens wechseln; alle Komponenten hängen an den Variablen. Kontraste geprüft:
+   Text auf bg ≥ 6:1, Paper auf fill ≥ 4,5:1, on-accent auf accent ≥ 6:1. */
+
+/* Abendrot: Orange #EF7627 · Weiß #FFFFFF · Dusty Pink #B55690 */
+:root[data-theme='abendrot'] {
+  --c-bg: 42 15 34;        /* #2A0F22 */
+  --c-surface: 61 26 51;   /* #3D1A33 */
+  --c-elevated: 74 30 62;  /* #4A1E3E */
+  --c-titlebar: 126 53 102;/* #7E3566 */
+  --c-pressed: 156 74 126; /* #9C4A7E */
+  --c-fill: 181 86 144;    /* #B55690 Dusty Pink — Rahmen/aktiv */
+  --c-text: 251 227 239;   /* #FBE3EF */
+  --c-paper: 255 255 255;  /* #FFFFFF */
+  --c-muted: 185 138 168;  /* #B98AA8 */
+  --c-accent: 239 118 39;  /* #EF7627 Orange — Knöpfe/Akzente */
+  --c-on-accent: 42 15 34;
+}
+
+/* Schwarz · Weiß · Gold (dunkles Gold für Flächen mit weißem Text, helles für Akzente) */
+:root[data-theme='gold'] {
+  --c-bg: 10 10 10;        /* #0A0A0A */
+  --c-surface: 23 23 23;   /* #171717 */
+  --c-elevated: 34 34 34;  /* #222222 */
+  --c-titlebar: 58 47 11;  /* #3A2F0B */
+  --c-pressed: 92 74 18;   /* #5C4A12 */
+  --c-fill: 140 109 26;    /* #8C6D1A dunkles Gold — Rahmen/aktiv */
+  --c-text: 237 237 237;   /* #EDEDED */
+  --c-paper: 255 255 255;  /* #FFFFFF */
+  --c-muted: 158 154 142;  /* #9E9A8E */
+  --c-accent: 212 175 55;  /* #D4AF37 Gold — Knöpfe/Akzente */
+  --c-on-accent: 10 10 10;
+  --c-warn: 224 146 46;    /* Oliv wäre neben Gold unsichtbar → Orange */
+  --c-warn-bg: 58 42 18;
+}
+
 html,
 body,
 #root {

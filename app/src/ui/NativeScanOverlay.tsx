@@ -79,7 +79,7 @@ export function NativeScanOverlay(p: Props) {
             // Höhe = Fensterhöhe minus Leisten (3.5rem + 10rem), 12 % Luft für die Statuszeile.
             width: 'min(80vw, calc((100vh - 13.5rem) * 0.7163 * 0.88))',
             aspectRatio: '745 / 1040',
-            boxShadow: '0 0 0 9999px rgba(12, 6, 24, 0.55)',
+            boxShadow: '0 0 0 9999px rgb(var(--c-bg) / 0.55)', // folgt dem Farbschema
           }}
         />
         {status && (

@@ -10,6 +10,7 @@ import { fetchRemoteVersion, applyUpdate, getLocalCatalogVersion, type CatalogVe
 import { invalidateNameIndex } from '../data/matcher';
 import { initFeedbackPrefs, getVibration, setVibration, hapticTap } from '../native/feedback';
 import { PixelIcon } from './PixelIcon';
+import { THEMES, currentTheme, chooseTheme, type ThemeKey } from './themes';
 
 /** „Mehr": Einstellungen, Backup/Export, Katalog-Update, Rechtliches (PLAN.md § 5, § 4, § 12). */
 
@@ -86,9 +87,16 @@ export function MorePanel() {
   );
 }
 
-/** Einstellungen: Vibration beim Scannen (gilt app-weit, siehe native/feedback.ts). */
+/** Einstellungen: Vibration beim Scannen (app-weit, native/feedback.ts) und Farbschema (ui/themes.ts). */
 function SettingsSection() {
   const [vibrate, setVibrate] = useState(getVibration());
+  const [theme, setTheme] = useState<ThemeKey>(currentTheme());
+
+  function pickTheme(key: ThemeKey) {
+    chooseTheme(key);
+    setTheme(key);
+    hapticTap();
+  }
 
   useEffect(() => {
     void initFeedbackPrefs().then(() => setVibrate(getVibration()));
@@ -116,6 +124,28 @@ function SettingsSection() {
           className={`shrink-0 px-3 py-1.5 font-mono text-sm ${vibrate ? 'bg-fill text-paper' : 'bg-bg text-muted'}`}>
           {vibrate ? 'An' : 'Aus'}
         </button>
+      </div>
+
+      {/* Farbschema: Vorschau-Kacheln, Auswahl wirkt sofort und wird gemerkt. */}
+      <div className="mt-5">
+        <div className="mb-2 font-mono text-sm">Farbschema</div>
+        <div className="grid grid-cols-3 gap-2">
+          {THEMES.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => pickTheme(t.key)}
+              aria-pressed={theme === t.key}
+              className={`border-2 p-2 text-left font-mono text-xs ${theme === t.key ? 'border-paper text-paper' : 'border-border text-muted'}`}
+            >
+              <span className="mb-1.5 flex" aria-hidden>
+                {t.swatches.map((c) => (
+                  <span key={c} className="h-4 flex-1" style={{ background: c }} />
+                ))}
+              </span>
+              {t.name}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
