@@ -4,18 +4,26 @@ import { db, addOwned } from '../db/db';
 import { getCards, previewImageIds } from '../data/cards';
 import { searchCards } from '../data/search';
 import type { Card, Owned, Finish } from '../domain/types';
+import {
+  matchesFilter, extraFilterCount, EMPTY_FILTER, TYPE_FILTERS,
+  type CollectionFilter, type FilterRow,
+} from '../domain/collectionFilter';
 import { CardImage } from './CardImage';
 import { CardDetail } from './CardDetail';
+import { CollectionStats } from './CollectionStats';
 import { ManaCost, ColorPips } from './mana';
 
 /**
  * Sammlungsansicht (PLAN.md § 5, M5): Bestand, Suche, Filter, Sortierung.
- * Zwei Ansichten: Bild-Raster (mit Anzahl-Badge) und Liste (Mini-Kartenrahmen).
- * Klick auf eine Karte öffnet das Detail (Effekte/Bild/Legalität). Reaktiv über Dexie.
+ * Drei Ansichten: Bild-Raster (mit Anzahl-Badge), Liste (Mini-Kartenrahmen) und
+ * Statistik (der gefilterten Auswahl). Klick auf eine Karte öffnet das Detail.
+ * Reaktiv über Dexie.
  */
 
 type SortKey = 'name' | 'cmc' | 'qty';
-type ViewMode = 'grid' | 'list';
+type ViewMode = 'grid' | 'list' | 'stats';
+const CMC_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7];
+const FINISH_LABEL: Record<Finish, string> = { nonfoil: 'normal', foil: 'foil', etched: 'etched' };
 const COLORS: { key: string; label: string }[] = [
   { key: 'W', label: 'W' }, { key: 'U', label: 'U' }, { key: 'B', label: 'B' },
   { key: 'R', label: 'R' }, { key: 'G', label: 'G' }, { key: 'C', label: 'farblos' },
@@ -25,50 +33,53 @@ interface Row {
   owned: Owned;
   card?: Card;
   scryfallId?: string;
+  /** Set der gemerkten Ausgabe (nur mit printingId bekannt). */
+  set?: string;
 }
+type KnownRow = FilterRow & { scryfallId?: string };
 
 export function CollectionView() {
-  const [query, setQuery] = useState('');
-  const [color, setColor] = useState<string | null>(null);
+  const [filter, setFilter] = useState<CollectionFilter>(EMPTY_FILTER);
+  const [showFilters, setShowFilters] = useState(false);
   const [sort, setSort] = useState<SortKey>('name');
   const [view, setView] = useState<ViewMode>('grid');
   const [detailId, setDetailId] = useState<string | null>(null);
+  const patch = (p: Partial<CollectionFilter>) => setFilter((f) => ({ ...f, ...p }));
 
   const rows = useLiveQuery<Row[]>(async () => {
     const owned = await db.owned.toArray();
     const ids = owned.map((o) => o.oracleId);
-    const [cards, imgs] = await Promise.all([getCards(ids), previewImageIds(ids)]);
+    const pids = owned.map((o) => o.printingId).filter((p): p is string => !!p);
+    const [cards, imgs, prints] = await Promise.all([getCards(ids), previewImageIds(ids), db.printings.bulkGet(pids)]);
+    const setOf = new Map<string, string>();
+    for (const p of prints) if (p) setOf.set(p.scryfallId, p.set);
     // Gewählte Ausgabe (printingId) bevorzugen, sonst die Standard-Vorschau.
-    return owned.map((o) => ({ owned: o, card: cards.get(o.oracleId), scryfallId: o.printingId ?? imgs.get(o.oracleId) }));
+    return owned.map((o) => ({
+      owned: o,
+      card: cards.get(o.oracleId),
+      scryfallId: o.printingId ?? imgs.get(o.oracleId),
+      set: o.printingId ? setOf.get(o.printingId) : undefined,
+    }));
   }, []);
 
-  const filtered = useMemo(() => {
+  const filtered = useMemo<KnownRow[]>(() => {
     if (!rows) return [];
-    const q = query.trim().toLowerCase();
-    let out = rows.filter((r) => r.card);
-    // Suche im Bestand: Name, Typ ODER Regeltext (analog zur Katalogsuche).
-    if (q) {
-      out = out.filter((r) => {
-        const c = r.card!;
-        return (
-          c.name.toLowerCase().includes(q) ||
-          c.typeLine.toLowerCase().includes(q) ||
-          c.oracleText.toLowerCase().includes(q)
-        );
-      });
-    }
-    if (color) {
-      out = out.filter((r) =>
-        color === 'C' ? r.card!.colorIdentity.length === 0 : r.card!.colorIdentity.includes(color),
-      );
-    }
+    const out = rows.filter((r): r is KnownRow => !!r.card && matchesFilter(r as KnownRow, filter));
     out.sort((a, b) => {
-      if (sort === 'cmc') return a.card!.cmc - b.card!.cmc || a.card!.name.localeCompare(b.card!.name);
-      if (sort === 'qty') return b.owned.qty - a.owned.qty || a.card!.name.localeCompare(b.card!.name);
-      return a.card!.name.localeCompare(b.card!.name);
+      if (sort === 'cmc') return a.card.cmc - b.card.cmc || a.card.name.localeCompare(b.card.name);
+      if (sort === 'qty') return b.owned.qty - a.owned.qty || a.card.name.localeCompare(b.card.name);
+      return a.card.name.localeCompare(b.card.name);
     });
     return out;
-  }, [rows, query, color, sort]);
+  }, [rows, filter, sort]);
+
+  // Sets, die in der Sammlung vorkommen (für den Set-Filter), nach Anzahl sortiert.
+  const setOptions = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows ?? []) if (r.set) m.set(r.set, (m.get(r.set) ?? 0) + r.owned.qty);
+    return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [rows]);
+  const extraCount = extraFilterCount(filter);
 
   // Fürs Raster je oracleId zusammenfassen (Anzahl über Ausführungen summieren).
   const gridItems = useMemo(() => {
@@ -92,8 +103,8 @@ export function CollectionView() {
           <span className="font-mono text-xs text-muted">{totalCards} Karten · {distinct} verschiedene</span>
         </div>
         <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          value={filter.query}
+          onChange={(e) => patch({ query: e.target.value })}
           placeholder="Suchen (Name, Typ oder Regeltext)…"
           className="mb-2 w-full border-2 border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-paper"
         />
@@ -102,13 +113,20 @@ export function CollectionView() {
             {COLORS.map((c) => (
               <button
                 key={c.key}
-                onClick={() => setColor(color === c.key ? null : c.key)}
-                className={`px-2 py-1 ${color === c.key ? 'bg-fill text-paper' : 'bg-bg text-muted hover:text-text'}`}
+                onClick={() => patch({ color: filter.color === c.key ? null : c.key })}
+                className={`px-2 py-1 ${filter.color === c.key ? 'bg-fill text-paper' : 'bg-bg text-muted hover:text-text'}`}
               >
                 {c.label}
               </button>
             ))}
           </div>
+          <button
+            onClick={() => setShowFilters((s) => !s)}
+            aria-expanded={showFilters}
+            className={`px-2 py-1 ${extraCount > 0 ? 'bg-fill text-paper' : 'bg-bg text-muted hover:text-text'}`}
+          >
+            Filter{extraCount > 0 ? ` (${extraCount})` : ''} {showFilters ? '▴' : '▾'}
+          </button>
           <div className="ml-auto flex items-center gap-2">
             <label className="flex items-center gap-1 text-muted">
               Sortieren
@@ -119,15 +137,67 @@ export function CollectionView() {
                 <option value="qty">Anzahl</option>
               </select>
             </label>
-            {/* Ansicht umschalten: Raster / Liste */}
+            {/* Ansicht umschalten: Raster / Liste / Statistik */}
             <div className="flex">
               <button onClick={() => setView('grid')} aria-label="Raster"
                 className={`px-2 py-1 ${view === 'grid' ? 'bg-fill text-paper' : 'bg-bg text-muted'}`}>▦</button>
               <button onClick={() => setView('list')} aria-label="Liste"
                 className={`px-2 py-1 ${view === 'list' ? 'bg-fill text-paper' : 'bg-bg text-muted'}`}>≣</button>
+              <button onClick={() => setView('stats')} aria-label="Statistik"
+                className={`px-2 py-1 ${view === 'stats' ? 'bg-fill text-paper' : 'bg-bg text-muted'}`}>Σ</button>
             </div>
           </div>
         </div>
+
+        {/* Zusatzfilter (Typ, Manawert, Set, Ausführung) */}
+        {showFilters && (
+          <div className="mt-3 grid grid-cols-2 gap-2 font-mono text-xs">
+            <label className="flex flex-col gap-1 text-muted">
+              Kartentyp
+              <select value={filter.type ?? ''} onChange={(e) => patch({ type: e.target.value || null })}
+                className="border-2 border-border bg-bg px-2 py-1 text-text outline-none focus:border-paper">
+                <option value="">Alle</option>
+                {TYPE_FILTERS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-muted">
+              Manawert
+              <select value={filter.cmc ?? ''} onChange={(e) => patch({ cmc: e.target.value === '' ? null : Number(e.target.value) })}
+                className="border-2 border-border bg-bg px-2 py-1 text-text outline-none focus:border-paper">
+                <option value="">Alle</option>
+                {CMC_OPTIONS.map((n) => <option key={n} value={n}>{n === 7 ? '7+' : n}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-muted">
+              Set
+              <select value={filter.set ?? ''} onChange={(e) => patch({ set: e.target.value || null })}
+                disabled={setOptions.length === 0}
+                className="border-2 border-border bg-bg px-2 py-1 text-text outline-none focus:border-paper disabled:opacity-40">
+                <option value="">Alle</option>
+                {setOptions.map(([s, n]) => <option key={s} value={s}>{s.toUpperCase()} ({n})</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-muted">
+              Ausführung
+              <select value={filter.finish ?? ''} onChange={(e) => patch({ finish: (e.target.value || null) as Finish | null })}
+                className="border-2 border-border bg-bg px-2 py-1 text-text outline-none focus:border-paper">
+                <option value="">Alle</option>
+                {(Object.keys(FINISH_LABEL) as Finish[]).map((f) => <option key={f} value={f}>{FINISH_LABEL[f]}</option>)}
+              </select>
+            </label>
+            {setOptions.length === 0 && (
+              <p className="col-span-2 text-[10px] text-muted">
+                Set-Filter: kennt nur Karten, deren Artwork im Kartendetail gewählt wurde.
+              </p>
+            )}
+            {extraCount > 0 && (
+              <button onClick={() => patch({ type: null, cmc: null, set: null, finish: null })}
+                className="col-span-2 bg-bg px-2 py-1 text-muted hover:text-text">
+                Filter zurücksetzen
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <ManualAddBox />
@@ -138,6 +208,9 @@ export function CollectionView() {
         <p className="px-1 font-mono text-sm text-muted">
           {distinct === 0 ? 'Noch keine Karten. Scanne welche im Scanner-Tab.' : 'Keine Treffer.'}
         </p>
+      ) : view === 'stats' ? (
+        // Statistik der aktuell gefilterten Auswahl.
+        <CollectionStats rows={filtered} />
       ) : view === 'grid' ? (
         // Bild-Raster mit Anzahl-Badge oben rechts.
         <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
