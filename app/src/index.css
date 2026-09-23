@@ -317,13 +317,40 @@ video,
   animation: cam-scan 0.6s steps(10) 1;
 }
 
+/* Scan-Rahmen (native Kamera): Pixel-Scanlinie läuft in Stufen über die Karte,
+   solange gesucht wird — zeigt „ich lese gerade" (A2 erweitert). */
+@keyframes scan-line { from { top: 0; } to { top: calc(100% - var(--px) * 2); } }
+.scan-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: calc(var(--px) * 2);
+  background: rgb(var(--c-paper) / 0.8);
+  box-shadow: 0 0 0 var(--px) rgb(var(--c-fill) / 0.6);
+  animation: scan-line 1.6s steps(12) infinite;
+}
+
+/* In den Korb (A6): Rahmen blitzt einmal in --ok auf, 3 Frames. */
+@keyframes frame-flash {
+  0% { opacity: 1; }
+  66% { opacity: 0.6; }
+  100% { opacity: 0; }
+}
+.frame-flash {
+  position: absolute;
+  inset: 0;
+  border: calc(var(--px) * 3) solid rgb(var(--c-ok));
+  animation: frame-flash 0.3s steps(3) forwards;
+}
+
 /* prefers-reduced-motion: Deko einfrieren, aber Fortschritt/Pips/Zähler laufen weiter
    (das ist Information, keine Deko — DESIGN § 5). */
 @media (prefers-reduced-motion: reduce) {
   .foil::after,
   .reticle-corner,
   .cam-boot,
-  .cam-boot::before {
+  .cam-boot::before,
+  .scan-line {
     animation: none !important;
   }
   .cam-boot { display: none; }

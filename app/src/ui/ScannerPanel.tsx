@@ -10,7 +10,7 @@ import { pickNameLine, cleanNameText, collectorText, parseCollectorText, type Co
 import { setPickerOptions, type SetOption } from '../domain/nextSet';
 import { getSetList } from '../data/nextSet';
 import { findPrinting, setMembers, catalogSetCodes, type SetMembers } from '../data/printingLookup';
-import { ScryCamera, hasNativeCamera, reticleOf, type NativeFrame } from '../native/scryCamera';
+import { ScryCamera, hasNativeCamera, reticleOf, type NativeFrame, type CameraMode } from '../native/scryCamera';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { NativeScanOverlay } from './NativeScanOverlay';
 import {
@@ -274,6 +274,9 @@ export function ScannerPanel() {
 
   // Native Kamera (ScryCamera-Plugin, nur Android-App): Overlay statt <video>.
   const [nativeOn, setNativeOn] = useState(false);
+  const [nativeMode, setNativeMode] = useState<CameraMode>('card'); // 'qr' = Pairing
+  const [qrHint, setQrHint] = useState<string | null>(null);
+  const [flashKey, setFlashKey] = useState(0); // Rahmen blitzt bei jeder Übernahme (A6)
   const nativeOnRef = useRef(false);
   const nativeListenerRef = useRef<PluginListenerHandle | null>(null);
   const reticleElRef = useRef<HTMLDivElement>(null);
@@ -429,6 +432,14 @@ export function ScannerPanel() {
     },
     [],
   );
+
+  // Modus-Wechsel (QR ↔ Karte) ändert die Rahmenform → neu melden, sobald gezeichnet.
+  useEffect(() => {
+    if (!nativeOn) return;
+    const id = requestAnimationFrame(() => requestAnimationFrame(() => sendReticle()));
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nativeMode, nativeOn]);
 
   // Fenstergröße/Drehung ändert die Rahmenlage → dem nativen Ausschnitt mitteilen.
   useEffect(() => {
@@ -817,6 +828,10 @@ export function ScannerPanel() {
 
   /** Nativer Kamera-Pfad: ein ausgewertetes Bild vom ScryCamera-Plugin (ML Kit). */
   async function onNativeFrame(f: NativeFrame) {
+    if (f.qr) {
+      void onNativeQr(f.qr);
+      return;
+    }
     if (f.blurry) {
       setBlurry(true);
       noteBlurryFrame();
@@ -852,7 +867,31 @@ export function ScannerPanel() {
   }
   onFrameRef.current = (f) => void onNativeFrame(f);
 
-  // QR-Pairing: scannt den Bildschirm-QR des Empfängers (§ 8).
+  // QR-Pairing (§ 8): QR-Inhalt → Pairing-URL → verbinden. Gemeinsam für Web- und native Kamera.
+  async function connectFromQr(data: string): Promise<boolean> {
+    const info = parsePairingUrl(data);
+    if (!info) return false; // irgendein anderer QR-Code — ignorieren
+    busyRef.current = true;
+    setQrHint('Verbinde…');
+    try {
+      const { conn, hello } = await pair(info);
+      setTarget({ kind: 'peer', ...conn });
+      setPairing(false);
+      setPairMsg(`Verbunden mit „${hello.deviceName}".`);
+      setQrHint(null);
+      feedbackAdded(); // spürbar: verbunden
+      return true;
+    } catch (e) {
+      const msg = e instanceof PeerError ? e.message : 'Pairing fehlgeschlagen.';
+      setPairMsg(msg);
+      setQrHint(msg);
+      return false;
+    } finally {
+      busyRef.current = false;
+    }
+  }
+
+  // Web-Kamera: QR aus dem <video>-Bild lesen.
   async function scanQr() {
     const video = videoRef.current;
     if (!video || busyRef.current || !video.videoWidth) return;
@@ -864,19 +903,34 @@ export function ScannerPanel() {
     ctx.drawImage(video, 0, 0);
     const img = ctx.getImageData(0, 0, cv.width, cv.height);
     const code = jsQR(img.data, img.width, img.height);
-    if (!code) return;
-    const info = parsePairingUrl(code.data);
-    if (!info) return;
+    if (code) await connectFromQr(code.data);
+  }
+
+  // Native Kamera: QR aus dem quadratischen Ausschnitt lesen. Danach geht es direkt
+  // im Karten-Modus weiter — Scan-Ziel ist dann das verbundene Gerät.
+  async function onNativeQr(b64: string) {
+    if (busyRef.current) return;
     busyRef.current = true;
+    let text: string | null = null;
     try {
-      const { conn, hello } = await pair(info);
-      setTarget({ kind: 'peer', ...conn });
-      setPairing(false);
-      setPairMsg(`Verbunden mit „${hello.deviceName}".`);
-    } catch (e) {
-      setPairMsg(e instanceof PeerError ? e.message : 'Pairing fehlgeschlagen.');
+      const img = await decodeJpeg(b64);
+      const cv = document.createElement('canvas');
+      cv.width = img.naturalWidth;
+      cv.height = img.naturalHeight;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        ctx.drawImage(img, 0, 0);
+        const d = ctx.getImageData(0, 0, cv.width, cv.height);
+        text = jsQR(d.data, d.width, d.height)?.data ?? null;
+      }
+    } catch {
+      /* nächstes Bild */
     } finally {
       busyRef.current = false;
+    }
+    if (text && (await connectFromQr(text))) {
+      setNativeMode('card');
+      await ScryCamera.setMode({ mode: 'card' });
     }
   }
 
@@ -900,8 +954,9 @@ export function ScannerPanel() {
     else void startWebCamera();
   }
 
-  async function startNative() {
+  async function startNative(mode: CameraMode = 'card') {
     setCamError(null);
+    setNativeMode(mode);
     document.documentElement.classList.add('scan-native');
     nativeOnRef.current = true;
     setNativeOn(true);
@@ -911,7 +966,7 @@ export function ScannerPanel() {
       const el = reticleElRef.current;
       const rect = el ? reticleOf(el) : { left: 0.1, top: 0.2, width: 0.8, height: 0.55 };
       nativeListenerRef.current = await ScryCamera.addListener('frame', (f) => onFrameRef.current(f));
-      const caps = await ScryCamera.start(rect);
+      const caps = await ScryCamera.start({ ...rect, mode });
       setTorchAvailable(caps.torch);
       setTorchOn(false);
     } catch (e) {
@@ -938,6 +993,15 @@ export function ScannerPanel() {
     consensusRef.current = { oracleId: '', count: 0 };
     setBlurry(false);
     setAutoToast(null);
+  }
+
+  /** Overlay schließen; im QR-Modus heißt das: Pairing abbrechen. */
+  function closeNative() {
+    if (nativeMode === 'qr') {
+      setPairing(false);
+      setPairMsg(null);
+    }
+    void stopNative();
   }
 
   /** Aktuelle Lage des Scan-Rahmens an den nativen Ausschnitt melden. */
@@ -1114,8 +1178,9 @@ export function ScannerPanel() {
     });
     setAdded(0);
     setSendState('idle');
-    // Spürbare Rückmeldung (native Vibration) + optional kurzer Ton — auch beim Antippen.
+    // Spürbare Rückmeldung (native Vibration) + kurzer Ton — auch beim Antippen.
     feedbackAdded();
+    setFlashKey((k) => k + 1);
     return entryId;
   }
 
@@ -1240,7 +1305,11 @@ export function ScannerPanel() {
               if (v === '__pair') {
                 setPairing(true);
                 setPairMsg('QR-Code des Empfängers in den Rahmen halten…');
-                if (!camOn) void startWebCamera(); // QR-Pairing liest das <video>-Bild
+                setQrHint(null);
+                // In der App: native Kamera im QR-Modus; im Browser das <video>-Bild.
+                unlockAudio();
+                if (hasNativeCamera()) void startNative('qr');
+                else if (!camOn) void startWebCamera();
                 return;
               }
               const p = peers.find((x) => x.url === v);
@@ -1582,7 +1651,10 @@ export function ScannerPanel() {
         <NativeScanOverlay
           reticleRef={reticleElRef}
           onTap={(x, y) => void ScryCamera.focus({ x, y })}
-          onClose={() => void stopNative()}
+          onClose={closeNative}
+          mode={nativeMode}
+          flashKey={flashKey}
+          qrHint={qrHint}
           blurry={blurry}
           scanning={scanning}
           best={

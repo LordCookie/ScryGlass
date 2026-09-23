@@ -24,10 +24,16 @@ export interface NativeFrame {
   lines?: TextLine[];
   /** Kartenausschnitt 146×204 als JPEG (Base64) — für den Bild-Hash. */
   crop?: string;
+  /** QR-Modus: quadratischer Ausschnitt (JPEG, Base64) fürs Pairing — jsQR dekodiert in JS. */
+  qr?: string;
 }
 
+export type CameraMode = 'card' | 'qr';
+
 export interface ScryCameraPlugin {
-  start(options: ReticleRect): Promise<{ torch: boolean; zoomMin?: number; zoomMax?: number }>;
+  start(options: ReticleRect & { mode?: CameraMode }): Promise<{ torch: boolean; zoomMin?: number; zoomMax?: number }>;
+  /** Zwischen Karten-Scan und QR-Pairing umschalten (Kamera läuft weiter). */
+  setMode(options: { mode: CameraMode }): Promise<void>;
   stop(): Promise<void>;
   setReticle(options: ReticleRect): Promise<void>;
   focus(options: { x: number; y: number }): Promise<void>;

@@ -82,10 +82,13 @@ class ScryCameraPlugin : Plugin() {
     @Volatile private var analyzing = false
     @Volatile private var busy = false
     @Volatile private var lastRun = 0L
+    /** „card" = Texterkennung + Hash-Ausschnitt; „qr" = nur Ausschnitt fürs QR-Pairing (jsQR in JS). */
+    @Volatile private var mode = "card"
 
     @PluginMethod
     fun start(call: PluginCall) {
         readReticle(call)
+        mode = call.getString("mode") ?: "card"
         if (getPermissionState("camera") != PermissionState.GRANTED) {
             requestPermissionForAlias("camera", call, "cameraPermsCallback")
             return
@@ -181,6 +184,13 @@ class ScryCameraPlugin : Plugin() {
             teardown()
             call.resolve()
         }
+    }
+
+    /** Zwischen Karten-Scan und QR-Pairing umschalten (Kamera läuft weiter). */
+    @PluginMethod
+    fun setMode(call: PluginCall) {
+        mode = call.getString("mode") ?: "card"
+        call.resolve()
     }
 
     /** Neue Lage des Scan-Rahmens (normiert auf die WebView). */
@@ -322,6 +332,19 @@ class ScryCameraPlugin : Plugin() {
                 return
             }
 
+            // QR-Pairing: kein Schärfe-Gate, keine Texterkennung — nur den Ausschnitt
+            // in brauchbarer Auflösung an JS (jsQR dekodiert dort).
+            if (mode == "qr") {
+                val qr = JSObject()
+                qr.put("blurry", false)
+                qr.put("sharpness", 0.0)
+                qr.put("qr", qrJpeg(crop))
+                emit(qr)
+                crop.recycle()
+                busy = false
+                return
+            }
+
             val sharp = sharpness(crop)
             if (sharp < SHARP_MIN) {
                 val blur = JSObject()
@@ -412,6 +435,18 @@ class ScryCameraPlugin : Plugin() {
         val small = Bitmap.createScaledBitmap(crop, 146, 204, true)
         val out = ByteArrayOutputStream()
         small.compress(Bitmap.CompressFormat.JPEG, 92, out)
+        if (small !== crop) small.recycle()
+        return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    }
+
+    /** QR-Ausschnitt: längste Seite max. 640 px — genug für jsQR, klein genug für die Brücke. */
+    private fun qrJpeg(crop: Bitmap): String {
+        val scale = minOf(1f, 640f / max(crop.width, crop.height))
+        val w = max(1, (crop.width * scale).roundToInt())
+        val h = max(1, (crop.height * scale).roundToInt())
+        val small = if (scale < 1f) Bitmap.createScaledBitmap(crop, w, h, true) else crop
+        val out = ByteArrayOutputStream()
+        small.compress(Bitmap.CompressFormat.JPEG, 85, out)
         if (small !== crop) small.recycle()
         return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     }
