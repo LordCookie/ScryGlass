@@ -70,6 +70,10 @@ export interface ScanLog {
   hashMargin?: number;
   /** Schärfemaß des Frames (Laplace-Varianz) — zum Tunen des Schärfe-Gates. */
   sharpness?: number;
+  /** Tesseract-Sicherheit der gewählten Titel-Lesung (0..100). */
+  ocrConf?: number;
+  /** Nutzer hat die Übernahme rückgängig gemacht → Fehltreffer, keine Ground Truth. */
+  rejected?: boolean;
   /** Ground Truth: was der Nutzer tatsächlich übernommen hat. */
   chosenOracle: string;
   chosenName: string;

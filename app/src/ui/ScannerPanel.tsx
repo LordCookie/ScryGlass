@@ -7,7 +7,12 @@ import { searchCards } from '../data/search';
 import { phashFromCanvas, nearestByHashMulti, hashCount, type HashMatch } from '../data/imageHash';
 import { fuseScan, type FuseConfig } from '../domain/scanFuse';
 import { laplacianVariance, normalizedPoint } from '../domain/focus';
-import { addOwnedBatch, getMeta, setMeta, logScan } from '../db/db';
+import { pickBestRead, ocrEffectiveScore, type OcrRead } from '../domain/ocrQuality';
+import {
+  pushEntry, markAll, patchEntry, canUndo, HISTORY_STATE_LABEL, type HistoryEntry,
+} from '../domain/scanHistory';
+import { addOwned, addOwnedBatch, getMeta, setMeta, logScan, markScanRejected } from '../db/db';
+import { CardImage } from './CardImage';
 import type { Card, Finish, Lang, BasketEntry } from '../domain/types';
 import { ManaCost, ColorPips } from './mana';
 import {
@@ -145,6 +150,16 @@ interface BasketItem {
   lang: Lang;
 }
 
+/** Kurzlabel, wie ein Treffer zustande kam (Trefferliste, Verlauf). */
+function methodLabel(method: string): string {
+  if (method === 'bild+ocr') return 'Bild+Text';
+  if (method === 'bild') return 'Bild';
+  if (method === 'manuell') return 'manuell';
+  return 'Text'; // exact | prefix | fuzzy aus dem Namensabgleich
+}
+
+const timeFmt = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
 function confidenceLabel(score: number): { label: string; cls: string } {
   if (score >= 0.85) return { label: 'sehr sicher', cls: 'text-ok' };
   if (score >= 0.6) return { label: 'wahrscheinlich', cls: 'text-accent' };
@@ -188,7 +203,10 @@ export function ScannerPanel() {
   const [finish, setFinish] = useState<Finish>('nonfoil');
   const [basket, setBasket] = useState<BasketItem[]>([]);
   const [added, setAdded] = useState(0);
-  const [autoToast, setAutoToast] = useState<string | null>(null);
+  // Auto-Übernahme-Hinweis mit Rückgängig (entryId → Verlaufseintrag).
+  const [autoToast, setAutoToast] = useState<{ name: string; entryId: number } | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]); // Scan-Verlauf (neueste zuerst)
+  const historyIdRef = useRef(0);
   const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [sendMsg, setSendMsg] = useState<string | null>(null);
 
@@ -217,6 +235,7 @@ export function ScannerPanel() {
     hashDist?: number;
     hashMargin?: number;
     sharpness?: number;
+    ocrConf?: number;
   } | null>(null);
   const lastThumbRef = useRef<Uint8Array | null>(null);
   const thumbCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -236,10 +255,11 @@ export function ScannerPanel() {
           const worker = await createWorker('eng');
           await worker.setParameters({
             // Titelbalken ist eine Zeile (§ 6, --psm 7). Whitelist: Buchstaben (beide
-            // Schreibweisen), Ziffern (Sammlernummer), Leerzeichen, ' , -.
+            // Schreibweisen, inkl. Umlaute für deutsche Karten), Ziffern (Sammlernummer),
+            // Leerzeichen, ' , -.
             tessedit_pageseg_mode: PSM.SINGLE_LINE,
             tessedit_char_whitelist:
-              "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ,'-",
+              "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÄÖÜäöüß0123456789 ,'-",
           });
           if (!alive) {
             await worker.terminate();
@@ -296,7 +316,8 @@ export function ScannerPanel() {
   function regionCanvas(
     sub: [number, number, number, number],
     targetW: number,
-    binarize: 'otsu' | 'adaptive' = 'adaptive',
+    // 'none' = nur Graustufe + Kontrast (Tesseracts LSTM liest das oft besser).
+    binarize: 'otsu' | 'adaptive' | 'none' = 'adaptive',
   ): HTMLCanvasElement | null {
     const video = videoRef.current;
     const region = cropRegion();
@@ -342,7 +363,8 @@ export function ScannerPanel() {
       d[i] = v | 0;
     }
     if (binarize === 'adaptive') binarizeAdaptive(d, targetW, targetH);
-    else binarizeOtsu(d, n);
+    else if (binarize === 'otsu') binarizeOtsu(d, n);
+    else for (let i = 0; i < d.length; i += 4) d[i + 1] = d[i + 2] = d[i]; // Graustufe fertig
     ctx.putImageData(img, 0, 0);
     return canvas;
   }
@@ -474,7 +496,11 @@ export function ScannerPanel() {
     if (mode === 'live' && g && sharpness < SHARP_MIN) return;
     // Titelbalken (oben ~12 %, § 6) + Ganzkarte als Sicherheitsnetz (auch live —
     // hilft bei Showcase-/Borderless-Rahmen, wo der Titel-Crop danebenliegt).
-    const bandTop = regionCanvas([0.04, 0.045, 0.92, 0.13], 900, 'adaptive');
+    // Titel in zwei Varianten (Graustufe + adaptives Schwarzweiß) — die Lesung mit der
+    // höheren Tesseract-Sicherheit gewinnt (bessere Texterkennung, Tier 2 light).
+    const TITLE: [number, number, number, number] = [0.04, 0.045, 0.92, 0.13];
+    const bandGray = regionCanvas(TITLE, 900, 'none');
+    const bandBin = regionCanvas(TITLE, 900, 'adaptive');
     const whole = regionCanvas([0, 0, 1, 1], 820, 'otsu');
     // Bild-Hash (Scanner v2) synchron vom aktuellen Frame — matcht das ARTWORK,
     // nicht den Text (rettet Showcase-/Borderless-/Full-Art-Rahmen).
@@ -484,14 +510,19 @@ export function ScannerPanel() {
       const hashes = frameHashes();
       if (hashes.length) hashMatch = nearestByHashMulti(hashes);
     }
-    if (!bandTop) return;
+    if (!bandBin) return;
     busyRef.current = true;
     setScanning(true);
     try {
-      const rec = (c: HTMLCanvasElement | null) =>
-        c ? scheduler.addJob('recognize', c).then((r) => r.data.text ?? '') : Promise.resolve('');
-      const [topText, wholeText] = await Promise.all([rec(bandTop), rec(whole)]);
-      const text = `${topText} ${wholeText}`.replace(/\s+/g, ' ').trim();
+      const rec = (c: HTMLCanvasElement | null): Promise<OcrRead> =>
+        c
+          ? scheduler.addJob('recognize', c).then((r) => ({ text: r.data.text ?? '', confidence: r.data.confidence ?? 0 }))
+          : Promise.resolve({ text: '', confidence: 0 });
+      const [grayRead, binRead, wholeRead] = await Promise.all([rec(bandGray), rec(bandBin), rec(whole)]);
+      const title = pickBestRead([grayRead, binRead]);
+      // Sicherheit der Namenslesung; ohne Titel-Text zählt die Ganzkarten-Lesung.
+      const ocrConf = title.text ? title.confidence : wholeRead.confidence;
+      const text = `${title.text} ${wholeRead.text}`.replace(/\s+/g, ' ').trim();
       setOcrText(text);
       // OCR-Schwelle etwas strenger (0.62): schwammige Reads wie „TY rt w" sollen
       // keine falschen Namenstreffer erzeugen — den Rest holt der Bild-Abgleich.
@@ -501,7 +532,8 @@ export function ScannerPanel() {
       // Fusion OCR + Bild (Tier 1): Kreuz-Bestätigung > starker Bildtreffer > sicheres OCR.
       const ocrBest = shown[0];
       const fused = fuseScan(
-        { oracleId: ocrBest?.oracleId, score: ocrBest?.score ?? 0, ambiguous: result.ambiguous },
+        // Unsichere Tesseract-Lesung → OCR allein nicht mehr auto-fähig, bestätigen geht noch.
+        { oracleId: ocrBest?.oracleId, score: ocrEffectiveScore(ocrBest?.score ?? 0, ocrConf), ambiguous: result.ambiguous },
         hashMatch ? { oracleId: hashMatch.oracleId, distance: hashMatch.distance, margin: hashMatch.margin } : null,
         FUSE_CFG,
       );
@@ -538,6 +570,7 @@ export function ScannerPanel() {
         hashDist: hashMatch?.distance,
         hashMargin: hashMatch?.margin,
         sharpness,
+        ocrConf,
       };
 
       const best = finalMatches[0];
@@ -554,10 +587,11 @@ export function ScannerPanel() {
       if (autoAdd && best && consensusOk) {
         if (lastAutoRef.current !== best.oracleId) {
           lastAutoRef.current = best.oracleId;
-          addToBasket(best, text);
-          setAutoToast(best.card.name);
+          const entryId = addToBasket(best, text, true);
+          setAutoToast({ name: best.card.name, entryId });
           window.clearTimeout(autoToastTimer.current);
-          autoToastTimer.current = window.setTimeout(() => setAutoToast(null), 1500);
+          // Länger sichtbar als früher, damit „Rückgängig" gut erreichbar ist.
+          autoToastTimer.current = window.setTimeout(() => setAutoToast(null), 4000);
         }
       } else if (!best) {
         lastAutoRef.current = null;
@@ -715,7 +749,10 @@ export function ScannerPanel() {
     }
   }
 
-  function addToBasket(m: ScanMatch, ocrRaw: string) {
+  /** Legt eine Karte in den Korb, protokolliert sie und schreibt den Verlauf.
+   *  Gibt die Verlaufs-id zurück (für Rückgängig). */
+  function addToBasket(m: ScanMatch, ocrRaw: string, auto = false): number {
+    const entryId = ++historyIdRef.current;
     // Fixture protokollieren (§ 5): der bestätigte Treffer ist die Ground Truth.
     const via = m.method.startsWith('bild') ? 'bild' : m.method === 'manuell' ? 'manuell' : 'ocr';
     const ls = lastScanRef.current;
@@ -731,11 +768,21 @@ export function ScannerPanel() {
         hashDist: recent ? ls!.hashDist : undefined,
         hashMargin: recent ? ls!.hashMargin : undefined,
         sharpness: recent ? ls!.sharpness : undefined,
+        ocrConf: recent ? ls!.ocrConf : undefined,
         chosenOracle: m.oracleId,
         chosenName: m.card.name,
         via,
+      }).then((logId) => {
+        // Protokoll-id merken: beim Rückgängig wird der Eintrag als Fehltreffer markiert.
+        if (logId != null) setHistory((h) => patchEntry(h, entryId, { logId }));
       });
     }
+    setHistory((h) =>
+      pushEntry(h, {
+        id: entryId, oracleId: m.oracleId, card: m.card, scryfallId: m.scryfallId,
+        finish, method: m.method, auto, at: Date.now(), state: 'basket',
+      }),
+    );
     setBasket((b) => {
       const i = b.findIndex((x) => x.oracleId === m.oracleId && x.finish === finish);
       if (i >= 0) return b.map((x, j) => (j === i ? { ...x, qty: x.qty + 1 } : x));
@@ -756,6 +803,18 @@ export function ScannerPanel() {
     setAdded(0);
     setSendState('idle');
     if (typeof navigator.vibrate === 'function') navigator.vibrate(20);
+    return entryId;
+  }
+
+  /** Rückgängig: aus dem Korb bzw. der eigenen Sammlung wieder abziehen und den
+   *  Protokolleintrag als Fehltreffer markieren (wertvolles Tuning-Signal). */
+  async function undoEntry(e: HistoryEntry) {
+    if (!canUndo(e)) return;
+    if (e.state === 'basket') basketAdjust(e.oracleId, e.finish, -1);
+    else await addOwned(e.oracleId, e.finish, -1);
+    setHistory((h) => patchEntry(h, e.id, { state: 'undone' }));
+    if (e.logId != null) void markScanRejected(e.logId);
+    setAutoToast((t) => (t?.entryId === e.id ? null : t));
   }
   async function addManual(card: Card) {
     const imgs = await previewImageIds([card.oracleId]);
@@ -783,6 +842,7 @@ export function ScannerPanel() {
       items.map((it) => ({ oracleId: it.oracleId, finish: it.finish, qty: it.qty, source: 'scan' as const })),
     );
     setBasket([]);
+    setHistory((h) => markAll(h, 'basket', 'collection')); // Rückgängig geht weiter (aus der Sammlung)
     setAdded(items.reduce((s, it) => s + it.qty, 0));
   }
 
@@ -812,6 +872,7 @@ export function ScannerPanel() {
       const ack = await sendBasket(target, payload);
       // Sender löscht nichts vor ACK; erst jetzt Korb leeren (§ 8, Zuverlässigkeit).
       setBasket([]);
+      setHistory((h) => markAll(h, 'basket', 'sent'));
       setSendState('sent');
       setSendMsg(`Gesendet an „${target.deviceName}" — ${ack.accepted} übernommen.`);
       await setMeta('pendingBasketId', '');
@@ -984,7 +1045,18 @@ export function ScannerPanel() {
         </div>
 
         {autoToast && (
-          <p className="mt-2 rounded-md bg-ok/15 px-2 py-1 font-mono text-sm text-ok">✓ {autoToast} in den Korb</p>
+          <div className="mt-2 flex items-center gap-2 bg-ok/15 px-2 py-1 font-mono text-sm text-ok">
+            <span className="min-w-0 flex-1 truncate">✓ {autoToast.name} in den Korb</span>
+            <button
+              onClick={() => {
+                const e = history.find((x) => x.id === autoToast.entryId);
+                if (e) void undoEntry(e);
+              }}
+              className="shrink-0 px-2 text-xs text-paper underline hover:text-danger"
+            >
+              Rückgängig
+            </button>
+          </div>
         )}
         {camOn && !pairing && blurry && !scanning && (
           <p className="mt-2 text-xs text-warn">Unscharf — Abstand ändern &amp; ruhig halten. Aufs Bild tippen stellt scharf.</p>
@@ -1057,8 +1129,20 @@ export function ScannerPanel() {
                     <ManaCost cost={m.card.manaCost} />
                   </div>
                   <div className="flex items-center gap-2 px-3 py-2 text-sm">
-                    <ColorPips colors={m.card.colorIdentity} />
-                    <span className="min-w-0 flex-1 truncate text-muted">{m.card.typeLine}</span>
+                    {/* Kartenbild zum schnellen Abgleich mit der Karte in der Hand (Top-Treffer größer). */}
+                    <CardImage
+                      scryfallId={m.scryfallId}
+                      name={m.card.name}
+                      size={i === 0 ? 'normal' : 'small'}
+                      className={i === 0 ? 'h-24 w-[4.3rem] shrink-0' : 'h-14 w-10 shrink-0'}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <ColorPips colors={m.card.colorIdentity} />
+                        <span className="text-[10px] text-muted">{methodLabel(m.method)}</span>
+                      </span>
+                      <span className="mt-0.5 block truncate text-muted">{m.card.typeLine}</span>
+                    </span>
                     <span className={`font-hud text-[10px] ${c.cls}`}>{Math.round(m.score * 100)}%</span>
                     <button onClick={() => addToBasket(m, ocrText)}
                       className="shrink-0 bg-fill/20 px-2 py-1 text-xs text-accent hover:bg-fill/40">
@@ -1113,12 +1197,41 @@ export function ScannerPanel() {
                     {sendState === 'sending' ? 'Sende…' : sendState === 'error' ? 'Erneut senden' : `An „${target.deviceName}" senden`}
                   </button>
                 )}
-                <button onClick={() => setBasket([])} className="rounded border border-border px-3 py-1.5 font-mono text-sm text-muted hover:border-danger hover:text-danger">
+                <button onClick={() => { setBasket([]); setHistory((h) => markAll(h, 'basket', 'discarded')); }}
+                  className="rounded border border-border px-3 py-1.5 font-mono text-sm text-muted hover:border-danger hover:text-danger">
                   Korb leeren
                 </button>
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* Scan-Verlauf: letzte Übernahmen, Rückgängig solange im Korb/in der Sammlung. */}
+      {history.length > 0 && (
+        <div className="rounded-lg bg-surface p-4">
+          <h3 className="mb-2 font-hud text-[10px] text-text">VERLAUF</h3>
+          <ul className="space-y-1.5">
+            {history.map((e) => (
+              <li key={e.id}
+                className={`flex items-center gap-2 font-mono text-sm ${e.state === 'undone' || e.state === 'discarded' ? 'opacity-50' : ''}`}>
+                <CardImage scryfallId={e.scryfallId} name={e.card.name} className="h-10 w-7 shrink-0" />
+                <span className="min-w-0 flex-1">
+                  <span className={`block truncate ${e.state === 'undone' ? 'line-through' : ''}`}>{e.card.name}</span>
+                  <span className="block truncate text-[10px] text-muted">
+                    {timeFmt.format(e.at)} · {methodLabel(e.method)}{e.auto ? ' · auto' : ''}
+                    {e.finish !== 'nonfoil' ? ` · ✦ ${e.finish}` : ''} · {HISTORY_STATE_LABEL[e.state]}
+                  </span>
+                </span>
+                {canUndo(e) && (
+                  <button onClick={() => void undoEntry(e)} aria-label="Rückgängig" title="Rückgängig"
+                    className="shrink-0 bg-fill/20 px-2 py-1 text-xs text-accent hover:bg-fill/40">
+                    ↶
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </section>

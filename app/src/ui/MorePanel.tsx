@@ -121,6 +121,10 @@ function ScanLogSection() {
       hashDist: s.hashDist,
       hashMargin: s.hashMargin,
       hashCorrect: s.hashOracle ? s.hashOracle === s.chosenOracle : null,
+      // Tuning-Signale (Schärfe-Gate, OCR-Sicherheit) + vom Nutzer verworfene Übernahmen.
+      sharpness: s.sharpness != null ? Math.round(s.sharpness) : null,
+      ocrConf: s.ocrConf != null ? Math.round(s.ocrConf) : null,
+      rejected: s.rejected ?? false,
     }));
     return JSON.stringify(rows, null, 2);
   }

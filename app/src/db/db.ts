@@ -208,17 +208,29 @@ export async function deleteInbox(basketId: string): Promise<void> {
 
 // --- Scan-Protokoll (Fixture-Sammlung, § 5) ---------------------------------
 
-export async function logScan(entry: Omit<ScanLog, 'id'>): Promise<void> {
+/** Protokolliert einen Scan; gibt die id zurück (für ein späteres Rückgängig). */
+export async function logScan(entry: Omit<ScanLog, 'id'>): Promise<number | undefined> {
   try {
-    await db.scans.add(entry as ScanLog);
+    const id = await db.scans.add(entry as ScanLog);
     // Nicht unbegrenzt wachsen lassen — die ältesten über 2000 kappen.
     const n = await db.scans.count();
     if (n > 2000) {
       const old = await db.scans.orderBy('at').limit(n - 2000).primaryKeys();
       await db.scans.bulkDelete(old);
     }
+    return id;
   } catch {
     /* Protokoll ist best-effort — darf den Scan nie stören. */
+    return undefined;
+  }
+}
+
+/** Rückgängig gemachte Übernahme als Fehltreffer markieren (bleibt als Tuning-Signal). */
+export async function markScanRejected(id: number): Promise<void> {
+  try {
+    await db.scans.update(id, { rejected: true });
+  } catch {
+    /* best-effort */
   }
 }
 
