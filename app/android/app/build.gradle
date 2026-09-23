@@ -8,8 +8,8 @@ android {
         applicationId "com.lordcookie.scryglass"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 12
-        versionName "0.0.12"
+        versionCode 13
+        versionName "0.0.13"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // ML Kit bringt native Bibliotheken je CPU-Architektur mit; x86 braucht nur
         // der Emulator → nur ARM ausliefern, spart mehrere MB APK.
