@@ -8,6 +8,8 @@ import {
   matchesFilter, extraFilterCount, EMPTY_FILTER, TYPE_FILTERS,
   type CollectionFilter, type FilterRow,
 } from '../domain/collectionFilter';
+import { priceKey, fallbackPriceKey, ownedUnitPrice, formatEur } from '../domain/prices';
+import { getPrices } from '../data/prices';
 import { CardImage } from './CardImage';
 import { CardDetail } from './CardDetail';
 import { CollectionStats } from './CollectionStats';
@@ -20,7 +22,7 @@ import { ManaCost, ColorPips } from './mana';
  * Reaktiv über Dexie.
  */
 
-type SortKey = 'name' | 'cmc' | 'qty';
+type SortKey = 'name' | 'cmc' | 'qty' | 'value';
 type ViewMode = 'grid' | 'list' | 'stats';
 const CMC_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7];
 const FINISH_LABEL: Record<Finish, string> = { nonfoil: 'normal', foil: 'foil', etched: 'etched' };
@@ -62,16 +64,31 @@ export function CollectionView() {
     }));
   }, []);
 
+  // Preise (gemerkte Ausgabe + Ersatz über die Standardausgabe) für Wert-Sortierung und Liste.
+  const priceKeys = useMemo(
+    () => (rows ?? []).flatMap((r) => {
+      const fb = fallbackPriceKey(r.owned);
+      return fb ? [priceKey(r.owned), fb] : [priceKey(r.owned)];
+    }),
+    [rows],
+  );
+  const prices = useLiveQuery(() => getPrices(priceKeys), [priceKeys]);
+
   const filtered = useMemo<KnownRow[]>(() => {
     if (!rows) return [];
     const out = rows.filter((r): r is KnownRow => !!r.card && matchesFilter(r as KnownRow, filter));
     out.sort((a, b) => {
       if (sort === 'cmc') return a.card.cmc - b.card.cmc || a.card.name.localeCompare(b.card.name);
       if (sort === 'qty') return b.owned.qty - a.owned.qty || a.card.name.localeCompare(b.card.name);
+      if (sort === 'value') {
+        // Gesamtwert der Position, teuerste zuerst; ohne Preis ans Ende.
+        const val = (r: KnownRow) => { const u = prices ? ownedUnitPrice(r.owned, prices) : undefined; return u == null ? -1 : u * r.owned.qty; };
+        return val(b) - val(a) || a.card.name.localeCompare(b.card.name);
+      }
       return a.card.name.localeCompare(b.card.name);
     });
     return out;
-  }, [rows, filter, sort]);
+  }, [rows, filter, sort, prices]);
 
   // Sets, die in der Sammlung vorkommen (für den Set-Filter), nach Anzahl sortiert.
   const setOptions = useMemo(() => {
@@ -135,6 +152,7 @@ export function CollectionView() {
                 <option value="name">Name</option>
                 <option value="cmc">Manawert</option>
                 <option value="qty">Anzahl</option>
+                <option value="value">Wert</option>
               </select>
             </label>
             {/* Ansicht umschalten: Raster / Liste / Statistik */}
@@ -241,6 +259,9 @@ export function CollectionView() {
                   {r.card!.typeLine}
                   {r.owned.finish !== 'nonfoil' && <span className="ml-2 text-accent">✦ {r.owned.finish}</span>}
                 </span>
+                {prices && ownedUnitPrice(r.owned, prices) != null && (
+                  <span className="shrink-0 text-xs text-text">{formatEur(ownedUnitPrice(r.owned, prices))}</span>
+                )}
                 <button onClick={() => void addOwned(r.owned.oracleId, r.owned.finish, -1)} aria-label="weniger" className="px-2 py-1 text-muted hover:text-paper">−</button>
                 <span className="w-10 text-center font-hud text-[10px] text-text">{r.owned.qty}×</span>
                 <button onClick={() => void addOwned(r.owned.oracleId, r.owned.finish, 1, { source: 'manual' })} aria-label="mehr" className="px-2 py-1 text-muted hover:text-paper">+</button>

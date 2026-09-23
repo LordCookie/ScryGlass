@@ -4,6 +4,8 @@ import { db, addOwned, setOwnedPrinting } from '../db/db';
 import { getCard } from '../data/cards';
 import { LEGALITY_FORMATS, FORMAT_LABELS, isLegal, type Card, type Finish, type Owned, type Printing } from '../domain/types';
 import { isDoubleFaced, type CardFace } from '../domain/cardFaces';
+import { formatEur, PRICE_MAX_AGE_MS, type PriceEntry } from '../domain/prices';
+import { fetchPrices, priceForPrinting } from '../data/prices';
 import { CardImage } from './CardImage';
 import { ManaCost, ColorPips } from './mana';
 
@@ -83,6 +85,40 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
   const current = printings[idx];
   const hasMany = printings.length > 1;
   const dfc = isDoubleFaced(card?.layout);
+
+  // Preis der gezeigten Ausgabe (kurz verzögert, damit schnelles Blättern keine
+  // Anfrageflut auslöst). Ohne Euro-Preis (z. B. deutscher Druck) → Standardpreis.
+  const [price, setPrice] = useState<{ entry?: PriceEntry; fallback: boolean } | null>(null);
+  const sid = current?.scryfallId;
+  useEffect(() => {
+    if (!sid) return;
+    let alive = true;
+    setPrice(null);
+    const t = window.setTimeout(() => {
+      void (async () => {
+        const own = await priceForPrinting(sid, PRICE_MAX_AGE_MS);
+        if (own?.eur != null || own?.eurFoil != null) {
+          if (alive) setPrice({ entry: own, fallback: false });
+          return;
+        }
+        const key = `oracle:${oracleId}`;
+        let std = await db.prices.get(key);
+        if (!std || Date.now() - std.at > PRICE_MAX_AGE_MS) {
+          try {
+            await fetchPrices([{ key, oracleId }]);
+          } catch {
+            /* offline */
+          }
+          std = (await db.prices.get(key)) ?? std;
+        }
+        if (alive) setPrice({ entry: std, fallback: true });
+      })();
+    }, 350);
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+    };
+  }, [sid, oracleId]);
   const setLabel = useMemo(
     () => (current ? `${current.set.toUpperCase()} · ${current.collectorNumber} · ${current.lang.toUpperCase()}` : ''),
     [current],
@@ -147,6 +183,18 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
                   <ColorPips colors={card.colorIdentity} />
                   <span className="text-muted">Manawert {card.cmc}</span>
                 </div>
+                {/* Preis (Cardmarket via Scryfall) */}
+                <p className="text-xs text-muted">
+                  {price === null
+                    ? 'Preis …'
+                    : price.entry?.eur == null && price.entry?.eurFoil == null
+                      ? 'Kein Preis bekannt'
+                      : <>
+                          <span className="text-text">{formatEur(price.entry?.eur)}</span>
+                          {price.entry?.eurFoil != null && <> · Foil <span className="text-text">{formatEur(price.entry.eurFoil)}</span></>}
+                          {price.fallback && <span className="block text-[10px]">Preis der Standardausgabe</span>}
+                        </>}
+                </p>
                 <p className="text-text">{card.typeLine}</p>
                 {/* Bestand je Ausführung */}
                 <div className="space-y-1">

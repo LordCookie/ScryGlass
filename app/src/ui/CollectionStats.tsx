@@ -1,7 +1,10 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { summarizeCollection } from '../domain/collectionStats';
 import { TYPE_LABEL, type FilterRow } from '../domain/collectionFilter';
 import { COLOR_KEYS, CURVE_BUCKETS, type ColorKey } from '../domain/deckStats';
+import { collectionValue, fallbackPriceKey, formatEur, isStale, priceKey } from '../domain/prices';
+import { getPrices, refreshCollectionPrices } from '../data/prices';
 
 /**
  * Sammlungs-Statistik: Kennzahlen, Farben, Kartentypen, Manakurve und die häufigsten
@@ -45,6 +48,8 @@ export function CollectionStats({ rows }: { rows: readonly FilterRow[] }) {
           </div>
         ))}
       </div>
+
+      <ValueSection rows={rows} />
 
       <Section title="FARBEN" note="ohne Länder">
         {COLOR_KEYS.map((c) => (
@@ -102,5 +107,81 @@ function Bar({ label, value, max, barClass = 'bg-fill' }: { label: string; value
       </div>
       <span className="w-10 text-right text-text">{nf.format(value)}</span>
     </div>
+  );
+}
+
+const dateFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+/**
+ * Sammlungswert (Cardmarket-Euro via Scryfall) der gefilterten Auswahl. Fehlen Preise
+ * oder sind sie älter als 24 h, werden sie beim Öffnen einmal automatisch geholt
+ * (nur online); offline gilt der letzte Stand.
+ */
+function ValueSection({ rows }: { rows: readonly FilterRow[] }) {
+  const valueRows = useMemo(
+    () => rows.map((r) => ({
+      key: priceKey(r.owned), fallbackKey: fallbackPriceKey(r.owned), finish: r.owned.finish, qty: r.owned.qty, name: r.card.name,
+    })),
+    [rows],
+  );
+  const keys = useMemo(() => valueRows.flatMap((v) => (v.fallbackKey ? [v.key, v.fallbackKey] : [v.key])), [valueRows]);
+  const prices = useLiveQuery(() => getPrices(keys), [keys]);
+  const value = useMemo(() => collectionValue(valueRows, prices ?? new Map()), [valueRows, prices]);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const autoTried = useRef(false);
+
+  async function refresh() {
+    setError(null);
+    setProgress({ done: 0, total: 1 });
+    try {
+      await refreshCollectionPrices((done, total) => setProgress({ done, total }));
+    } catch {
+      setError(navigator.onLine ? 'Scryfall gerade nicht erreichbar — später nochmal.' : 'Offline — es gilt der letzte Stand.');
+    } finally {
+      setProgress(null);
+    }
+  }
+
+  // Einmal pro Öffnen automatisch aktualisieren, wenn Preise fehlen oder veraltet sind.
+  useEffect(() => {
+    if (!prices || autoTried.current || !navigator.onLine || valueRows.length === 0) return;
+    const missing = valueRows.some((v) => !prices.has(v.key));
+    if (missing || isStale(value.oldestAt, Date.now())) {
+      autoTried.current = true;
+      void refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prices]);
+
+  return (
+    <Section title="WERT" note="Cardmarket-Preise via Scryfall">
+      <div className="flex items-end justify-between gap-2">
+        <div className="font-hud text-[16px] text-paper">{formatEur(value.total)}</div>
+        <button onClick={() => void refresh()} disabled={!!progress}
+          className="shrink-0 bg-fill/20 px-2 py-1 text-xs text-accent hover:bg-fill/40 disabled:opacity-50">
+          {progress ? `Lade ${progress.done}/${progress.total}…` : 'Preise aktualisieren'}
+        </button>
+      </div>
+      <p className="text-[10px] text-muted">
+        {nf.format(value.pricedQty)} Karten mit Preis
+        {value.unpricedQty > 0 ? ` · ${nf.format(value.unpricedQty)} ohne` : ''}
+        {value.oldestAt ? ` · Stand ${dateFmt.format(value.oldestAt)}` : ''}
+      </p>
+      {error && <p className="text-[10px] text-warn">{error}</p>}
+      {value.top.length > 0 && (
+        <ul className="mt-1 space-y-0.5">
+          {value.top.map((t) => (
+            <li key={`${t.name}-${t.finish}`} className="flex gap-2">
+              <span className="min-w-0 flex-1 truncate text-muted">
+                {t.name}{t.finish !== 'nonfoil' ? ' ✦' : ''}
+              </span>
+              <span className="shrink-0 text-muted">{t.qty}× {formatEur(t.unit)}</span>
+              <span className="w-16 shrink-0 text-right text-text">{formatEur(t.sum)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
   );
 }

@@ -12,6 +12,7 @@ import type {
   Finish,
   OwnedSource,
 } from '../domain/types';
+import type { PriceEntry } from '../domain/prices';
 
 /**
  * Persistenz via IndexedDB/Dexie (PLAN.md § 3). Kein LocalStorage.
@@ -32,6 +33,7 @@ export class ScryGlassDB extends Dexie {
   trigrams!: Table<TrigramEntry, string>; // PK: trigram
   hashes!: Table<HashEntry, string>; // PK: scryfallId (Bild-pHash, Scanner v2)
   scans!: Table<ScanLog, number>; // PK: ++id (Fixture-Sammlung)
+  prices!: Table<PriceEntry, string>; // PK: key (Ausgabe oder „oracle:…")
   owned!: Table<Owned, number>; // PK: ++id
   decks!: Table<Deck, number>; // PK: ++id
   inbox!: Table<InboxBasket, string>; // PK: basketId
@@ -60,6 +62,10 @@ export class ScryGlassDB extends Dexie {
     // v3: Scan-Protokoll zum Sammeln echter OCR-/Bild-Fixtures (§ 5).
     this.version(3).stores({
       scans: '++id, at',
+    });
+    // v4: Preise (live von Scryfall, mit Zeitstempel gecacht — offline der letzte Stand).
+    this.version(4).stores({
+      prices: 'key, at',
     });
   }
 }
