@@ -42,11 +42,15 @@ export default defineConfig({
         name: 'ScryGlass',
         short_name: 'ScryGlass',
         description: 'Local-first MTG-Sammlungs- und Deckbau-App (inoffizielles Fan-Tool)',
-        theme_color: '#0b0f14',
-        background_color: '#0b0f14',
+        theme_color: '#250E47',
+        background_color: '#250E47',
         display: 'standalone',
         start_url: '/',
-        icons: [],
+        // Pixel-Icon (design/make_icons.py); „maskable": Motiv liegt in der Sicherheitszone.
+        icons: [
+          { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        ],
       },
     }),
   ],
