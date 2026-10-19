@@ -1,6 +1,6 @@
 # PLAN.md — ScryGlass (MTG Sammlungs- & Deckbau-App)
 
-> **ScryGlass** — Stand **v0.2.2** (2026-09-23), Tester-Version für Android.
+> **ScryGlass** — Stand **v0.2.3** (2026-10-19), Tester-Version für Android.
 > Local-first, offline-fähig, nicht-kommerziell. Basiert auf dem wiederverwendbaren
 > Kern von [engram](https://github.com/LordCookie/Engram) (Scanner, Sammlung, Dexie,
 > Offline-Bilder, Capacitor), aber mit komplett neuer Datenschicht.
@@ -438,7 +438,23 @@ haben; (2) Karte füllt den Rahmen nicht passgenau (zu klein, versetzt, Stapel).
    (kleinster Abstand gewinnt, Vorsprung-Regel bleibt). Ohne neue Bibliothek.
 
 Unverändert bleiben Hash-Datenbank (kein Neubau) und Texterkennung. Umsetzung als
-M13, Schritt 3 erst nach Auswertung von Schritt 1+2.
+M13.
+
+**Umgesetzt in v0.2.3** (alle drei Schritte, auf Wunsch ohne Testlauf dazwischen):
+- Diagnose-Schalter (*Mehr → Scanner-Protokoll*), Protokollfelder `hashDistChosen`,
+  `cropMap`, `cropSnapped`, `crop` (Bildchen nur im Datei-Export).
+- ScryCamera bindet Vorschau + Analyse per `UseCaseGroup` mit `PreviewView.viewPort`,
+  schneidet auf `ImageProxy.cropRect` zu; Rebind bei Drehung (Licht/Zoom bleiben).
+- Einrasten in JS (`domain/cardSnap.ts`, getestet): Kotlin schickt den Ausschnitt mit
+  12 % Luft (256 px). Kantenprofile → Kandidaten je Seite → Rechteck im Kartenformat;
+  außerhalb einer echten Kante muss es ruhig sein (innere Linien fallen raus). Varianten:
+  eingerastet Ecken (Stapel) + zwei Rand-Varianten (dunkler Tisch: Innenrand), sonst
+  Versatz; der Rahmen-Weg läuft als Netz mit, der größere Vorsprung gewinnt.
+- Hash-Suche zweistufig (64-Bit-Vorfilter, 32-Bit-Popcount, Margin bis 48).
+- Probe mit echten Scryfall-Bildern + echtem Index (12 Karten × 8 Lagen): alt 65/96
+  richtig (52 auto-sicher), neu 96/96 richtig und auto-sicher, 0 falsche Auto-Treffer.
+  Kosten ~60–75 ms je Bild am Desktop (vorher ~21 ms) — auf dem Handy beobachten;
+  notfalls Suche in einen Web Worker. Echte Handyfotos stehen noch aus.
 
 ### 6.3 Später
 
@@ -478,8 +494,10 @@ Start mit **Commander** — deckt vermutlich den Großteil ab und ist der aufwen
 Validator. Der Rest ist danach fast geschenkt. **Stand:** alle acht Formate der
 Legalitäts-Bitmaske (§ 3) sind wählbar.
 
-### Stand v0.2.2
+### Stand v0.2.3
 
+- **Deck-Wert** (Statistik) und Kosten der fehlenden Karten („Fehlt mir"); gewählte
+  Ausgabe bzw. Standardausgabe, nicht-foil, Standardländer zählen nicht (E7).
 - Commander-Bereich mit Bild und **verfügbaren Farben** = Farbidentität + immer
   Farblos (`availableColors`) — farblose Karten passen in jedes Deck.
 - Deckliste als Raster oder Liste, Artwork aus der Sammlung (gewählte Ausgabe).
@@ -770,14 +788,16 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
 - [x] Commander: verfügbare Farben inkl. Farblos; Deck-Feedback
 - [x] Scanner im Querformat; Pixel-Checkbox; Pixel-Icons in der Navigation
 
-### M13 — Bilderkennung im nativen Pfad robuster (offen, § 6.2)
-- [ ] Schritt 1: Ausschnitt-Vorschau + erweitertes Scan-Protokoll, Testlauf auswerten
-- [ ] Schritt 2: exakte Abbildung per CameraX `ViewPort`/`CoordinateTransform`
-- [ ] Schritt 3: Karte einrasten (Kanten suchen) + Varianten-Suche in JS
+### M13 — Bilderkennung im nativen Pfad robuster (v0.2.3, § 6.2)
+- [x] Schritt 1: Ausschnitt-Vorschau + erweitertes Scan-Protokoll
+- [x] Schritt 2: exakte Abbildung per CameraX `ViewPort`
+- [x] Schritt 3: Karte einrasten (Kanten suchen) + Varianten-Suche in JS
+- [ ] Testlauf mit echten Handyfotos (Diagnose an) auswerten, Schwellen nachziehen
 
 ### M14 — Backlog
 - [ ] Katalog-Updates ohne neue APK (öffentliches Repo oder eigenes Hosting, § 4)
-- [ ] Android-Zurück-Taste abfangen (`@capacitor/app`), v. a. im Scanner-Overlay
+- [x] Android-Zurück-Taste abfangen (`@capacitor/app`, v0.2.3)
+- [x] Set-Fortschritt in der Statistik, Deck-Wert, Farbschema Halloween (v0.2.3)
 - [ ] Katalog verkleinern (Trigramm-Index mit Integer-IDs)
 - [ ] Scanner § 6.3 (Artwork-Hash, Entzerrung, Embedding)
 - [ ] Peer: Auto-Discovery (`NsdManager`), Geräte-Tests aus M8
@@ -850,3 +870,4 @@ Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zä
 | 0.2.0 | 2026-09-23 | Such-Tab, Preise & Sammlungswert, Farbschemata, Pixel-Scan-Rahmen, Pixel-App-Icon, QR über native Kamera, Peer unter *Mehr*, Commander inkl. Farblos, Deck-Feedback |
 | 0.2.1 | 2026-09-23 | Scanner im Querformat, Suche mit Mehrfarben-/Regeltext-/Typfilter, Pixel-Checkbox |
 | 0.2.2 | 2026-09-23 | Pixel-Icons in der Navigationsleiste |
+| 0.2.3 | 2026-10-19 | Katalog 19.10. (Reality Fracture), Karte einrasten + Scanner-Diagnose + ViewPort, Zurück-Taste, Set-Fortschritt, Deck-Wert, Farbschema Halloween |

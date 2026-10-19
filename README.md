@@ -10,7 +10,7 @@ selben WLAN gemeinsam mit anderen.
 > Eigentum von Wizards of the Coast. Kartendaten stammen von
 > [Scryfall](https://scryfall.com). Siehe [Rechtliches](#rechtliches).
 
-**Stand:** v0.2.2 (Tester-Version, Android). Die APK hängt am jeweils neuesten
+**Stand:** v0.2.3 (Tester-Version, Android). Die APK hängt am jeweils neuesten
 [GitHub-Release](https://github.com/LordCookie/ScryGlass/releases).
 
 ---
@@ -20,23 +20,26 @@ selben WLAN gemeinsam mit anderen.
 - **Kompletter Kartenkatalog lokal** (Deutsch + Englisch, ~34.000 Karten, ~156.000
   Druckausgaben) — steckt in der APK, funktioniert ab dem ersten Start ohne Netz.
 - **Scanner** mit nativer Kamera (CameraX) und Texterkennung auf dem Gerät (ML Kit,
-  offline), parallel dazu **Bilderkennung** per Perceptual Hash. Beide Signale
-  bestätigen sich gegenseitig. Dazu: Set-Modus, **Auto-Korb** für Stapel („Karte für
+  offline), parallel dazu **Bilderkennung** per Perceptual Hash — die Karte wird dafür
+  im Bild eingerastet, auch wenn sie kleiner, versetzt oder auf einem Stapel liegt.
+  Beide Signale bestätigen sich gegenseitig. Dazu: Set-Modus, **Auto-Korb** für Stapel („Karte für
   Karte hinlegen"), Ton + Vibration, Tap-to-Focus, Licht, Querformat, Scan-Verlauf
   mit Rückgängig. Im Browser läuft ein Fallback mit Tesseract.
 - **Suche** über den ganzen Katalog: Name, Typ oder Regeltext (DE/EN), mehrere Farben
   (enthält / genau / höchstens), Kartentyp, Manawert, Format, Regeltext- und
   Kreaturentyp-Filter, „nur im Bestand".
 - **Sammlung**: Bild-Raster oder Liste, Filter, Sortierung (Name, Manawert, Anzahl,
-  Wert), Statistik, Artwork-Wahl je Karte, **Richtpreise** (Cardmarket-Euro über
-  Scryfall) und Sammlungswert. JSON-Backup + CSV-Export (ManaBox/Moxfield-kompatibel).
+  Wert), Statistik mit **Set-Fortschritt**, Artwork-Wahl je Karte, **Richtpreise**
+  (Cardmarket-Euro über Scryfall) und Sammlungswert. JSON-Backup + CSV-Export
+  (ManaBox/Moxfield-kompatibel).
 - **Deckbau** aus der eigenen Sammlung: Standard, Pioneer, Modern, Legacy, Vintage,
   Commander, Pauper, Brawl. Live-Validierung, Commander mit verfügbaren Farben,
-  Manakurve, Farbverteilung, „Fehlt mir"-Liste, Moxfield-Text-Im/Export.
+  Manakurve, Farbverteilung, **Deck-Wert** und „Fehlt mir"-Liste mit Kosten,
+  Moxfield-Text-Im/Export.
 - **Gemeinsam scannen** (unter *Mehr*): mehrere Handys im selben WLAN, Pairing per
   QR-Code, ein Gerät sammelt ein und prüft vor der Übernahme.
-- **Pixel-Art-Design** mit drei Farbschemata (Violett, Abendrot, Schwarz-Gold),
-  Countdown zum nächsten Set.
+- **Pixel-Art-Design** mit vier Farbschemata (Violett, Abendrot, Schwarz-Gold,
+  Halloween), Countdown zum nächsten Set.
 
 **Explizit nicht:** Cloud, Accounts, Login, Server-Backend, Handel, Monetarisierung
 jeder Art. Preise sind reine Richtwerte zur Orientierung.
