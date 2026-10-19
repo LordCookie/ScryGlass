@@ -212,6 +212,7 @@ function ScanLogSection() {
       // Diagnose (§ 6.2): Abstand zur bestätigten Karte, Abbildung, Ausschnitt.
       hashDistChosen: s.hashDistChosen ?? null,
       cropMap: s.cropMap ?? null,
+      cropSnapped: s.cropSnapped ?? null,
       ...(withCrops ? { crop: s.crop ?? null } : { hasCrop: !!s.crop }),
     }));
     return JSON.stringify(rows, null, 2);
@@ -243,9 +244,10 @@ function ScanLogSection() {
         Diagnose: ausgewerteten Ausschnitt zeigen &amp; mitspeichern
       </PixelCheckbox>
       <p className="mb-3 text-xs text-muted">
-        Der Scanner zeigt dann unten rechts, was die Erkennung wirklich sieht, und merkt sich
-        den Kartenausschnitt (~6 KB je Scan, bleibt auf dem Gerät). Die Bildchen stecken nur im
-        Export „Als Datei".
+        Der Scanner zeigt dann unten rechts, was die Bilderkennung wirklich sieht — grün
+        umrandet, wenn die Karte eingerastet ist, gelb, wenn nur der Rahmen zählt. Gespeichert
+        wird der Ausschnitt mit Rahmen (gelb) und erkannter Karte (grün), ~10 KB je Scan, nur
+        auf dem Gerät. Die Bildchen stecken nur im Export „Als Datei".
       </p>
       <p className="mb-2 font-mono text-xs text-muted">{count ?? '…'} Scans gespeichert.</p>
       <div className="flex flex-wrap gap-2">

@@ -4,6 +4,7 @@ import android.Manifest
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Size
@@ -413,6 +414,16 @@ class ScryCameraPlugin : Plugin() {
         var crop: Bitmap? = null
         try {
             crop = upright?.let { cropReticle(it, mappedViaViewPort) }
+            // Ausschnitt mit Luft um den Rahmen — JS rastet darin die Karte ein (§ 6.2, Schritt 3).
+            val wide = if (upright != null && crop != null && mode == "card") {
+                try {
+                    wideJpeg(upright, reticleRect(upright, mappedViaViewPort))
+                } catch (_: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
             if (upright != null && crop !== upright) upright.recycle() // ~4×/s große Bitmaps sofort freigeben
             if (crop == null) {
                 busy = false
@@ -454,8 +465,8 @@ class ScryCameraPlugin : Plugin() {
             val h = crop.height
             val bmp = crop
             rec.process(InputImage.fromBitmap(bmp, 0))
-                .addOnSuccessListener { text -> emit(framePayload(text, w, h, sharp, jpeg, mappedViaViewPort)) }
-                .addOnFailureListener { _ -> emit(framePayload(null, w, h, sharp, jpeg, mappedViaViewPort)) }
+                .addOnSuccessListener { text -> emit(framePayload(text, w, h, sharp, jpeg, mappedViaViewPort, wide)) }
+                .addOnFailureListener { _ -> emit(framePayload(null, w, h, sharp, jpeg, mappedViaViewPort, wide)) }
                 .addOnCompleteListener {
                     bmp.recycle()
                     busy = false
@@ -472,6 +483,16 @@ class ScryCameraPlugin : Plugin() {
      * FILL_CENTER-Rechnung (stimmt nur, wenn Vorschau und Analyse denselben Bildwinkel haben).
      */
     private fun cropReticle(bmp: Bitmap, viaViewPort: Boolean): Bitmap? {
+        val r = reticleRect(bmp, viaViewPort)
+        return try {
+            Bitmap.createBitmap(bmp, r.left, r.top, r.width(), r.height())
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Lage des Scan-Rahmens im aufrechten Analysebild (siehe cropReticle). */
+    private fun reticleRect(bmp: Bitmap, viaViewPort: Boolean): Rect {
         val vw = viewW.toFloat()
         val vh = viewH.toFloat()
         val rx = wvOffX + retL * wvW
@@ -498,11 +519,40 @@ class ScryCameraPlugin : Plugin() {
         val y = ((ry + offY) / sy).roundToInt().coerceIn(0, bmp.height - 1)
         val w = (rw / sx).roundToInt().coerceIn(1, bmp.width - x)
         val h = (rh / sy).roundToInt().coerceIn(1, bmp.height - y)
-        return try {
-            Bitmap.createBitmap(bmp, x, y, w, h)
-        } catch (_: Exception) {
-            null
+        return Rect(x, y, x + w, y + h)
+    }
+
+    /**
+     * Rahmen + WIDE_MARGIN Luft je Seite, auf WIDE_W px Breite verkleinert, als JPEG —
+     * plus die Lage des Rahmens darin (0..1). `bmp` wird hier nie recycelt.
+     */
+    private fun wideJpeg(bmp: Bitmap, r: Rect): Pair<String, JSObject>? {
+        val mx = (r.width() * WIDE_MARGIN).roundToInt()
+        val my = (r.height() * WIDE_MARGIN).roundToInt()
+        val l = max(0, r.left - mx)
+        val t = max(0, r.top - my)
+        val rr = minOf(bmp.width, r.right + mx)
+        val b = minOf(bmp.height, r.bottom + my)
+        val ew = rr - l
+        val eh = b - t
+        if (ew < 16 || eh < 16) return null
+        val region = Bitmap.createBitmap(bmp, l, t, ew, eh)
+        val scale = minOf(1f, WIDE_W.toFloat() / ew)
+        val small = if (scale < 1f) {
+            Bitmap.createScaledBitmap(region, max(1, (ew * scale).roundToInt()), max(1, (eh * scale).roundToInt()), true)
+        } else {
+            region
         }
+        val out = ByteArrayOutputStream()
+        small.compress(Bitmap.CompressFormat.JPEG, 88, out)
+        if (small !== bmp && small !== region) small.recycle()
+        if (region !== bmp) region.recycle()
+        val inset = JSObject()
+        inset.put("l", (r.left - l).toDouble() / ew)
+        inset.put("t", (r.top - t).toDouble() / eh)
+        inset.put("r", (r.right - l).toDouble() / ew)
+        inset.put("b", (r.bottom - t).toDouble() / eh)
+        return Pair(Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP), inset)
     }
 
     /** Laplace-Varianz auf 128 px Breite — dieselbe Formel wie domain/focus.ts. */
@@ -555,7 +605,10 @@ class ScryCameraPlugin : Plugin() {
         return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     }
 
-    private fun framePayload(text: Text?, w: Int, h: Int, sharp: Double, jpeg: String, viaViewPort: Boolean): JSObject {
+    private fun framePayload(
+        text: Text?, w: Int, h: Int, sharp: Double, jpeg: String, viaViewPort: Boolean,
+        wide: Pair<String, JSObject>?,
+    ): JSObject {
         val lines = JSArray()
         if (text != null) {
             for (block in text.textBlocks) {
@@ -579,6 +632,10 @@ class ScryCameraPlugin : Plugin() {
         ret.put("crop", jpeg)
         // Welche Abbildung Rahmen → Analysebild galt (Diagnose, Scan-Protokoll).
         ret.put("mapping", if (viaViewPort) "viewport" else "fill")
+        if (wide != null) {
+            ret.put("wide", wide.first)
+            ret.put("wideInset", wide.second)
+        }
         return ret
     }
 
@@ -592,5 +649,9 @@ class ScryCameraPlugin : Plugin() {
         private const val MIN_INTERVAL_MS = 250L
         /** Wie SHARP_MIN im Web-Scanner (Laplace-Varianz, 128 px breit). */
         private const val SHARP_MIN = 30.0
+        /** Luft je Seite um den Rahmen für den Einrast-Ausschnitt (Anteil der Rahmengröße). */
+        private const val WIDE_MARGIN = 0.12f
+        /** Breite des Einrast-Ausschnitts in px (reicht für Kanten + Bild-Hash). */
+        private const val WIDE_W = 256
     }
 }

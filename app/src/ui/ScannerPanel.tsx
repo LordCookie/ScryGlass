@@ -4,8 +4,9 @@ import jsQR from 'jsqr';
 import { matchOcr } from '../data/matcher';
 import { getCards, previewImageIds } from '../data/cards';
 import { searchCards } from '../data/search';
-import { phashFromCanvas, nearestByHashMulti, hashCount, hashIndicesFor, distanceToOracle, type HashMatch } from '../data/imageHash';
+import { phashFromCanvas, nearestByHashMulti, hashCount, hashIndicesFor, distanceToOracle, betterMatch, type HashMatch } from '../data/imageHash';
 import { getScanDiag } from '../data/scanDiag';
+import { snapCard, hashVariantRects, type Rect } from '../domain/cardSnap';
 import { fuseScan, type FuseConfig, type FuseResult } from '../domain/scanFuse';
 import { pickNameLine, cleanNameText, collectorText, parseCollectorText, type CollectorInfo } from '../domain/cardText';
 import { setPickerOptions, type SetOption } from '../domain/nextSet';
@@ -181,6 +182,8 @@ interface EvalInput {
   crop?: string;
   /** native Kamera: Abbildung Rahmen → Analysebild */
   cropMap?: string;
+  /** native Kamera: Karte eingerastet statt Rahmen */
+  cropSnapped?: boolean;
 }
 
 interface BasketItem {
@@ -309,11 +312,13 @@ export function ScannerPanel() {
     hashes?: string[];
     crop?: string;
     cropMap?: string;
+    cropSnapped?: boolean;
   } | null>(null);
   // Scanner-Diagnose (Mehr → Scanner-Protokoll): Ausschnitt live zeigen + mitspeichern.
   const diagRef = useRef(false);
   const [diag, setDiag] = useState(false);
   const [diagCrop, setDiagCrop] = useState<string | null>(null);
+  const [diagSnapped, setDiagSnapped] = useState(false);
   const lastThumbRef = useRef<Uint8Array | null>(null);
   const thumbCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const autoToastTimer = useRef<number>();
@@ -663,31 +668,62 @@ export function ScannerPanel() {
     return d;
   }
 
-  /** Hash-Varianten aus einem fertigen Kartenausschnitt (native Kamera): Basis, enger, 180°. */
-  function hashesFromImage(img: HTMLImageElement): string[] {
+  /** Ausschnitt `r` eines Bildes im Hash-Format 146×204. */
+  function regionToCard(img: CanvasImageSource, r: Rect): HTMLCanvasElement | null {
+    const c = document.createElement('canvas');
+    c.width = 146;
+    c.height = 204;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(img, r.l, r.t, r.r - r.l, r.b - r.t, 0, 0, 146, 204);
+    return c;
+  }
+
+  /**
+   * Bild-Hashes für Ausschnitte eines Bildes (native Kamera), dazu die 180°-Drehung des
+   * ersten. `base` = der erste Ausschnitt (fürs Diagnose-Bildchen).
+   */
+  function cardHashes(img: CanvasImageSource, rects: readonly Rect[]): { hashes: string[]; base: HTMLCanvasElement | null } {
+    const canv = rects.map((r) => regionToCard(img, r));
+    const base = canv[0];
+    const all = [...canv];
+    if (base) all.push(rotate180(base));
+    const hashes = all.filter((c): c is HTMLCanvasElement => !!c).map((c) => phashFromCanvas(c)).filter((x) => !!x);
+    return { hashes, base };
+  }
+
+  /** Graustufen (0..255) eines Bildes — fürs Einrasten der Karte. */
+  function grayOf(img: HTMLImageElement): { gray: Uint8Array; w: number; h: number } | null {
     const w = img.naturalWidth;
     const h = img.naturalHeight;
-    const mk = (inset: number): HTMLCanvasElement | null => {
-      const c = document.createElement('canvas');
-      c.width = 146;
-      c.height = 204;
-      const ctx = c.getContext('2d', { willReadFrequently: true });
-      if (!ctx) return null;
-      const dx = w * inset;
-      const dy = h * inset;
-      ctx.drawImage(img, dx, dy, w - 2 * dx, h - 2 * dy, 0, 0, 146, 204);
-      return c;
-    };
-    const base = mk(0);
-    const tight = mk(0.05);
-    const variants: HTMLCanvasElement[] = [];
-    if (base) {
-      variants.push(base);
-      const rot = rotate180(base);
-      if (rot) variants.push(rot);
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    if (!ctx || w === 0 || h === 0) return null;
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const gray = new Uint8Array(w * h);
+    for (let i = 0, j = 0; i < gray.length; i++, j += 4) gray[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+    return { gray, w, h };
+  }
+
+  /** Diagnose-Bild fürs Protokoll: Ausschnitt mit Luft, Rahmen gelb, Einrast-Rechteck grün. */
+  function annotate(img: HTMLImageElement, reticle: Rect, snapped: Rect | null): string | undefined {
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const ctx = c.getContext('2d');
+    if (!ctx) return undefined;
+    ctx.drawImage(img, 0, 0);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#ffd400';
+    ctx.strokeRect(reticle.l + 0.5, reticle.t + 0.5, reticle.r - reticle.l, reticle.b - reticle.t);
+    if (snapped) {
+      ctx.strokeStyle = '#3fbf8f';
+      ctx.strokeRect(snapped.l + 0.5, snapped.t + 0.5, snapped.r - snapped.l, snapped.b - snapped.t);
     }
-    if (tight) variants.push(tight);
-    return variants.map((v) => phashFromCanvas(v)).filter((x): x is string => !!x);
+    return c.toDataURL('image/jpeg', 0.85).split(',')[1];
   }
 
   function decodeJpeg(b64: string): Promise<HTMLImageElement> {
@@ -776,6 +812,7 @@ export function ScannerPanel() {
       hashes: inp.hashes,
       crop: inp.crop,
       cropMap: inp.cropMap,
+      cropSnapped: inp.cropSnapped,
     };
 
     const best = finalMatches[0];
@@ -887,17 +924,60 @@ export function ScannerPanel() {
       const collector = parseCollectorText(collectorText(lines));
       let hashMatch: HashMatch | null = null;
       let hashes: string[] = [];
-      if (f.crop && hashCount() > 0) {
-        hashes = hashesFromImage(await decodeJpeg(f.crop));
-        if (hashes.length) hashMatch = nearestByHashMulti(hashes, currentSetData()?.subset ?? undefined);
+      let cropSnapped: boolean | undefined;
+      let diagImg: string | undefined; // fürs Protokoll (nur mit Diagnose)
+      if (f.wide && f.wideInset) {
+        // Karte im Ausschnitt mit Luft einrasten (§ 6.2, Schritt 3), dann hashen.
+        const img = await decodeJpeg(f.wide);
+        const w = img.naturalWidth;
+        const h = img.naturalHeight;
+        const reticle: Rect = { l: f.wideInset.l * w, t: f.wideInset.t * h, r: f.wideInset.r * w, b: f.wideInset.b * h };
+        const g = grayOf(img);
+        const snap = g ? snapCard(g.gray, g.w, g.h, reticle) : { rect: reticle, snapped: false, score: 0 };
+        cropSnapped = snap.snapped;
+        if (hashCount() > 0) {
+          const setData = currentSetData();
+          const subset = setData?.subset ?? undefined;
+          const cfg = setData ? FUSE_CFG_SET : FUSE_CFG;
+          // Eingerastet: erst die eingerasteten Varianten; ist das schon auto-sicher, reicht
+          // es. Sonst zusätzlich (als Netz) der Rahmen wie bisher — der größere Vorsprung
+          // gewinnt. Nicht eingerastet: nur der Rahmen mit Versatz-Varianten.
+          const snapV = snap.snapped ? cardHashes(img, hashVariantRects(snap.rect, true)) : null;
+          const mSnap = snapV ? nearestByHashMulti(snapV.hashes, subset) : null;
+          const strong = !!mSnap && mSnap.distance <= cfg.hashAutoDist && mSnap.margin >= cfg.hashAutoMargin;
+          const retV = strong ? null : cardHashes(img, hashVariantRects(reticle, false).slice(0, snap.snapped ? 2 : undefined));
+          const mRet = retV ? nearestByHashMulti(retV.hashes, subset) : null;
+          hashMatch = betterMatch(mSnap, mRet);
+          hashes = [...(snapV?.hashes ?? []), ...(retV?.hashes ?? [])];
+          if (diagRef.current) {
+            const used = snapV && hashMatch === mSnap ? snapV.base : retV?.base;
+            const shown = used?.toDataURL('image/jpeg', 0.85).split(',')[1];
+            if (shown) setDiagCrop(shown);
+          }
+        }
+        if (diagRef.current) {
+          setDiagSnapped(snap.snapped);
+          diagImg = annotate(img, reticle, snap.snapped ? snap.rect : null);
+        }
+      } else if (f.crop) {
+        // Ältere Plugin-Version ohne Einrast-Ausschnitt: der Rahmen selbst.
+        const img = await decodeJpeg(f.crop);
+        if (hashCount() > 0) {
+          hashes = cardHashes(img, hashVariantRects({ l: 0, t: 0, r: img.naturalWidth, b: img.naturalHeight }, false)).hashes;
+          if (hashes.length) hashMatch = nearestByHashMulti(hashes, currentSetData()?.subset ?? undefined);
+        }
+        if (diagRef.current) {
+          setDiagCrop(f.crop);
+          setDiagSnapped(false);
+          diagImg = f.crop;
+        }
       }
-      if (diagRef.current && f.crop) setDiagCrop(f.crop);
       // ML-Kit-Sicherheit 0..1 → 0..100; fehlt sie (0/undefined), nicht deckeln.
       const conf = nameLine?.conf;
       const ocrConf = nameLine ? (conf && conf > 0 ? conf * 100 : 100) : 0;
       await evaluate({
         mode: 'live', titleText: nameLine ? cleanNameText(nameLine.text) : '', fullText, ocrConf, hashMatch,
-        sharpness: f.sharpness, collector, hashes, crop: f.crop, cropMap: f.mapping,
+        sharpness: f.sharpness, collector, hashes, crop: diagImg, cropMap: f.mapping, cropSnapped,
       });
     } catch {
       /* einzelnes Bild fehlgeschlagen — das nächste kommt gleich */
@@ -1189,6 +1269,7 @@ export function ScannerPanel() {
         // Diagnose (§ 6.2): wie weit lag die RICHTIGE Karte im Bild-Abgleich entfernt?
         hashDistChosen: recent && ls!.hashes?.length ? distanceToOracle(ls!.hashes, m.oracleId)?.distance : undefined,
         cropMap: recent ? ls!.cropMap : undefined,
+        cropSnapped: recent ? ls!.cropSnapped : undefined,
         crop: recent && diagRef.current ? ls!.crop : undefined,
         chosenOracle: m.oracleId,
         chosenName: m.card.name,
@@ -1721,6 +1802,7 @@ export function ScannerPanel() {
           onUndoToast={undoToast}
           setPicker={setSelect('w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text outline-none')}
           diagCrop={diag ? diagCrop : null}
+          diagSnapped={diagSnapped}
         />
       )}
     </section>

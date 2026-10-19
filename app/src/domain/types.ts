@@ -78,8 +78,11 @@ export interface ScanLog {
   hashDistChosen?: number;
   /** Abbildung Rahmen → Analysebild der nativen Kamera: „viewport" | „fill" (§ 6.2). */
   cropMap?: string;
-  /** Diagnose an: der ausgewertete Kartenausschnitt (JPEG, Base64, ~6 KB). */
+  /** Diagnose an: der ausgewertete Kartenausschnitt (JPEG, Base64, ~6 KB); bei der
+   *  nativen Kamera der Ausschnitt mit Luft, Rahmen gelb und Einrast-Rechteck grün. */
   crop?: string;
+  /** Karte wurde eingerastet (Kanten gefunden) statt des Rahmens genommen (§ 6.2, Schritt 3). */
+  cropSnapped?: boolean;
   /** Nutzer hat die Übernahme rückgängig gemacht → Fehltreffer, keine Ground Truth. */
   rejected?: boolean;
   /** Ground Truth: was der Nutzer tatsächlich übernommen hat. */

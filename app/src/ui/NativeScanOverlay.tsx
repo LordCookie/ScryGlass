@@ -54,6 +54,8 @@ interface Props {
   qrHint?: string | null;
   /** Diagnose: zuletzt ausgewerteter Ausschnitt (JPEG, Base64) — zeigt, was die Erkennung sieht */
   diagCrop?: string | null;
+  /** Diagnose: Karte eingerastet (grüner Rand) oder nur der Rahmen (gelber Rand) */
+  diagSnapped?: boolean;
 }
 
 const TOP_H = 'h-14';
@@ -244,8 +246,9 @@ export function NativeScanOverlay(p: Props) {
         {!qr && p.diagCrop && (
           <div className="pointer-events-none absolute bottom-2 right-2 bg-bg/90 p-1">
             <img src={`data:image/jpeg;base64,${p.diagCrop}`} alt="Ausgewerteter Ausschnitt"
-              className="block h-[73px] w-[52px]" style={{ border: 'var(--px) solid rgb(var(--c-paper))' }} />
-            <div className="mt-0.5 text-center font-hud text-[6px] text-paper">ANALYSE</div>
+              className="block h-[73px] w-[52px]"
+              style={{ border: `var(--px) solid rgb(var(--c-${p.diagSnapped ? 'ok' : 'warn'}))` }} />
+            <div className="mt-0.5 text-center font-hud text-[6px] text-paper">{p.diagSnapped ? 'KARTE' : 'RAHMEN'}</div>
           </div>
         )}
       </div>

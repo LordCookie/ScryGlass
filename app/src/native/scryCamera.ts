@@ -28,6 +28,10 @@ export interface NativeFrame {
   qr?: string;
   /** Abbildung Rahmen → Analysebild: gemeinsamer ViewPort oder eigene FILL_CENTER-Rechnung. */
   mapping?: 'viewport' | 'fill';
+  /** Ausschnitt mit Luft um den Rahmen (JPEG, Base64) — darin wird die Karte eingerastet. */
+  wide?: string;
+  /** Lage des Rahmens im `wide`-Ausschnitt (0..1). */
+  wideInset?: { l: number; t: number; r: number; b: number };
 }
 
 export type CameraMode = 'card' | 'qr';
