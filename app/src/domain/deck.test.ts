@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { Card, Deck } from './types';
 import { parseDeckText, serializeDeckText } from './deckText';
 import { validateDeck, canBeCommander, colorIdentityWithin, availableColors } from './deckValidate';
-import { computeStats, primaryType, isLand } from './deckStats';
+import { computeStats, primaryType, isLand, isBasicLand } from './deckStats';
 import { computeMissing } from './deckMissing';
 
 // Legalitäts-Bits: standard1 pioneer2 modern4 legacy8 vintage16 commander32 pauper64 brawl128
@@ -148,6 +148,8 @@ describe('computeStats', () => {
 
   it('primaryType / isLand', () => {
     expect(isLand(CARDS.get('forest')!)).toBe(true);
+    expect(isBasicLand(CARDS.get('forest')!)).toBe(true);
+    expect(isBasicLand(CARDS.get('bolt')!)).toBe(false);
     expect(primaryType(CARDS.get('krenko')!)).toBe('Creature');
     expect(primaryType(CARDS.get('bolt')!)).toBe('Instant');
   });

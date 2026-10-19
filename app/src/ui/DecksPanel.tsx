@@ -5,7 +5,7 @@ import { getCards, ownedByOracle, ownedPrintingByOracle, previewImageIds, previe
 import { searchCards } from '../data/search';
 import { normalizeName } from '../domain/nameMatch';
 import { validateDeck, availableColors } from '../domain/deckValidate';
-import { computeStats, CURVE_BUCKETS, COLOR_KEYS } from '../domain/deckStats';
+import { computeStats, isBasicLand, CURVE_BUCKETS, COLOR_KEYS } from '../domain/deckStats';
 import { computeMissing } from '../domain/deckMissing';
 import { parseDeckText, serializeDeckText } from '../domain/deckText';
 import { LEGALITY_FORMATS, FORMAT_LABELS, type Card, type Deck, type DeckCard, type FormatId } from '../domain/types';
@@ -14,6 +14,8 @@ import { CardImage } from './CardImage';
 import { CardDetail } from './CardDetail';
 import { feedbackAdded, hapticTap } from '../native/feedback';
 import { useBackHandler } from './backStack';
+import { ensureRowPrices } from '../data/prices';
+import { deckValueRows, missingValueRows, collectionValue, formatEur, priceKey, type PriceEntry, type ValueRow } from '../domain/prices';
 
 const COLOR_NAME: Record<string, string> = {
   W: 'Weiß', U: 'Blau', B: 'Schwarz', R: 'Rot', G: 'Grün', C: 'Farblos',
@@ -191,7 +193,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
         <DeckList deck={deck} cards={cards} imgs={effectiveImgs} owned={owned ?? new Map()}
           onAdjust={adjust} allowSideboard={!rules} onOpenDetail={setDetailId} />
       )}
-      {tab === 'stats' && <DeckStatsView deck={deck} cards={cards} />}
+      {tab === 'stats' && <DeckStatsView deck={deck} cards={cards} owned={owned ?? new Map()} chosen={ownedPrint} />}
       {tab === 'fehlt' && <MissingView deck={deck} cards={cards} owned={owned ?? new Map()} />}
       {tab === 'text' && <DeckTextView deck={deck} cards={cards} onImport={(patch) => void update(patch)} />}
 
@@ -396,12 +398,84 @@ function DeckList({
   );
 }
 
-function DeckStatsView({ deck, cards }: { deck: Deck; cards: Map<string, Card> }) {
+/** Namen je oracleId (für Wert-Zeilen). */
+function nameMap(cards: Map<string, Card>): Map<string, string> {
+  return new Map([...cards].map(([id, c]) => [id, c.name]));
+}
+
+/** Preise für Wert-Zeilen laden (Cache/Scryfall, E7); `null` solange noch nichts da ist. */
+function useRowPrices(rows: readonly ValueRow[]): Map<string, PriceEntry> | null {
+  const sig = rows.map((r) => `${r.key}|${r.fallbackKey ?? ''}`).join(',');
+  const [prices, setPrices] = useState<Map<string, PriceEntry> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void ensureRowPrices(rows).then((p) => {
+      if (alive) setPrices(p);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
+  return prices;
+}
+
+/** Deck-Einträge ohne Standardländer — die kosten praktisch nichts und haben bei
+ *  Scryfall oft keinen Preis (würden sonst als „ohne Preis" zählen). */
+function pricedEntries(deck: Deck, cards: Map<string, Card>): DeckCard[] {
+  return combinedEntries(deck).filter((e) => {
+    const c = cards.get(e.oracleId);
+    return !c || !isBasicLand(c);
+  });
+}
+
+/** Deck-Wert + was die fehlenden Karten ungefähr kosten (Richtwerte, nicht-foil). */
+function DeckValueBox({ deck, cards, owned, chosen }: {
+  deck: Deck; cards: Map<string, Card>; owned: Map<string, number>; chosen?: Map<string, string>;
+}) {
+  const names = nameMap(cards);
+  const entries = pricedEntries(deck, cards);
+  const valueRows = deckValueRows(entries, names, chosen);
+  const missing = computeMissing(entries, owned);
+  const missingRows = missingValueRows(missing, names);
+  const prices = useRowPrices([...valueRows, ...missingRows]);
+  if (entries.length === 0) return null;
+  const deckVal = prices ? collectionValue(valueRows, prices) : null;
+  const missVal = prices ? collectionValue(missingRows, prices) : null;
+  const missingQty = missing.reduce((n, m) => n + m.missing, 0);
+  // Fehlende Karten sind eine Teilmenge des Decks → „ohne Preis" nur einmal zählen.
+  const unpriced = deckVal?.unpricedQty ?? 0;
+  return (
+    <div className="rounded-lg bg-surface p-3 font-mono text-xs">
+      <h3 className="mb-2 text-sm">Wert</h3>
+      {!prices ? (
+        <p className="text-muted">Preise werden geladen…</p>
+      ) : (
+        <>
+          <div className="flex justify-between"><span className="text-muted">Deck{deck.sideboard.length ? ' (ohne Sideboard)' : ''}</span><span className="text-text">≈ {formatEur(deckVal?.total)}</span></div>
+          <div className="flex justify-between">
+            <span className="text-muted">Fehlt dir ({missingQty} {missingQty === 1 ? 'Karte' : 'Karten'})</span>
+            <span className={missingQty ? 'text-danger' : 'text-ok'}>≈ {formatEur(missVal?.total ?? 0)}</span>
+          </div>
+          <p className="mt-2 text-[10px] text-muted">
+            Richtwerte (Cardmarket über Scryfall), nicht-foil — deine gewählte Ausgabe bzw. die
+            Standardausgabe; Standardländer zählen nicht mit.{unpriced > 0 && ` ${unpriced} ohne Preis.`}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function DeckStatsView({ deck, cards, owned, chosen }: {
+  deck: Deck; cards: Map<string, Card>; owned: Map<string, number>; chosen?: Map<string, string>;
+}) {
   const stats = computeStats(combinedEntries(deck), cards);
   const maxCurve = Math.max(1, ...stats.manaCurve);
   const maxColor = Math.max(1, ...COLOR_KEYS.map((c) => stats.colors[c]));
   return (
     <div className="space-y-3">
+      <DeckValueBox deck={deck} cards={cards} owned={owned} chosen={chosen} />
       <div className="rounded-lg bg-surface p-3 font-mono text-xs">
         <h3 className="mb-2 text-sm">Manakurve (ohne Länder)</h3>
         <div className="flex items-end gap-1" style={{ height: 90 }}>
@@ -444,21 +518,34 @@ function DeckStatsView({ deck, cards }: { deck: Deck; cards: Map<string, Card> }
 
 function MissingView({ deck, cards, owned }: { deck: Deck; cards: Map<string, Card>; owned: Map<string, number> }) {
   const rows = computeMissing(combinedEntries(deck), owned);
+  // Preise nur für Nicht-Standardländer (wie im Wert-Kasten der Statistik).
+  const valueRows = missingValueRows(rows.filter((r) => { const c = cards.get(r.oracleId); return !c || !isBasicLand(c); }), nameMap(cards));
+  const prices = useRowPrices(valueRows);
   if (rows.length === 0) return <p className="rounded-lg bg-ok/10 p-3 font-mono text-sm text-ok">✓ Du besitzt alle Karten für dieses Deck.</p>;
   const totalMissing = rows.reduce((s, r) => s + r.missing, 0);
+  const total = prices ? collectionValue(valueRows, prices) : null;
   return (
     <div className="rounded-lg bg-surface p-3">
-      <h3 className="mb-2 font-mono text-sm">Fehlt mir ({totalMissing})</h3>
+      <h3 className="mb-2 flex items-baseline justify-between font-mono text-sm">
+        <span>Fehlt mir ({totalMissing})</span>
+        <span className="text-xs text-muted">{total ? `≈ ${formatEur(total.total)}` : '…'}</span>
+      </h3>
       <ul className="space-y-1 font-mono text-sm">
-        {rows.map((r) => (
-          <li key={r.oracleId} className="flex items-center gap-2">
-            <ColorPips colors={cards.get(r.oracleId)?.colorIdentity ?? []} />
-            <span className="min-w-0 flex-1 truncate">{cards.get(r.oracleId)?.name ?? r.oracleId}</span>
-            <span className="text-danger">{r.missing} fehlen</span>
-            <span className="text-xs text-muted">({r.have}/{r.need})</span>
-          </li>
-        ))}
+        {rows.map((r) => {
+          const e = prices?.get(priceKey({ oracleId: r.oracleId }));
+          const sum = e?.eur != null ? e.eur * r.missing : undefined;
+          return (
+            <li key={r.oracleId} className="flex items-center gap-2">
+              <ColorPips colors={cards.get(r.oracleId)?.colorIdentity ?? []} />
+              <span className="min-w-0 flex-1 truncate">{cards.get(r.oracleId)?.name ?? r.oracleId}</span>
+              <span className="text-danger">{r.missing} fehlen</span>
+              <span className="text-xs text-muted">({r.have}/{r.need})</span>
+              <span className="w-16 shrink-0 text-right text-xs text-muted">{prices ? formatEur(sum) : ''}</span>
+            </li>
+          );
+        })}
       </ul>
+      <p className="mt-2 font-mono text-[10px] text-muted">Richtwerte für die Standardausgabe, nicht-foil.</p>
     </div>
   );
 }

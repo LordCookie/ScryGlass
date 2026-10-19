@@ -1,5 +1,5 @@
 import { db } from '../db/db';
-import { parseScryfallPrices, priceKey, fallbackPriceKey, unitPrice, type PriceEntry } from '../domain/prices';
+import { parseScryfallPrices, priceKey, fallbackPriceKey, unitPrice, isStale, type PriceEntry, type ValueRow } from '../domain/prices';
 
 /**
  * Preise von Scryfall holen (POST /cards/collection, max. 75 Karten je Anfrage) und
@@ -91,6 +91,39 @@ export async function priceForPrinting(scryfallId: string, maxAgeMs: number): Pr
     /* offline — dann eben der alte Stand */
   }
   return (await db.prices.get(scryfallId)) ?? cached;
+}
+
+/** Preis-Schlüssel → Scryfall-Anfrage („oracle:<id>" = Standardausgabe, sonst scryfallId). */
+function requestFor(key: string): PriceRequest {
+  return key.startsWith('oracle:') ? { key, oracleId: key.slice(7) } : { key, id: key };
+}
+
+/**
+ * Preise für Wert-Zeilen (Deck-Wert, Fehlt-mir-Kosten): fehlende/veraltete Schlüssel
+ * nachladen, danach den Ersatz (Standardausgabe) für Zeilen ohne Preis. Ohne Netz zählt
+ * der gespeicherte Stand — wirft nie.
+ */
+export async function ensureRowPrices(rows: readonly ValueRow[]): Promise<Map<string, PriceEntry>> {
+  const now = Date.now();
+  const load = async (keys: string[]) => {
+    const have = await getPrices(keys);
+    const todo = [...new Set(keys)].filter((k) => isStale(have.get(k)?.at, now));
+    if (todo.length) {
+      try {
+        await fetchPrices(todo.map(requestFor));
+      } catch {
+        /* offline/Fehler: letzter Stand bleibt */
+      }
+    }
+  };
+  await load(rows.map((r) => r.key));
+  let prices = await getPrices(rows.map((r) => r.key));
+  const fallbacks = rows
+    .filter((r) => r.fallbackKey && unitPrice(prices.get(r.key), r.finish) == null)
+    .map((r) => r.fallbackKey!);
+  if (fallbacks.length) await load(fallbacks);
+  prices = await getPrices([...rows.map((r) => r.key), ...fallbacks]);
+  return prices;
 }
 
 export async function getPrices(keys: readonly string[]): Promise<Map<string, PriceEntry>> {

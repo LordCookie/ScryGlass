@@ -23,6 +23,11 @@ export interface DeckStats {
   types: Record<string, number>;
 }
 
+/** Standardland (Basic Land, auch Snow-Basics/Wastes) — für den Deck-Wert praktisch gratis. */
+export function isBasicLand(card: Card): boolean {
+  return /\bBasic\b/.test(card.typeLine) && /\bLand\b/.test(card.typeLine);
+}
+
 export function isLand(card: Card): boolean {
   return /\bland\b/i.test(card.typeLine);
 }

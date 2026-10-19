@@ -106,6 +106,42 @@ export function formatEur(n: number | undefined): string {
   return n == null ? '—' : eurFmt.format(n);
 }
 
+/**
+ * Deck-Wert (PLAN.md § 7, E7): je Karte die in der Sammlung gewählte Ausgabe
+ * (`chosen`: oracleId → printingId), sonst die Standardausgabe; nicht-foil.
+ * Ergebnis in `collectionValue` stecken.
+ */
+export function deckValueRows(
+  entries: readonly { oracleId: string; qty: number }[],
+  names: ReadonlyMap<string, string>,
+  chosen?: ReadonlyMap<string, string>,
+): ValueRow[] {
+  return entries.map((e) => {
+    const printingId = chosen?.get(e.oracleId);
+    const o = { oracleId: e.oracleId, printingId };
+    return {
+      key: priceKey(o),
+      fallbackKey: fallbackPriceKey(o),
+      finish: 'nonfoil' as const,
+      qty: e.qty,
+      name: names.get(e.oracleId) ?? e.oracleId,
+    };
+  });
+}
+
+/** Was die fehlenden Karten ungefähr kosten: Standardausgabe, nicht-foil, je Fehlmenge. */
+export function missingValueRows(
+  missing: readonly { oracleId: string; missing: number }[],
+  names: ReadonlyMap<string, string>,
+): ValueRow[] {
+  return missing.map((m) => ({
+    key: priceKey({ oracleId: m.oracleId }),
+    finish: 'nonfoil' as const,
+    qty: m.missing,
+    name: names.get(m.oracleId) ?? m.oracleId,
+  }));
+}
+
 /** Stückpreis eines Bestands (gemerkte Ausgabe, sonst Ersatz über die Standardausgabe). */
 export function ownedUnitPrice(
   o: Pick<Owned, 'printingId' | 'oracleId' | 'finish'>,

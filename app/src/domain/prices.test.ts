@@ -1,8 +1,30 @@
 import { describe, it, expect } from 'vitest';
 import {
   priceKey, parseScryfallPrices, unitPrice, isStale, collectionValue, formatEur,
-  PRICE_MAX_AGE_MS, type PriceEntry,
+  deckValueRows, missingValueRows, PRICE_MAX_AGE_MS, type PriceEntry,
 } from './prices';
+
+describe('Deck-Wert', () => {
+  const names = new Map([['bolt', 'Lightning Bolt'], ['ring', 'Sol Ring']]);
+  const prices = new Map<string, PriceEntry>([
+    ['oracle:bolt', { key: 'oracle:bolt', eur: 1.5, at: 10 }],
+    ['oracle:ring', { key: 'oracle:ring', eur: 2, at: 20 }],
+    ['ring-de', { key: 'ring-de', at: 30 }], // deutsche Ausgabe ohne Euro-Preis
+  ]);
+
+  it('gewählte Ausgabe, sonst Standardausgabe; ohne Preis → Ersatz über die Standardausgabe', () => {
+    const rows = deckValueRows([{ oracleId: 'bolt', qty: 4 }, { oracleId: 'ring', qty: 1 }], names, new Map([['ring', 'ring-de']]));
+    expect(rows.map((r) => r.key)).toEqual(['oracle:bolt', 'ring-de']);
+    expect(rows[1].fallbackKey).toBe('oracle:ring');
+    expect(collectionValue(rows, prices)).toMatchObject({ total: 8, pricedQty: 5, unpricedQty: 0 });
+  });
+
+  it('fehlende Karten: Fehlmenge × Standardpreis, Karten ohne Preis werden gezählt', () => {
+    const rows = missingValueRows([{ oracleId: 'bolt', missing: 2 }, { oracleId: 'neu', missing: 1 }], names);
+    expect(rows[1].name).toBe('neu');
+    expect(collectionValue(rows, prices)).toMatchObject({ total: 3, pricedQty: 2, unpricedQty: 1 });
+  });
+});
 
 describe('Preise', () => {
   it('Schlüssel: gemerkte Ausgabe, sonst Standardausgabe der Karte', () => {
