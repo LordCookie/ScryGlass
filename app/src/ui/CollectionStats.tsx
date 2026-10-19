@@ -5,6 +5,9 @@ import { TYPE_LABEL, type FilterRow } from '../domain/collectionFilter';
 import { COLOR_KEYS, CURVE_BUCKETS, type ColorKey } from '../domain/deckStats';
 import { collectionValue, fallbackPriceKey, formatEur, isStale, priceKey } from '../domain/prices';
 import { getPrices, refreshCollectionPrices } from '../data/prices';
+import { setProgressFor } from '../data/setProgress';
+import { getSetList } from '../data/nextSet';
+import type { SetProgress } from '../domain/setProgress';
 
 /**
  * Sammlungs-Statistik: Kennzahlen, Farben, Kartentypen, Manakurve und die häufigsten
@@ -75,6 +78,8 @@ export function CollectionStats({ rows }: { rows: readonly FilterRow[] }) {
         </div>
       </Section>
 
+      <SetProgressSection rows={rows} />
+
       <Section title="SETS" note={`${nf.format(s.knownSetQty)} von ${nf.format(s.total)} mit bekannter Ausgabe`}>
         {s.sets.length === 0 ? (
           <p className="text-muted">Noch keine — das Set kennt die App, sobald im Kartendetail ein Artwork gewählt ist.</p>
@@ -83,6 +88,62 @@ export function CollectionStats({ rows }: { rows: readonly FilterRow[] }) {
         )}
       </Section>
     </div>
+  );
+}
+
+const SET_PREVIEW = 10;
+
+/** Set-Fortschritt: verschiedene Karten je Set, egal welche Ausgabe (domain/setProgress). */
+function SetProgressSection({ rows }: { rows: readonly FilterRow[] }) {
+  const ids = useMemo(() => [...new Set(rows.map((r) => r.owned.oracleId))], [rows]);
+  const sig = ids.join(',');
+  const [progress, setProgress] = useState<SetProgress[] | null>(null);
+  const [names, setNames] = useState<Map<string, string>>(new Map());
+  const [showAll, setShowAll] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setProgress(null);
+    void setProgressFor(ids).then((p) => {
+      if (alive) setProgress(p);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
+  useEffect(() => {
+    void getSetList().then((l) => setNames(new Map(l.map((x) => [x.code, x.name]))));
+  }, []);
+
+  const shown = progress ? (showAll ? progress : progress.slice(0, SET_PREVIEW)) : [];
+  return (
+    <Section title="SET-FORTSCHRITT" note="verschiedene Karten je Set, egal welche Ausgabe">
+      {progress === null ? (
+        <p className="text-muted">Wird berechnet…</p>
+      ) : progress.length === 0 ? (
+        <p className="text-muted">Noch keine Sets.</p>
+      ) : (
+        <>
+          {shown.map((p) => (
+            <div key={p.set} className="flex items-center gap-2">
+              <span className="w-28 shrink-0 truncate text-muted" title={names.get(p.set) ?? p.set.toUpperCase()}>
+                {names.get(p.set) ?? p.set.toUpperCase()}
+              </span>
+              <div className="h-3 flex-1 bg-bg">
+                <div className={`h-3 ${p.have === p.total ? 'bg-ok' : 'bg-fill'}`} style={{ width: `${Math.max(2, p.ratio * 100)}%` }} />
+              </div>
+              <span className="w-20 shrink-0 text-right text-text">{nf.format(p.have)} / {nf.format(p.total)}</span>
+            </div>
+          ))}
+          {progress.length > SET_PREVIEW && (
+            <button onClick={() => setShowAll((v) => !v)} className="mt-1 w-full bg-bg px-2 py-1 text-muted hover:text-text">
+              {showAll ? 'Weniger zeigen' : `Alle ${nf.format(progress.length)} Sets zeigen`}
+            </button>
+          )}
+        </>
+      )}
+    </Section>
   );
 }
 
