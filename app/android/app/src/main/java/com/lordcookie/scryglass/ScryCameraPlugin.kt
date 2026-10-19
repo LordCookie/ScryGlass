@@ -15,6 +15,7 @@ import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCaseGroup
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
@@ -68,6 +69,17 @@ class ScryCameraPlugin : Plugin() {
     // muss ihnen die neue Displaylage mitgeteilt werden — sonst liegt das Analysebild quer.
     private var previewUseCase: Preview? = null
     private var analysisUseCase: ImageAnalysis? = null
+
+    // Gemeinsamer ViewPort (PLAN.md § 6.2, Schritt 2): Vorschau und Analyse teilen
+    // garantiert denselben sichtbaren Ausschnitt; das Analysebild wird auf
+    // `ImageProxy.cropRect` zugeschnitten und entspricht dann 1:1 der PreviewView.
+    // Fallback (PreviewView noch nicht ausgelegt): eigene FILL_CENTER-Rechnung.
+    @Volatile private var useViewPort = false
+    private var boundRotation = -1
+    private var rebindPending = false
+    // Licht/Zoom merken — ein Neu-Binden (Drehung) setzt sie sonst zurück.
+    private var torchOn = false
+    private var zoomRatio = 1f
 
     // Reticle normiert auf die WebView (0..1) — von JS gesetzt.
     @Volatile private var retL = 0.1f
@@ -161,9 +173,7 @@ class ScryCameraPlugin : Plugin() {
                         previewUseCase = preview
                         analysisUseCase = analysis
                         updateGeometry()
-                        prov.unbindAll()
-                        val cam = prov.bindToLifecycle(activity, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
-                        camera = cam
+                        val cam = bindUseCases(prov, pv)
                         analyzing = true
 
                         val ret = JSObject()
@@ -232,6 +242,7 @@ class ScryCameraPlugin : Plugin() {
     fun setTorch(call: PluginCall) {
         val on = call.getBoolean("on") ?: false
         activity.runOnUiThread {
+            torchOn = on
             camera?.cameraControl?.enableTorch(on)
             call.resolve()
         }
@@ -241,6 +252,7 @@ class ScryCameraPlugin : Plugin() {
     fun setZoom(call: PluginCall) {
         val ratio = call.getFloat("ratio") ?: 1f
         activity.runOnUiThread {
+            zoomRatio = ratio
             camera?.cameraControl?.setZoomRatio(ratio)
             call.resolve()
         }
@@ -275,10 +287,53 @@ class ScryCameraPlugin : Plugin() {
         viewW = pv.width
         viewH = pv.height
         // Hoch-/Querformat: Analysebild „aufrecht" relativ zum Display halten.
-        pv.display?.rotation?.let { rot ->
+        val rot = pv.display?.rotation
+        if (rot != null) {
             previewUseCase?.targetRotation = rot
             analysisUseCase?.targetRotation = rot
         }
+        // Neu binden, wenn der ViewPort jetzt erst verfügbar ist oder sich die Drehung
+        // geändert hat (der ViewPort hängt an Seitenverhältnis + Drehung).
+        val prov = provider ?: return
+        if (camera == null || rebindPending) return
+        val needViewPort = !useViewPort && pv.width > 0 && pv.viewPort != null
+        val rotated = useViewPort && rot != null && rot != boundRotation
+        if (needViewPort || rotated) {
+            rebindPending = true
+            pv.post {
+                rebindPending = false
+                if (provider === prov && previewView === pv) {
+                    try {
+                        bindUseCases(prov, pv)
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+        }
+    }
+
+    /** Main-Thread: Vorschau + Analyse binden — mit gemeinsamem ViewPort, wenn möglich. */
+    private fun bindUseCases(prov: ProcessCameraProvider, pv: PreviewView): Camera {
+        val preview = previewUseCase ?: throw IllegalStateException("keine Vorschau")
+        val analysis = analysisUseCase ?: throw IllegalStateException("keine Analyse")
+        prov.unbindAll()
+        val vp = if (pv.width > 0) pv.viewPort else null
+        val cam = if (vp != null) {
+            val group = UseCaseGroup.Builder()
+                .setViewPort(vp)
+                .addUseCase(preview)
+                .addUseCase(analysis)
+                .build()
+            prov.bindToLifecycle(activity, CameraSelector.DEFAULT_BACK_CAMERA, group)
+        } else {
+            prov.bindToLifecycle(activity, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+        }
+        useViewPort = vp != null
+        boundRotation = pv.display?.rotation ?: -1
+        camera = cam
+        if (torchOn) cam.cameraControl.enableTorch(true)
+        if (zoomRatio != 1f) cam.cameraControl.setZoomRatio(zoomRatio)
+        return cam
     }
 
     private fun teardown() {
@@ -291,6 +346,11 @@ class ScryCameraPlugin : Plugin() {
         camera = null
         previewUseCase = null
         analysisUseCase = null
+        useViewPort = false
+        boundRotation = -1
+        rebindPending = false
+        torchOn = false
+        zoomRatio = 1f
         val listener = layoutListener
         previewView?.let { pv ->
             if (listener != null) pv.removeOnLayoutChangeListener(listener)
@@ -318,8 +378,21 @@ class ScryCameraPlugin : Plugin() {
         busy = true
         lastRun = now
 
+        val mappedViaViewPort = useViewPort
         val upright: Bitmap? = try {
-            val raw = proxy.toBitmap()
+            val full = proxy.toBitmap()
+            // Mit ViewPort: auf den sichtbaren Ausschnitt zuschneiden (falls toBitmap das
+            // nicht schon getan hat) — danach entspricht das Bild exakt der PreviewView.
+            val cr = proxy.cropRect
+            val raw = if (mappedViaViewPort && (cr.width() != full.width || cr.height() != full.height) &&
+                cr.left >= 0 && cr.top >= 0 && cr.right <= full.width && cr.bottom <= full.height
+            ) {
+                val c = Bitmap.createBitmap(full, cr.left, cr.top, cr.width(), cr.height())
+                if (c !== full) full.recycle()
+                c
+            } else {
+                full
+            }
             val rot = proxy.imageInfo.rotationDegrees
             if (rot != 0) {
                 val m = Matrix()
@@ -339,7 +412,7 @@ class ScryCameraPlugin : Plugin() {
         // Ab hier darf nichts „busy" hängen lassen — sonst käme nie wieder ein Bild.
         var crop: Bitmap? = null
         try {
-            crop = upright?.let { cropReticle(it) }
+            crop = upright?.let { cropReticle(it, mappedViaViewPort) }
             if (upright != null && crop !== upright) upright.recycle() // ~4×/s große Bitmaps sofort freigeben
             if (crop == null) {
                 busy = false
@@ -381,8 +454,8 @@ class ScryCameraPlugin : Plugin() {
             val h = crop.height
             val bmp = crop
             rec.process(InputImage.fromBitmap(bmp, 0))
-                .addOnSuccessListener { text -> emit(framePayload(text, w, h, sharp, jpeg)) }
-                .addOnFailureListener { _ -> emit(framePayload(null, w, h, sharp, jpeg)) }
+                .addOnSuccessListener { text -> emit(framePayload(text, w, h, sharp, jpeg, mappedViaViewPort)) }
+                .addOnFailureListener { _ -> emit(framePayload(null, w, h, sharp, jpeg, mappedViaViewPort)) }
                 .addOnCompleteListener {
                     bmp.recycle()
                     busy = false
@@ -393,21 +466,38 @@ class ScryCameraPlugin : Plugin() {
         }
     }
 
-    /** Reticle (WebView-normiert) → Rechteck im aufrechten Analysebild (FILL_CENTER). */
-    private fun cropReticle(bmp: Bitmap): Bitmap? {
+    /**
+     * Reticle (WebView-normiert) → Rechteck im aufrechten Analysebild.
+     * ViewPort: Bild = sichtbare PreviewView → lineare Abbildung. Sonst eigene
+     * FILL_CENTER-Rechnung (stimmt nur, wenn Vorschau und Analyse denselben Bildwinkel haben).
+     */
+    private fun cropReticle(bmp: Bitmap, viaViewPort: Boolean): Bitmap? {
         val vw = viewW.toFloat()
         val vh = viewH.toFloat()
-        val scale = max(vw / bmp.width, vh / bmp.height)
-        val offX = (bmp.width * scale - vw) / 2f
-        val offY = (bmp.height * scale - vh) / 2f
         val rx = wvOffX + retL * wvW
         val ry = wvOffY + retT * wvH
         val rw = retW * wvW
         val rh = retH * wvH
-        val x = ((rx + offX) / scale).roundToInt().coerceIn(0, bmp.width - 1)
-        val y = ((ry + offY) / scale).roundToInt().coerceIn(0, bmp.height - 1)
-        val w = (rw / scale).roundToInt().coerceIn(1, bmp.width - x)
-        val h = (rh / scale).roundToInt().coerceIn(1, bmp.height - y)
+        val sx: Float
+        val sy: Float
+        val offX: Float
+        val offY: Float
+        if (viaViewPort) {
+            sx = vw / bmp.width
+            sy = vh / bmp.height
+            offX = 0f
+            offY = 0f
+        } else {
+            val scale = max(vw / bmp.width, vh / bmp.height)
+            sx = scale
+            sy = scale
+            offX = (bmp.width * scale - vw) / 2f
+            offY = (bmp.height * scale - vh) / 2f
+        }
+        val x = ((rx + offX) / sx).roundToInt().coerceIn(0, bmp.width - 1)
+        val y = ((ry + offY) / sy).roundToInt().coerceIn(0, bmp.height - 1)
+        val w = (rw / sx).roundToInt().coerceIn(1, bmp.width - x)
+        val h = (rh / sy).roundToInt().coerceIn(1, bmp.height - y)
         return try {
             Bitmap.createBitmap(bmp, x, y, w, h)
         } catch (_: Exception) {
@@ -465,7 +555,7 @@ class ScryCameraPlugin : Plugin() {
         return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     }
 
-    private fun framePayload(text: Text?, w: Int, h: Int, sharp: Double, jpeg: String): JSObject {
+    private fun framePayload(text: Text?, w: Int, h: Int, sharp: Double, jpeg: String, viaViewPort: Boolean): JSObject {
         val lines = JSArray()
         if (text != null) {
             for (block in text.textBlocks) {
@@ -487,6 +577,8 @@ class ScryCameraPlugin : Plugin() {
         ret.put("sharpness", sharp)
         ret.put("lines", lines)
         ret.put("crop", jpeg)
+        // Welche Abbildung Rahmen → Analysebild galt (Diagnose, Scan-Protokoll).
+        ret.put("mapping", if (viaViewPort) "viewport" else "fill")
         return ret
     }
 
