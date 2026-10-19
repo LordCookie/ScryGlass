@@ -18,6 +18,8 @@ export const P_HASH = 16; // obere P_HASH×P_HASH DCT-Koeffizienten → 256 Bit
 const TOTAL_BITS = P_HASH * P_HASH; // 256
 const HASH_BYTES = TOTAL_BITS / 8; // 32
 
+const WORDS = HASH_BYTES / 4; // 8 × 32 Bit je Hash
+
 // Popcount-Tabelle für Bytes (Hamming-Distanz).
 const POPCOUNT = new Uint8Array(256);
 for (let i = 0; i < 256; i++) POPCOUNT[i] = (i & 1) + POPCOUNT[i >> 1];
@@ -124,6 +126,7 @@ export function hammingHex(a: string, b: string): number {
 // --- In-Memory-Index --------------------------------------------------------
 
 let buf: Uint8Array | null = null; // n * 32 Bytes, flach
+let words: Uint32Array | null = null; // derselbe Speicher als 32-Bit-Wörter (schneller Vergleich)
 let oracleIds: string[] = [];
 let scryfallIds: string[] = [];
 let count = 0;
@@ -131,6 +134,7 @@ let loading: Promise<void> | null = null;
 
 export function invalidateHashIndex(): void {
   buf = null;
+  words = null;
   oracleIds = [];
   scryfallIds = [];
   count = 0;
@@ -157,6 +161,7 @@ export async function loadHashIndex(): Promise<void> {
         scryfallIds[i] = r.scryfallId;
         hexToBytes(r.h, buf, i * HASH_BYTES);
       }
+      words = new Uint32Array(buf.buffer, buf.byteOffset, count * WORDS);
     })();
   }
   return loading;
@@ -250,41 +255,102 @@ export function hashIndicesFor(ids: ReadonlySet<string>): Int32Array {
   return Int32Array.from(out);
 }
 
+/** Hash (Hex) → 8 × 32-Bit-Wörter in derselben Byte-Lage wie der Index. */
+function toWords(hex: string): Uint32Array {
+  const b = hexToBytes(hex);
+  return new Uint32Array(b.buffer, b.byteOffset, WORDS);
+}
+
+/** Gesetzte Bits eines 32-Bit-Worts (SWAR — schneller als die Byte-Tabelle). */
+export function popcount32(x: number): number {
+  x = x - ((x >>> 1) & 0x55555555);
+  x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
+  return Math.imul((x + (x >>> 4)) & 0x0f0f0f0f, 0x01010101) >>> 24;
+}
+
 /**
  * Nächster Referenz-Hash zum Query-Hash (linearer Hamming-Scan). `null`, wenn kein
- * Index geladen ist. Der lineare Scan über ~155k × 32 Byte ist wenige ms.
- * `subset` (Set-Modus): nur diese Index-Positionen vergleichen — auch der Margin
- * zählt dann nur Karten aus dem Set als Konkurrenz.
+ * Index geladen ist. `subset` (Set-Modus): nur diese Index-Positionen vergleichen —
+ * auch der Margin zählt dann nur Karten aus dem Set als Konkurrenz.
  */
 export function nearestByHash(hashHex: string, subset?: Int32Array): HashMatch | null {
-  if (!buf || count === 0) return null;
-  const q = hexToBytes(hashHex);
+  return nearestByHashMulti([hashHex], subset);
+}
+
+/** Vorauswahl über die ersten 64 Bit: höchstens so viele abweichende Bits. Zufällige
+ *  Karten liegen bei ~32 ± 4 (≈ 1 % kommt durch), ein echter Treffer mit Gesamtabstand
+ *  ≤ 56 bei ~14 ± 3 — er fällt praktisch nie heraus (bei 56 ≈ 1 %, darunter seltener). */
+const PREFILTER_MAX = 22;
+
+/** Vorsprung (Margin) wird höchstens bis hier ausgerechnet — alle Schwellen im Scanner
+ *  liegen weit darunter (≤ 18); so bricht der Konkurrenz-Lauf früh ab. */
+export const MARGIN_CAP = 48;
+
+/**
+ * Bester Treffer über mehrere Query-Hashes (Varianten desselben Bildes: Ausschnitte,
+ * 180°-Drehung, Einrast-/Versatz-Varianten). Zweistufig, damit viele Varianten schnell
+ * bleiben: (1) alle Einträge grob über die ersten 64 Bit gegen alle Varianten, (2) nur
+ * die Kandidaten exakt. Die Variante mit der kleinsten Distanz gewinnt. Gibt es keinen
+ * Kandidaten (nichts liegt auch nur grob nahe), zählt die exakte Suche mit der ersten
+ * Variante. Danach ein Lauf nur für die Gewinner-Variante: Abstand zur nächsten FREMDEN
+ * Karte (Reprints desselben Oracle zählen nicht — der Margin misst „wie klar besser").
+ */
+export function nearestByHashMulti(hashes: readonly string[], subset?: Int32Array): HashMatch | null {
+  const W = words;
+  if (!buf || !W || count === 0) return null;
+  const qs = hashes.filter(Boolean).map(toWords);
+  if (qs.length === 0) return null;
   const n = subset ? subset.length : count;
-  // Pass 1: bester Treffer.
-  let best = 257;
-  let bi = -1;
+
+  // Stufe 1: grobe Vorauswahl (Eintrag, Variante).
+  const candIdx: number[] = [];
+  const candVar: number[] = [];
   for (let s = 0; s < n; s++) {
     const i = subset ? subset[s] : s;
-    const off = i * HASH_BYTES;
-    let dist = 0;
-    for (let k = 0; k < HASH_BYTES; k++) dist += POPCOUNT[q[k] ^ buf[off + k]];
-    if (dist < best) {
-      best = dist;
-      bi = i;
+    const off = i * WORDS;
+    const w0 = W[off];
+    const w1 = W[off + 1];
+    for (let v = 0; v < qs.length; v++) {
+      const q = qs[v];
+      if (popcount32(q[0] ^ w0) + popcount32(q[1] ^ w1) <= PREFILTER_MAX) {
+        candIdx.push(i);
+        candVar.push(v);
+      }
     }
   }
+
+  // Stufe 2: Kandidaten exakt (sonst: erste Variante über alles).
+  let best = 257;
+  let bi = -1;
+  let bv = 0;
+  const exact = (i: number, v: number) => {
+    const q = qs[v];
+    const off = i * WORDS;
+    let d = 0;
+    for (let k = 0; k < WORDS && d < best; k++) d += popcount32(q[k] ^ W[off + k]);
+    if (d < best) {
+      best = d;
+      bi = i;
+      bv = v;
+    }
+  };
+  if (candIdx.length) {
+    for (let c = 0; c < candIdx.length; c++) exact(candIdx[c], candVar[c]);
+  } else {
+    for (let s = 0; s < n; s++) exact(subset ? subset[s] : s, 0);
+  }
   if (bi < 0) return null;
+
   const bestOracle = oracleIds[bi];
-  // Pass 2: nächste ANDERE Karte (Reprints desselben Oracle zählen nicht als
-  // Konkurrenz — der Margin misst „wie klar besser als eine fremde Karte").
-  let secondDiff = 257;
+  const q = qs[bv];
+  let secondDiff = Math.min(257, best + MARGIN_CAP);
   for (let s = 0; s < n; s++) {
     const i = subset ? subset[s] : s;
     if (oracleIds[i] === bestOracle) continue;
-    const off = i * HASH_BYTES;
-    let dist = 0;
-    for (let k = 0; k < HASH_BYTES; k++) dist += POPCOUNT[q[k] ^ buf[off + k]];
-    if (dist < secondDiff) secondDiff = dist;
+    const off = i * WORDS;
+    let d = 0;
+    for (let k = 0; k < WORDS && d < secondDiff; k++) d += popcount32(q[k] ^ W[off + k]);
+    if (d < secondDiff) secondDiff = d;
   }
   return {
     oracleId: bestOracle,
@@ -322,20 +388,13 @@ export function distanceToOracle(hashes: readonly string[], oracleId: string): {
 }
 
 /**
- * Bester Treffer über mehrere Query-Hashes (Scanner-Robustheit Tier 1): der Aufrufer
- * hasht mehrere Varianten desselben Frames (verschiedene Ausschnitte + 180°-Drehung)
- * und wir nehmen die Variante mit der KLEINSTEN Distanz (bei Gleichstand größerer
- * Margin). So fangen wir schiefes/lockeres Framing und kopfüber gehaltene Karten ab.
+ * Das verlässlichere von zwei Ergebnissen (z. B. eingerastete Karte vs. Rahmen): der
+ * größere Vorsprung vor der nächsten fremden Karte gewinnt, bei Gleichstand die kleinere
+ * Distanz. So ist ein misslungenes Einrasten nie schlechter als der Rahmen allein.
  */
-export function nearestByHashMulti(hashes: readonly string[], subset?: Int32Array): HashMatch | null {
-  let best: HashMatch | null = null;
-  for (const h of hashes) {
-    if (!h) continue;
-    const m = nearestByHash(h, subset);
-    if (!m) continue;
-    if (!best || m.distance < best.distance || (m.distance === best.distance && m.margin > best.margin)) {
-      best = m;
-    }
-  }
-  return best;
+export function betterMatch(a: HashMatch | null, b: HashMatch | null): HashMatch | null {
+  if (!a) return b;
+  if (!b) return a;
+  if (a.margin !== b.margin) return a.margin > b.margin ? a : b;
+  return a.distance <= b.distance ? a : b;
 }
