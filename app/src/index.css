@@ -95,6 +95,22 @@
   --c-warn-bg: 58 42 18;
 }
 
+/* Halloween: Kürbis-Orange · Schwarz · Hexen-Lila (Titelbalken) · Knochenweiß.
+   Kontraste: Text/bg 16,6:1 · Weiß/fill 5,5:1 · on-accent/accent 7,3:1 · muted/bg 6,7:1 */
+:root[data-theme='halloween'] {
+  --c-bg: 13 10 11;        /* #0D0A0B fast Schwarz, warm */
+  --c-surface: 26 18 16;   /* #1A1210 */
+  --c-elevated: 36 25 21;  /* #241915 */
+  --c-titlebar: 75 29 92;  /* #4B1D5C Hexen-Lila */
+  --c-pressed: 107 42 130; /* #6B2A82 */
+  --c-fill: 179 71 0;      /* #B34700 dunkles Kürbis-Orange — Rahmen/aktiv */
+  --c-text: 255 232 204;   /* #FFE8CC Knochenweiß */
+  --c-paper: 255 255 255;  /* #FFFFFF */
+  --c-muted: 176 144 122;  /* #B0907A */
+  --c-accent: 255 117 24;  /* #FF7518 Kürbis — Knöpfe/Akzente */
+  --c-on-accent: 13 10 11;
+}
+
 html,
 body,
 #root {

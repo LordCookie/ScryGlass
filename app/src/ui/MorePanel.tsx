@@ -135,7 +135,7 @@ function SettingsSection() {
       {/* Farbschema: Vorschau-Kacheln, Auswahl wirkt sofort und wird gemerkt. */}
       <div className="mt-5">
         <div className="mb-2 font-mono text-sm">Farbschema</div>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {THEMES.map((t) => (
             <button
               key={t.key}
