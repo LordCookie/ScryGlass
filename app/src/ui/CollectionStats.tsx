@@ -8,6 +8,7 @@ import { getPrices, refreshCollectionPrices } from '../data/prices';
 import { setProgressFor } from '../data/setProgress';
 import { getSetList } from '../data/nextSet';
 import type { SetProgress } from '../domain/setProgress';
+import { addTokens, getTokenCount } from '../data/tokens';
 
 /**
  * Sammlungs-Statistik: Kennzahlen, Farben, Kartentypen, Manakurve und die häufigsten
@@ -54,6 +55,8 @@ export function CollectionStats({ rows }: { rows: readonly FilterRow[] }) {
 
       <ValueSection rows={rows} />
 
+      <TokenSection />
+
       <Section title="FARBEN" note="ohne Länder">
         {COLOR_KEYS.map((c) => (
           <Bar key={c} label={COLOR_NAME[c]} value={s.stats.colors[c]} max={maxColor} barClass={COLOR_BAR[c]} />
@@ -88,6 +91,23 @@ export function CollectionStats({ rows }: { rows: readonly FilterRow[] }) {
         )}
       </Section>
     </div>
+  );
+}
+
+/** Gezählte Spielsteine (Tokens) mit Korrektur-Knöpfen. */
+function TokenSection() {
+  // Live (Dexie beobachtet meta), damit Scanner-Zählungen sofort erscheinen.
+  const n = useLiveQuery(() => getTokenCount(), []) ?? 0;
+  return (
+    <Section title="TOKENS" note="Spielsteine, nur gezählt (ohne Artwork)">
+      <div className="flex items-center gap-2">
+        <span className="font-hud text-[14px] text-text">{nf.format(n)}</span>
+        <span className="flex-1 text-muted">{n === 1 ? 'Token' : 'Tokens'}</span>
+        <button onClick={() => void addTokens(-1)} disabled={n === 0} aria-label="Ein Token weniger"
+          className="bg-bg px-3 py-1 text-paper disabled:text-muted">−</button>
+        <button onClick={() => void addTokens(1)} aria-label="Ein Token mehr" className="bg-bg px-3 py-1 text-paper">+</button>
+      </div>
+    </Section>
   );
 }
 

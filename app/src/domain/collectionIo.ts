@@ -14,6 +14,8 @@ export interface CollectionExport {
   exportedAt: number;
   owned: Owned[];
   decks: Deck[];
+  /** gezählte Spielsteine (Tokens) — fehlt in älteren Backups */
+  tokens?: number;
 }
 
 export class CollectionImportError extends Error {}
@@ -36,6 +38,7 @@ export function buildExport(
   owned: readonly Owned[],
   decks: readonly Deck[] = [],
   exportedAt: number = Date.now(),
+  tokens?: number,
 ): CollectionExport {
   return {
     schema: COLLECTION_SCHEMA,
@@ -43,6 +46,7 @@ export function buildExport(
     exportedAt,
     owned: sortOwned(owned),
     decks: sortDecks(decks),
+    ...(tokens != null ? { tokens } : {}),
   };
 }
 
@@ -50,8 +54,9 @@ export function serializeCollection(
   owned: readonly Owned[],
   decks: readonly Deck[] = [],
   exportedAt?: number,
+  tokens?: number,
 ): string {
-  return JSON.stringify(buildExport(owned, decks, exportedAt), null, 2);
+  return JSON.stringify(buildExport(owned, decks, exportedAt, tokens), null, 2);
 }
 
 const FINISHES: Finish[] = ['nonfoil', 'foil', 'etched'];
@@ -110,5 +115,6 @@ export function parseCollection(json: string): CollectionExport {
     exportedAt: typeof obj.exportedAt === 'number' ? obj.exportedAt : 0,
     owned: sortOwned(obj.owned as Owned[]),
     decks: sortDecks(decks),
+    ...(typeof obj.tokens === 'number' && obj.tokens >= 0 ? { tokens: Math.floor(obj.tokens) } : {}),
   };
 }

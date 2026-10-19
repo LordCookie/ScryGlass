@@ -54,6 +54,8 @@ interface Props {
   qrHint?: string | null;
   /** Hinweis statt Treffer, z. B. „Spielstein erkannt" */
   notice?: string | null;
+  /** Spielstein im Bild: Zählerstand und (nur eigene Sammlung) „+ Token" */
+  token?: { count: number; onAdd?: () => void } | null;
   /** Diagnose: zuletzt ausgewerteter Ausschnitt (JPEG, Base64) — zeigt, was die Erkennung sieht */
   diagCrop?: string | null;
   /** Diagnose: Karte eingerastet (grüner Rand) oder nur der Rahmen (gelber Rand) */
@@ -167,7 +169,7 @@ export function NativeScanOverlay(p: Props) {
   );
   const toast = p.toast && (
     <div className="mb-1 flex items-center gap-2 bg-ok/15 px-2 py-0.5 text-xs text-ok">
-      <span className="min-w-0 flex-1 truncate">✓ {p.toast} in den Korb</span>
+      <span className="min-w-0 flex-1 truncate">✓ {p.toast}</span>
       <button onClick={withTick(p.onUndoToast)} className="shrink-0 px-1 text-paper underline">Rückgängig</button>
     </div>
   );
@@ -189,7 +191,21 @@ export function NativeScanOverlay(p: Props) {
       Auf dem anderen Gerät: Mehr → Gemeinsam scannen → Empfang starten. Dann dessen QR-Code hierher halten.
     </p>
   );
-  const noMatch = <p className="pt-3 text-center text-xs text-muted">Noch kein Treffer.</p>;
+  const noMatch = p.token ? (
+    <div className="flex items-center gap-2 pt-1">
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-text">Spielstein (Token)</div>
+        <div className="text-[10px] text-muted">
+          nur gezählt · bisher {p.token.count}{p.token.onAdd ? '' : ' · nur für die eigene Sammlung'}
+        </div>
+      </div>
+      {p.token.onAdd && (
+        <button onClick={withTick(p.token.onAdd)} className="shrink-0 bg-accent px-3 py-2 text-on-accent">＋ Token</button>
+      )}
+    </div>
+  ) : (
+    <p className="pt-3 text-center text-xs text-muted">Noch kein Treffer.</p>
+  );
   const autoHint = !qr && p.autoAdd ? 'Auto-Korb an · Karte für Karte hinlegen' : '';
   const doneBtn = (
     <button onClick={withTick(p.onClose)} className="shrink-0 bg-surface px-3 py-1 text-xs text-paper">

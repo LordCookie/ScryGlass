@@ -28,6 +28,13 @@ describe('collectionIo', () => {
     expect(back.decks[0].name).toBe('Burn');
   });
 
+  it('Token-Zahl kommt mit; ältere Backups ohne Feld bleiben gültig', () => {
+    expect(parseCollection(serializeCollection(owned, decks, 1, 12)).tokens).toBe(12);
+    const old = parseCollection(serializeCollection(owned, decks, 1));
+    expect(old.tokens).toBeUndefined();
+    expect(old.owned).toHaveLength(2);
+  });
+
   it('byte-stabil (zweimal serialisieren = identisch)', () => {
     expect(serializeCollection(owned, decks, 1)).toBe(serializeCollection([...owned].reverse(), decks, 1));
   });

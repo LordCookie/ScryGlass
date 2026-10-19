@@ -14,6 +14,7 @@ import { THEMES, currentTheme, chooseTheme, type ThemeKey } from './themes';
 import { PeerPanel } from './PeerPanel';
 import { APP_VERSION } from '../version';
 import { getScanDiag, setScanDiag } from '../data/scanDiag';
+import { getTokenCount, setTokenCount } from '../data/tokens';
 import { PixelCheckbox } from './PixelCheckbox';
 
 /** „Mehr": Einstellungen, Backup/Export, Katalog-Update, Rechtliches (PLAN.md § 5, § 4, § 12). */
@@ -275,7 +276,7 @@ function BackupSection() {
 
   async function exportJson() {
     const [owned, decks] = await Promise.all([db.owned.toArray(), db.decks.toArray()]);
-    await saveFile(`scryglass-backup-${new Date().toISOString().slice(0, 10)}.json`, serializeCollection(owned, decks));
+    await saveFile(`scryglass-backup-${new Date().toISOString().slice(0, 10)}.json`, serializeCollection(owned, decks, undefined, await getTokenCount()));
     setMsg(`${owned.length} Bestände + ${decks.length} Decks exportiert.`);
   }
 
@@ -297,7 +298,11 @@ function BackupSection() {
       const parsed = parseCollection(await file.text());
       await replaceOwned(parsed.owned);
       for (const d of parsed.decks) await saveDeck(d);
-      setMsg(`Wiederhergestellt: ${parsed.owned.length} Bestände, ${parsed.decks.length} Decks.`);
+      if (parsed.tokens != null) await setTokenCount(parsed.tokens);
+      setMsg(
+        `Wiederhergestellt: ${parsed.owned.length} Bestände, ${parsed.decks.length} Decks` +
+          (parsed.tokens != null ? `, ${parsed.tokens} Tokens.` : '.'),
+      );
     } catch (e) {
       setMsg(e instanceof CollectionImportError ? `Import fehlgeschlagen: ${e.message}` : 'Import fehlgeschlagen.');
     }

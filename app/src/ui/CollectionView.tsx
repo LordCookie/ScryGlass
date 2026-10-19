@@ -13,6 +13,7 @@ import { getPrices } from '../data/prices';
 import { CardImage } from './CardImage';
 import { CardDetail } from './CardDetail';
 import { CollectionStats } from './CollectionStats';
+import { getTokenCount } from '../data/tokens';
 import { ManaCost, ColorPips } from './mana';
 
 /**
@@ -111,13 +112,14 @@ export function CollectionView() {
 
   const totalCards = rows?.reduce((s, r) => s + r.owned.qty, 0) ?? 0;
   const distinct = new Set(rows?.map((r) => r.owned.oracleId)).size;
+  const tokens = useLiveQuery(() => getTokenCount(), []) ?? 0;
 
   return (
     <section className="space-y-3">
       <div className="rounded-lg bg-surface p-4">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="font-hud text-sm text-text">SAMMLUNG</h2>
-          <span className="font-mono text-xs text-muted">{totalCards} Karten · {distinct} verschiedene</span>
+          <span className="font-mono text-xs text-muted">{totalCards} Karten · {distinct} verschiedene{tokens > 0 ? ` · ${tokens} Tokens` : ''}</span>
         </div>
         <input
           value={filter.query}

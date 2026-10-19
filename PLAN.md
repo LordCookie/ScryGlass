@@ -122,6 +122,8 @@ Kauf-Links, kein Handel.
    Platte, kein Transport-Encoding → `gzip.open()`, zeilenweise streamen, niemals
    komplett in den RAM.
 3. Filtern: `lang in ("en", "de")`, `set_type != "memorabilia"`, keine Tokens/Emblems
+   (der Scanner erkennt Tokens trotzdem und zählt sie nur — `domain/cardText.looksLikeToken`,
+   `data/tokens`; einzeln erfassen = großes Token-Update, M14)
    (`layout in ("token","double_faced_token","emblem","art_series")` raus)
 4. Gruppieren nach `oracle_id`
 5. Vier NDJSON-Files schreiben (siehe unten)
@@ -802,6 +804,12 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
 - [ ] Scanner § 6.3 (Artwork-Hash, Entzerrung, Embedding)
 - [ ] Peer: Auto-Discovery (`NsdManager`), Geräte-Tests aus M8
 - [ ] Sprite-Animationen aus DESIGN § 7 (Flip, Stapeln, Stempel)
+- [x] Tokens erkennen statt falsch zuordnen + Gesamtzahl zählen (nach v0.2.3, siehe unten)
+- [ ] **Großes Token-Update (User-Wunsch, nicht vergessen):** Tokens einzeln mit Artwork
+      erfassen — Pipeline nimmt `token`/`double_faced_token` (ggf. Embleme) mit Kennzeichen
+      in den Katalog, eigene Bild-Hashes; Scanner ordnet konkrete Tokens zu; Sammlung zeigt
+      sie getrennt (Filter/Suche „Tokens"), Deckbau ignoriert sie; der bisherige Zähler
+      (meta `tokenCount`) wird dabei übernommen.
 
 ---
 

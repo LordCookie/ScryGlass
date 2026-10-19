@@ -21,6 +21,9 @@ import {
   observeFrame, mayAutoAdd, afterAutoAdd, AUTO_BASKET_START, type AutoBasketState,
 } from '../domain/autoBasket';
 import { feedbackAdded, unlockAudio } from '../native/feedback';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { addTokens, getTokenCount } from '../data/tokens';
+import { normalizeName } from '../domain/nameMatch';
 import { PixelIcon } from './PixelIcon';
 import { laplacianVariance, normalizedPoint } from '../domain/focus';
 import { pickBestRead, ocrEffectiveScore, type OcrRead } from '../domain/ocrQuality';
@@ -255,13 +258,16 @@ export function ScannerPanel() {
   const [scanning, setScanning] = useState(false);
   const [ocrText, setOcrText] = useState('');
   const [matches, setMatches] = useState<ScanMatch[]>([]);
-  // Spielstein im Bild (nicht im Katalog) → Hinweis statt falscher Karte.
+  // Spielstein im Bild (nicht im Katalog) → Hinweis statt falscher Karte; Tokens werden
+  // nur gezählt (data/tokens). Kennung je Token-Name für die Kartenwechsel-Logik.
   const [tokenSeen, setTokenSeen] = useState(false);
+  const tokenIdRef = useRef('token:?');
+  const tokenCount = useLiveQuery(() => getTokenCount(), []) ?? 0;
   const [finish, setFinish] = useState<Finish>('nonfoil');
   const [basket, setBasket] = useState<BasketItem[]>([]);
   const [added, setAdded] = useState(0);
   // Auto-Übernahme-Hinweis mit Rückgängig (entryId → Verlaufseintrag).
-  const [autoToast, setAutoToast] = useState<{ name: string; entryId: number } | null>(null);
+  const [autoToast, setAutoToast] = useState<{ name: string; entryId: number; token?: boolean } | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]); // Scan-Verlauf (neueste zuerst)
   const historyIdRef = useRef(0);
   const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
@@ -772,10 +778,15 @@ export function ScannerPanel() {
     // 0) Spielstein/Emblem: steht nicht im Katalog — sonst fände der Abgleich den
     //    ähnlichsten echten Namen („Mouse" → „Mouse Trapper") und der Auto-Korb nähme ihn.
     if (inp.isToken) {
+      const tokenId = `token:${normalizeName(inp.titleText) || '?'}`;
+      tokenIdRef.current = tokenId;
       setTokenSeen(true);
       setMatches([]);
       consensusRef.current = { oracleId: '', count: 0 };
-      autoBasketRef.current = observeFrame(autoBasketRef.current, { blurry: false, hasCard: false });
+      // Ein liegender Token zählt wie eine Karte im Bild (sonst gälte jedes dritte Bild
+      // als Wechsel und er würde immer wieder gezählt).
+      autoBasketRef.current = observeFrame(autoBasketRef.current, { blurry: false, hasCard: true });
+      if (autoAdd && target.kind === 'local' && mayAutoAdd(autoBasketRef.current, tokenId)) countToken(tokenId);
       return;
     }
     setTokenSeen(false);
@@ -1419,9 +1430,29 @@ export function ScannerPanel() {
   );
 
   function undoToast() {
+    if (autoToast?.token) {
+      void addTokens(-1);
+      setAutoToast(null);
+      return;
+    }
     const e = autoToast ? history.find((x) => x.id === autoToast.entryId) : undefined;
     if (e) void undoEntry(e);
   }
+
+  /** Spielstein zählen (nur eigene Sammlung) — mit Feedback und Rückgängig wie bei Karten. */
+  function countToken(tokenId: string) {
+    autoBasketRef.current = afterAutoAdd(tokenId); // derselbe Token erst nach einem Wechsel wieder
+    void addTokens(1);
+    feedbackAdded();
+    setFlashKey((k) => k + 1);
+    setAutoToast({ name: 'Token', entryId: -1, token: true });
+    window.clearTimeout(autoToastTimer.current);
+    autoToastTimer.current = window.setTimeout(() => setAutoToast(null), 4000);
+  }
+
+  const toastText = autoToast
+    ? autoToast.token ? `Token gezählt (${tokenCount})` : `${autoToast.name} in den Korb`
+    : null;
 
   return (
     <section className="space-y-4">
@@ -1599,12 +1630,9 @@ export function ScannerPanel() {
 
         {autoToast && (
           <div className="mt-2 flex items-center gap-2 bg-ok/15 px-2 py-1 font-mono text-sm text-ok">
-            <span className="min-w-0 flex-1 truncate">✓ {autoToast.name} in den Korb</span>
+            <span className="min-w-0 flex-1 truncate">✓ {toastText}</span>
             <button
-              onClick={() => {
-                const e = history.find((x) => x.id === autoToast.entryId);
-                if (e) void undoEntry(e);
-              }}
+              onClick={undoToast}
               className="shrink-0 px-2 text-xs text-paper underline hover:text-danger"
             >
               Rückgängig
@@ -1665,7 +1693,15 @@ export function ScannerPanel() {
       </div>
 
       {tokenSeen && matches.length === 0 && (
-        <p className="rounded-lg bg-warn/15 p-3 font-mono text-sm text-warn">Spielstein (Token) erkannt — Tokens kennt der Katalog nicht, nichts übernommen.</p>
+        <div className="flex items-center gap-2 rounded-lg bg-warn/15 p-3 font-mono text-sm text-warn">
+          <span className="min-w-0 flex-1">
+            Spielstein (Token) erkannt — Tokens werden nur gezählt (bisher {tokenCount})
+            {target.kind === 'peer' ? ', und nur für die eigene Sammlung.' : '.'}
+          </span>
+          {target.kind === 'local' && (
+            <button onClick={() => countToken(tokenIdRef.current)} className="shrink-0 bg-accent px-3 py-1 text-on-accent">＋ Token</button>
+          )}
+        </div>
       )}
 
       {matches.length > 0 && (
@@ -1800,7 +1836,8 @@ export function ScannerPanel() {
           mode={nativeMode}
           flashKey={flashKey}
           qrHint={qrHint}
-          notice={tokenSeen ? 'Spielstein (Token) erkannt — wird nicht übernommen' : null}
+          notice={tokenSeen ? 'Spielstein (Token) erkannt' : null}
+          token={tokenSeen ? { count: tokenCount, onAdd: target.kind === 'local' ? () => countToken(tokenIdRef.current) : undefined } : null}
           blurry={blurry}
           scanning={scanning}
           best={
@@ -1821,7 +1858,7 @@ export function ScannerPanel() {
           torchOn={torchOn}
           onToggleTorch={() => void toggleTorch()}
           basketCount={basketTotal}
-          toast={autoToast?.name ?? null}
+          toast={toastText}
           onUndoToast={undoToast}
           setPicker={setSelect('w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text outline-none')}
           diagCrop={diag ? diagCrop : null}
