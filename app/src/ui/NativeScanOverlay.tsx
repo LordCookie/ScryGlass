@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { CardImage } from './CardImage';
 import { hapticTap } from '../native/feedback';
 import { PixelIcon } from './PixelIcon';
+import { useBackHandler } from './backStack';
 
 /**
  * Vollbild-Oberfläche über der NATIVEN Kamera (ScryCamera-Plugin). Das Kamerabild
@@ -94,6 +95,7 @@ export function NativeScanOverlay(p: Props) {
   const [fx, setFx] = useState<{ x: number; y: number; k: number } | null>(null);
   const qr = p.mode === 'qr';
   const landscape = useLandscape();
+  useBackHandler(true, p.onClose); // Android-Zurück = Scanner schließen (wie „Fertig")
 
   /** Knopf mit leichtem Vibrations-Tick (spürbar, dass der Druck ankam). */
   const withTick = (fn: () => void) => () => {

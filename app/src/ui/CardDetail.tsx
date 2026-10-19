@@ -8,6 +8,7 @@ import { formatEur, PRICE_MAX_AGE_MS, type PriceEntry } from '../domain/prices';
 import { fetchPrices, priceForPrinting } from '../data/prices';
 import { CardImage } from './CardImage';
 import { ManaCost, ColorPips } from './mana';
+import { useBackHandler } from './backStack';
 
 /**
  * Kartendetail als Pixel-Sheet: großes Kartenbild, Regeltext/Effekte, Manakosten,
@@ -26,6 +27,7 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
     () => db.owned.where('oracleId').equals(oracleId).toArray(),
     [oracleId],
   );
+  useBackHandler(true, onClose); // Android-Zurück schließt das Detail
 
   useEffect(() => {
     let alive = true;

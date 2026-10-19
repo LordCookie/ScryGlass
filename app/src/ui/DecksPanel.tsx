@@ -13,6 +13,7 @@ import { ColorPips } from './mana';
 import { CardImage } from './CardImage';
 import { CardDetail } from './CardDetail';
 import { feedbackAdded, hapticTap } from '../native/feedback';
+import { useBackHandler } from './backStack';
 
 const COLOR_NAME: Record<string, string> = {
   W: 'Weiß', U: 'Blau', B: 'Schwarz', R: 'Rot', G: 'Grün', C: 'Farblos',
@@ -100,6 +101,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
   const deck = useLiveQuery(() => db.decks.get(deckId), [deckId]);
   const owned = useLiveQuery(() => ownedByOracle(), []);
   const [tab, setTab] = useState<'liste' | 'stats' | 'fehlt' | 'text'>('liste');
+  useBackHandler(true, onBack); // Android-Zurück = zur Deckliste
 
   // Karten-Lookup für alle im Deck referenzierten oracleIds.
   const refIds = useMemo(() => {

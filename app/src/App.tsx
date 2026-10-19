@@ -11,6 +11,8 @@ import { syncHashes, loadHashIndex } from './data/imageHash';
 import { getCachedNextSet, refreshNextSet } from './data/nextSet';
 import { nextSetLabel, type UpcomingSet } from './domain/nextSet';
 import { initFeedbackPrefs } from './native/feedback';
+import { initBackButton } from './native/backButton';
+import { useBackHandler } from './ui/backStack';
 import { ScannerPanel } from './ui/ScannerPanel';
 import { CollectionView } from './ui/CollectionView';
 import { DecksPanel } from './ui/DecksPanel';
@@ -70,6 +72,9 @@ export default function App() {
   useEffect(() => { void runSync(); }, []);
   // Vibrations-Einstellung (unter „Mehr") gleich beim Start laden — gilt app-weit.
   useEffect(() => { void initFeedbackPrefs(); }, []);
+  // Android-Zurück: offene Ebenen zuerst (Scanner, Detail, Deck), dann zur Sammlung, dann minimieren.
+  useEffect(() => initBackButton(), []);
+  useBackHandler(tab !== 'sammlung', () => setTab('sammlung'));
 
   async function doUpdate() {
     if (!update) return;
