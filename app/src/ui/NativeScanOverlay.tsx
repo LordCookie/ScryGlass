@@ -52,6 +52,8 @@ interface Props {
   flashKey: number;
   /** Hinweis im QR-Modus (z. B. „Verbinde…") */
   qrHint?: string | null;
+  /** Diagnose: zuletzt ausgewerteter Ausschnitt (JPEG, Base64) — zeigt, was die Erkennung sieht */
+  diagCrop?: string | null;
 }
 
 const TOP_H = 'h-14';
@@ -237,6 +239,14 @@ export function NativeScanOverlay(p: Props) {
           <p className="pointer-events-none absolute inset-x-0 bottom-2 px-4 text-center text-xs text-paper drop-shadow">
             {status}
           </p>
+        )}
+        {/* Diagnose (§ 6.2): genau dieser Ausschnitt geht in Bild- und Texterkennung. */}
+        {!qr && p.diagCrop && (
+          <div className="pointer-events-none absolute bottom-2 right-2 bg-bg/90 p-1">
+            <img src={`data:image/jpeg;base64,${p.diagCrop}`} alt="Ausgewerteter Ausschnitt"
+              className="block h-[73px] w-[52px]" style={{ border: 'var(--px) solid rgb(var(--c-paper))' }} />
+            <div className="mt-0.5 text-center font-hud text-[6px] text-paper">ANALYSE</div>
+          </div>
         )}
       </div>
 

@@ -13,6 +13,8 @@ import { PixelIcon } from './PixelIcon';
 import { THEMES, currentTheme, chooseTheme, type ThemeKey } from './themes';
 import { PeerPanel } from './PeerPanel';
 import { APP_VERSION } from '../version';
+import { getScanDiag, setScanDiag } from '../data/scanDiag';
+import { PixelCheckbox } from './PixelCheckbox';
 
 /** „Mehr": Einstellungen, Backup/Export, Katalog-Update, Rechtliches (PLAN.md § 5, § 4, § 12). */
 
@@ -162,12 +164,21 @@ function SettingsSection() {
 function ScanLogSection() {
   const [count, setCount] = useState<number | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [diag, setDiag] = useState(false);
 
   useEffect(() => {
     void db.scans.count().then(setCount);
+    void getScanDiag().then(setDiag);
   }, []);
 
-  async function buildJson(): Promise<string | null> {
+  function toggleDiag(on: boolean) {
+    setDiag(on);
+    void setScanDiag(on);
+  }
+
+  /** `withCrops`: Ausschnitt-Bildchen mitnehmen (nur für „Als Datei" — in der
+   *  Zwischenablage wären sie zu lang). */
+  async function buildJson(withCrops: boolean): Promise<string | null> {
     const scans = await listScans();
     if (scans.length === 0) {
       setMsg('Noch keine Scans protokolliert.');
@@ -198,19 +209,23 @@ function ScanLogSection() {
       ocrConf: s.ocrConf != null ? Math.round(s.ocrConf) : null,
       printRead: s.printRead ?? null,
       rejected: s.rejected ?? false,
+      // Diagnose (§ 6.2): Abstand zur bestätigten Karte, Abbildung, Ausschnitt.
+      hashDistChosen: s.hashDistChosen ?? null,
+      cropMap: s.cropMap ?? null,
+      ...(withCrops ? { crop: s.crop ?? null } : { hasCrop: !!s.crop }),
     }));
     return JSON.stringify(rows, null, 2);
   }
 
   async function copyJson() {
-    const json = await buildJson();
+    const json = await buildJson(false);
     if (!json) return;
     const ok = await copyToClipboard(json);
     setMsg(ok ? 'In die Zwischenablage kopiert — schick es mir einfach.' : 'Kopieren fehlgeschlagen — probier „Als Datei".');
   }
 
   async function exportJson() {
-    const json = await buildJson();
+    const json = await buildJson(true);
     if (!json) return;
     await saveFile(`scryglass-scans-${new Date().toISOString().slice(0, 10)}.json`, json);
     setMsg('Als Datei exportiert.');
@@ -222,7 +237,15 @@ function ScanLogSection() {
       <p className="mb-3 text-xs text-muted">
         Zum Verbessern des Scanners: die App merkt sich pro Scan den gelesenen Text, das
         Bild-Ergebnis und die von dir bestätigte Karte. Kopieren/exportieren und mir schicken —
-        daraus tune ich die Erkennung. Keine Bilder, keine persönlichen Daten.
+        daraus tune ich die Erkennung. Keine persönlichen Daten.
+      </p>
+      <PixelCheckbox checked={diag} onChange={toggleDiag} className="mb-1 font-mono text-sm">
+        Diagnose: ausgewerteten Ausschnitt zeigen &amp; mitspeichern
+      </PixelCheckbox>
+      <p className="mb-3 text-xs text-muted">
+        Der Scanner zeigt dann unten rechts, was die Erkennung wirklich sieht, und merkt sich
+        den Kartenausschnitt (~6 KB je Scan, bleibt auf dem Gerät). Die Bildchen stecken nur im
+        Export „Als Datei".
       </p>
       <p className="mb-2 font-mono text-xs text-muted">{count ?? '…'} Scans gespeichert.</p>
       <div className="flex flex-wrap gap-2">

@@ -296,6 +296,32 @@ export function nearestByHash(hashHex: string, subset?: Int32Array): HashMatch |
 }
 
 /**
+ * Abstand der Query-Hashes zur Karte `oracleId` (beste Ausgabe, beste Variante) —
+ * fürs Scan-Protokoll: lag die richtige Karte knapp daneben oder völlig weg?
+ * (PLAN.md § 6.2, Schritt 1). Linearer Scan; läuft nur beim Protokollieren.
+ */
+export function distanceToOracle(hashes: readonly string[], oracleId: string): { distance: number; scryfallId: string } | null {
+  if (!buf || count === 0) return null;
+  const qs = hashes.filter(Boolean).map((h) => hexToBytes(h));
+  if (qs.length === 0) return null;
+  let best = 257;
+  let bi = -1;
+  for (let i = 0; i < count; i++) {
+    if (oracleIds[i] !== oracleId) continue;
+    const off = i * HASH_BYTES;
+    for (const q of qs) {
+      let dist = 0;
+      for (let k = 0; k < HASH_BYTES; k++) dist += POPCOUNT[q[k] ^ buf[off + k]];
+      if (dist < best) {
+        best = dist;
+        bi = i;
+      }
+    }
+  }
+  return bi < 0 ? null : { distance: best, scryfallId: scryfallIds[bi] };
+}
+
+/**
  * Bester Treffer über mehrere Query-Hashes (Scanner-Robustheit Tier 1): der Aufrufer
  * hasht mehrere Varianten desselben Frames (verschiedene Ausschnitte + 180°-Drehung)
  * und wir nehmen die Variante mit der KLEINSTEN Distanz (bei Gleichstand größerer

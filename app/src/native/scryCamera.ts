@@ -26,6 +26,8 @@ export interface NativeFrame {
   crop?: string;
   /** QR-Modus: quadratischer Ausschnitt (JPEG, Base64) fürs Pairing — jsQR dekodiert in JS. */
   qr?: string;
+  /** Abbildung Rahmen → Analysebild: gemeinsamer ViewPort oder eigene FILL_CENTER-Rechnung. */
+  mapping?: 'viewport' | 'fill';
 }
 
 export type CameraMode = 'card' | 'qr';

@@ -74,6 +74,12 @@ export interface ScanLog {
   ocrConf?: number;
   /** Gelesene Druckinfo „set nummer sprache" (native Kamera), z. B. „dmu 123 en". */
   printRead?: string;
+  /** Bild-Abstand zur BESTÄTIGTEN Karte (knapp verfehlt vs. völlig daneben, § 6.2). */
+  hashDistChosen?: number;
+  /** Abbildung Rahmen → Analysebild der nativen Kamera: „viewport" | „fill" (§ 6.2). */
+  cropMap?: string;
+  /** Diagnose an: der ausgewertete Kartenausschnitt (JPEG, Base64, ~6 KB). */
+  crop?: string;
   /** Nutzer hat die Übernahme rückgängig gemacht → Fehltreffer, keine Ground Truth. */
   rejected?: boolean;
   /** Ground Truth: was der Nutzer tatsächlich übernommen hat. */

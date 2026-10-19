@@ -4,7 +4,8 @@ import jsQR from 'jsqr';
 import { matchOcr } from '../data/matcher';
 import { getCards, previewImageIds } from '../data/cards';
 import { searchCards } from '../data/search';
-import { phashFromCanvas, nearestByHashMulti, hashCount, hashIndicesFor, type HashMatch } from '../data/imageHash';
+import { phashFromCanvas, nearestByHashMulti, hashCount, hashIndicesFor, distanceToOracle, type HashMatch } from '../data/imageHash';
+import { getScanDiag } from '../data/scanDiag';
 import { fuseScan, type FuseConfig, type FuseResult } from '../domain/scanFuse';
 import { pickNameLine, cleanNameText, collectorText, parseCollectorText, type CollectorInfo } from '../domain/cardText';
 import { setPickerOptions, type SetOption } from '../domain/nextSet';
@@ -174,6 +175,12 @@ interface EvalInput {
   sharpness: number;
   /** Druckinfo (Set/Nummer) — nur die native Kamera liest sie */
   collector: CollectorInfo | null;
+  /** Query-Hashes des Bildes (für den Abstand zur bestätigten Karte im Protokoll) */
+  hashes?: string[];
+  /** Diagnose: ausgewerteter Ausschnitt (JPEG, Base64) */
+  crop?: string;
+  /** native Kamera: Abbildung Rahmen → Analysebild */
+  cropMap?: string;
 }
 
 interface BasketItem {
@@ -299,7 +306,14 @@ export function ScannerPanel() {
     sharpness?: number;
     ocrConf?: number;
     printRead?: string;
+    hashes?: string[];
+    crop?: string;
+    cropMap?: string;
   } | null>(null);
+  // Scanner-Diagnose (Mehr → Scanner-Protokoll): Ausschnitt live zeigen + mitspeichern.
+  const diagRef = useRef(false);
+  const [diag, setDiag] = useState(false);
+  const [diagCrop, setDiagCrop] = useState<string | null>(null);
   const lastThumbRef = useRef<Uint8Array | null>(null);
   const thumbCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const autoToastTimer = useRef<number>();
@@ -384,6 +398,11 @@ export function ScannerPanel() {
   useEffect(() => {
     void getMeta<boolean>('scanAuto').then((a) => {
       if (!prefsTouchedRef.current && typeof a === 'boolean') setAutoAdd(a);
+    });
+    // Diagnose wird unter „Mehr" geschaltet (Scanner ist dann nicht gemountet).
+    void getScanDiag().then((d) => {
+      diagRef.current = d;
+      setDiag(d);
     });
   }, []);
 
@@ -754,6 +773,9 @@ export function ScannerPanel() {
       sharpness: inp.sharpness,
       ocrConf: inp.ocrConf,
       printRead: col ? [printSet ?? '?', col.number ?? '?', col.lang ?? ''].join(' ').trim() : undefined,
+      hashes: inp.hashes,
+      crop: inp.crop,
+      cropMap: inp.cropMap,
     };
 
     const best = finalMatches[0];
@@ -811,11 +833,13 @@ export function ScannerPanel() {
     const whole = regionCanvas([0, 0, 1, 1], 820, 'otsu');
     // Bild-Hash vom aktuellen Frame — matcht das ARTWORK (rettet Showcase-/Full-Art).
     let hashMatch: HashMatch | null = null;
+    let hashes: string[] = [];
     if (hashCount() > 0) {
       // Mehrere Ausschnitt-Varianten + 180°-Drehung → besten Treffer nehmen (Tier 1).
-      const hashes = frameHashes();
+      hashes = frameHashes();
       if (hashes.length) hashMatch = nearestByHashMulti(hashes, currentSetData()?.subset ?? undefined);
     }
+    const crop = diagRef.current ? rawCropCanvas(0)?.toDataURL('image/jpeg', 0.85).split(',')[1] : undefined;
     if (!bandBin) return;
     busyRef.current = true;
     setScanning(true);
@@ -831,6 +855,7 @@ export function ScannerPanel() {
       const fullText = `${title.text} ${wholeRead.text}`.replace(/\s+/g, ' ').trim();
       await evaluate({
         mode, titleText: title.text.replace(/\s+/g, ' ').trim(), fullText, ocrConf, hashMatch, sharpness, collector: null,
+        hashes, crop,
       });
     } catch {
       /* einzelne Erkennung fehlgeschlagen — nächster Versuch */
@@ -861,16 +886,18 @@ export function ScannerPanel() {
       const fullText = lines.map((l) => l.text).join(' ').replace(/\s+/g, ' ').trim();
       const collector = parseCollectorText(collectorText(lines));
       let hashMatch: HashMatch | null = null;
+      let hashes: string[] = [];
       if (f.crop && hashCount() > 0) {
-        const hashes = hashesFromImage(await decodeJpeg(f.crop));
+        hashes = hashesFromImage(await decodeJpeg(f.crop));
         if (hashes.length) hashMatch = nearestByHashMulti(hashes, currentSetData()?.subset ?? undefined);
       }
+      if (diagRef.current && f.crop) setDiagCrop(f.crop);
       // ML-Kit-Sicherheit 0..1 → 0..100; fehlt sie (0/undefined), nicht deckeln.
       const conf = nameLine?.conf;
       const ocrConf = nameLine ? (conf && conf > 0 ? conf * 100 : 100) : 0;
       await evaluate({
         mode: 'live', titleText: nameLine ? cleanNameText(nameLine.text) : '', fullText, ocrConf, hashMatch,
-        sharpness: f.sharpness, collector,
+        sharpness: f.sharpness, collector, hashes, crop: f.crop, cropMap: f.mapping,
       });
     } catch {
       /* einzelnes Bild fehlgeschlagen — das nächste kommt gleich */
@@ -1159,6 +1186,10 @@ export function ScannerPanel() {
         sharpness: recent ? ls!.sharpness : undefined,
         ocrConf: recent ? ls!.ocrConf : undefined,
         printRead: recent ? ls!.printRead : undefined,
+        // Diagnose (§ 6.2): wie weit lag die RICHTIGE Karte im Bild-Abgleich entfernt?
+        hashDistChosen: recent && ls!.hashes?.length ? distanceToOracle(ls!.hashes, m.oracleId)?.distance : undefined,
+        cropMap: recent ? ls!.cropMap : undefined,
+        crop: recent && diagRef.current ? ls!.crop : undefined,
         chosenOracle: m.oracleId,
         chosenName: m.card.name,
         via,
@@ -1689,6 +1720,7 @@ export function ScannerPanel() {
           toast={autoToast?.name ?? null}
           onUndoToast={undoToast}
           setPicker={setSelect('w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text outline-none')}
+          diagCrop={diag ? diagCrop : null}
         />
       )}
     </section>
