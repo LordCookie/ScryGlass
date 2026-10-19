@@ -65,6 +65,37 @@ export function collectorText(lines: readonly TextLine[]): string {
     .join(' ');
 }
 
+/**
+ * Spielstein (Token) oder Emblem? Die stehen nicht im Katalog — ohne diese Prüfung
+ * sucht der Abgleich den ähnlichsten echten Namen („Mouse" → „Mouse Trapper").
+ * Typzeile am Zeilenanfang (EN/DE), damit Regeltext wie „create a 1/1 creature token"
+ * oder „Token creatures you control …" nicht zählt; sie muss einen Gedankenstrich
+ * haben oder kurz sein (umbrochener Regeltext ist lang).
+ */
+const TOKEN_TYPE =
+  /^\s*(?:(?:legendary|snow)\s+)*token\s+(?:(?:legendary|snow)\s+)*(?:creature|artifact|enchantment|land)\b(?!s)|^\s*emblem\s*[—–-]|^\s*(?:legendär\w*\s+)?(?:spielstein[\s-]*(?:kreatur|artefakt|verzauberung|land)|\w*spielstein\s*[—–-])/i;
+/** Druckinfo ab 2023: Seltenheitsbuchstabe vor der Nummer — „T" gibt es nur bei Tokens. */
+const TOKEN_RARITY = /(?:^|\s)T\s?0\d{3}(?=\s|$)/;
+
+export function looksLikeToken(lines: readonly TextLine[]): boolean {
+  for (const l of lines) {
+    const text = l.text.trim();
+    if (TOKEN_TYPE.test(text) && (/[—–-]/.test(text) || text.length <= 30)) return true;
+    if (l.t >= COLLECTOR_TOP - 0.06 && l.l < COLLECTOR_MAX_LEFT && TOKEN_RARITY.test(text)) return true;
+  }
+  return false;
+}
+
+/** Dasselbe für reinen Fließtext (Browser-Kamera): nur mit Gedankenstrich bzw. „T 0004". */
+export function textLooksLikeToken(text: string): boolean {
+  return (
+    /\btoken\s+(?:(?:legendary|snow)\s+)*(?:creature|artifact|enchantment|land)\s*[—–-]/i.test(text) ||
+    /\bspielstein[\s-]*(?:kreatur|artefakt|verzauberung|land)\s*[—–-]/i.test(text) ||
+    /\bemblem\s*[—–-]/i.test(text) ||
+    TOKEN_RARITY.test(text)
+  );
+}
+
 const LANGS = 'EN|DE|FR|ES|IT|PT|JA|JP|KO|RU|ZHS|ZHT|CS|CT|PH';
 const SET_LANG = new RegExp(`\\b([A-Z0-9]{3,5})\\s*[•·∙*.\\-]?\\s*(${LANGS})\\b`);
 // Nummer (1–4 Ziffern, optional Buchstabe), optional „/Gesamt", optional Seltenheit.

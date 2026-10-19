@@ -8,7 +8,9 @@ import { phashFromCanvas, nearestByHashMulti, hashCount, hashIndicesFor, distanc
 import { getScanDiag } from '../data/scanDiag';
 import { snapCard, hashVariantRects, type Rect } from '../domain/cardSnap';
 import { fuseScan, type FuseConfig, type FuseResult } from '../domain/scanFuse';
-import { pickNameLine, cleanNameText, collectorText, parseCollectorText, type CollectorInfo } from '../domain/cardText';
+import {
+  pickNameLine, cleanNameText, collectorText, parseCollectorText, looksLikeToken, textLooksLikeToken, type CollectorInfo,
+} from '../domain/cardText';
 import { setPickerOptions, type SetOption } from '../domain/nextSet';
 import { getSetList } from '../data/nextSet';
 import { findPrinting, setMembers, catalogSetCodes, type SetMembers } from '../data/printingLookup';
@@ -184,6 +186,8 @@ interface EvalInput {
   cropMap?: string;
   /** native Kamera: Karte eingerastet statt Rahmen */
   cropSnapped?: boolean;
+  /** Spielstein/Emblem erkannt — nicht im Katalog, also nichts zuordnen */
+  isToken?: boolean;
 }
 
 interface BasketItem {
@@ -251,6 +255,8 @@ export function ScannerPanel() {
   const [scanning, setScanning] = useState(false);
   const [ocrText, setOcrText] = useState('');
   const [matches, setMatches] = useState<ScanMatch[]>([]);
+  // Spielstein im Bild (nicht im Katalog) → Hinweis statt falscher Karte.
+  const [tokenSeen, setTokenSeen] = useState(false);
   const [finish, setFinish] = useState<Finish>('nonfoil');
   const [basket, setBasket] = useState<BasketItem[]>([]);
   const [added, setAdded] = useState(0);
@@ -763,6 +769,17 @@ export function ScannerPanel() {
     const setData = currentSetData();
     setOcrText(inp.titleText || inp.fullText);
 
+    // 0) Spielstein/Emblem: steht nicht im Katalog — sonst fände der Abgleich den
+    //    ähnlichsten echten Namen („Mouse" → „Mouse Trapper") und der Auto-Korb nähme ihn.
+    if (inp.isToken) {
+      setTokenSeen(true);
+      setMatches([]);
+      consensusRef.current = { oracleId: '', count: 0 };
+      autoBasketRef.current = observeFrame(autoBasketRef.current, { blurry: false, hasCard: false });
+      return;
+    }
+    setTokenSeen(false);
+
     // 1) Name: saubere Titelzeile zuerst (exakt/Präfix), sonst Volltext (Fuzzy).
     //    OCR-Schwelle 0.62: schwammige Reads sollen keine falschen Namen erzeugen.
     let result = inp.titleText ? await matchOcr(inp.titleText, { topN: 5, threshold: 0.62 }) : null;
@@ -892,7 +909,7 @@ export function ScannerPanel() {
       const fullText = `${title.text} ${wholeRead.text}`.replace(/\s+/g, ' ').trim();
       await evaluate({
         mode, titleText: title.text.replace(/\s+/g, ' ').trim(), fullText, ocrConf, hashMatch, sharpness, collector: null,
-        hashes, crop,
+        hashes, crop, isToken: textLooksLikeToken(fullText),
       });
     } catch {
       /* einzelne Erkennung fehlgeschlagen — nächster Versuch */
@@ -978,6 +995,7 @@ export function ScannerPanel() {
       await evaluate({
         mode: 'live', titleText: nameLine ? cleanNameText(nameLine.text) : '', fullText, ocrConf, hashMatch,
         sharpness: f.sharpness, collector, hashes, crop: diagImg, cropMap: f.mapping, cropSnapped,
+        isToken: looksLikeToken(lines),
       });
     } catch {
       /* einzelnes Bild fehlgeschlagen — das nächste kommt gleich */
@@ -1646,6 +1664,10 @@ export function ScannerPanel() {
         </details>
       </div>
 
+      {tokenSeen && matches.length === 0 && (
+        <p className="rounded-lg bg-warn/15 p-3 font-mono text-sm text-warn">Spielstein (Token) erkannt — Tokens kennt der Katalog nicht, nichts übernommen.</p>
+      )}
+
       {matches.length > 0 && (
         <div className="rounded-lg bg-surface p-4">
           <h3 className="mb-2 font-hud text-[10px] text-text">ERKANNT</h3>
@@ -1778,6 +1800,7 @@ export function ScannerPanel() {
           mode={nativeMode}
           flashKey={flashKey}
           qrHint={qrHint}
+          notice={tokenSeen ? 'Spielstein (Token) erkannt — wird nicht übernommen' : null}
           blurry={blurry}
           scanning={scanning}
           best={

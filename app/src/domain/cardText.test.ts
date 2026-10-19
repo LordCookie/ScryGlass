@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pickNameLine, cleanNameText, collectorText, parseCollectorText, type TextLine } from './cardText';
+import { pickNameLine, cleanNameText, collectorText, parseCollectorText, looksLikeToken, textLooksLikeToken, type TextLine } from './cardText';
 
 const line = (text: string, l: number, t: number, r = l + 0.4, b = t + 0.04): TextLine => ({ text, l, t, r, b });
 
@@ -78,5 +78,44 @@ describe('parseCollectorText', () => {
   it('null bei Unsinn', () => {
     expect(parseCollectorText('')).toBeNull();
     expect(parseCollectorText('Flying')).toBeNull();
+  });
+});
+
+describe('looksLikeToken / textLooksLikeToken', () => {
+  it('erkennt Spielsteine an der Typzeile (EN/DE) und Embleme', () => {
+    expect(looksLikeToken([line('MOUSE', 0.05, 0.05), line('Token Creature — Mouse', 0.05, 0.72)])).toBe(true);
+    expect(looksLikeToken([line('Token Artifact - Treasure', 0.05, 0.7)])).toBe(true);
+    expect(looksLikeToken([line('Token Legendary Creature — Blaster', 0.05, 0.7)])).toBe(true);
+    expect(looksLikeToken([line('Spielstein-Kreatur — Maus', 0.05, 0.7)])).toBe(true);
+    expect(looksLikeToken([line('Kreaturenspielstein — Goblin', 0.05, 0.7)])).toBe(true);
+    expect(looksLikeToken([line('Emblem — Chandra', 0.05, 0.6)])).toBe(true);
+  });
+
+  it('erkennt neue Tokens an der Seltenheit „T" in der Druckinfo', () => {
+    expect(looksLikeToken([line('T 0004', 0.05, 0.9), line('WOE • EN Kisung Koh', 0.05, 0.93)])).toBe(true);
+    expect(looksLikeToken([line('T0012', 0.05, 0.9)])).toBe(true);
+  });
+
+  it('echte Karten mit „token" im Regeltext zählen NICHT', () => {
+    expect(looksLikeToken([
+      line('Mouse Trapper', 0.05, 0.05),
+      line('Creature — Mouse Soldier', 0.05, 0.56),
+      line('create a 1/1 white Mouse creature token', 0.05, 0.66),
+      line('Token creatures you control get +1/+1 and have', 0.05, 0.7),
+      line('token creature you control dies, draw a card and gain life', 0.05, 0.74),
+      line('U 0254', 0.05, 0.9),
+      line('WOE • EN Artist', 0.05, 0.93),
+    ])).toBe(false);
+    expect(looksLikeToken([
+      line('erzeuge einen 1/1 weißen Maus-Kreaturenspielstein.', 0.05, 0.66),
+      line('Kreaturenspielstein. Immer wenn eine Kreatur stirbt', 0.05, 0.7),
+      line('0123 R', 0.05, 0.9),
+    ])).toBe(false);
+  });
+
+  it('Fließtext (Browser-Kamera)', () => {
+    expect(textLooksLikeToken('Mouse Token Creature — Mouse 1/1 T 0004 WOE • EN')).toBe(true);
+    expect(textLooksLikeToken('Spielstein-Kreatur - Maus')).toBe(true);
+    expect(textLooksLikeToken('Mouse Trapper Creature — Mouse Soldier Flash create a creature token U 0254')).toBe(false);
   });
 });

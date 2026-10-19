@@ -52,6 +52,8 @@ interface Props {
   flashKey: number;
   /** Hinweis im QR-Modus (z. B. „Verbinde…") */
   qrHint?: string | null;
+  /** Hinweis statt Treffer, z. B. „Spielstein erkannt" */
+  notice?: string | null;
   /** Diagnose: zuletzt ausgewerteter Ausschnitt (JPEG, Base64) — zeigt, was die Erkennung sieht */
   diagCrop?: string | null;
   /** Diagnose: Karte eingerastet (grüner Rand) oder nur der Rahmen (gelber Rand) */
@@ -124,9 +126,11 @@ export function NativeScanOverlay(p: Props) {
       ? 'Unscharf — ruhig halten, Abstand ändern · Tippen stellt scharf'
       : p.best
         ? null
-        : p.scanning
-          ? 'Lese…'
-          : 'Kartenname in den oberen Balken';
+        : p.notice
+          ? p.notice
+          : p.scanning
+            ? 'Lese…'
+            : 'Kartenname in den oberen Balken';
 
   // Platz fürs Kamerafenster: Hochformat = Höhe minus Leisten (3.5rem + 10rem),
   // Querformat = volle Höhe, Breite minus Seitenleiste.
