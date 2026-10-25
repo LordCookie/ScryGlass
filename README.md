@@ -10,7 +10,7 @@ selben WLAN gemeinsam mit anderen.
 > Eigentum von Wizards of the Coast. Kartendaten stammen von
 > [Scryfall](https://scryfall.com). Siehe [Rechtliches](#rechtliches).
 
-**Stand:** v0.2.3 (Tester-Version, Android). Die APK hängt am jeweils neuesten
+**Stand:** v0.2.4 (Tester-Version, Android). Die APK hängt am jeweils neuesten
 [GitHub-Release](https://github.com/LordCookie/ScryGlass/releases).
 
 ---
@@ -23,7 +23,7 @@ selben WLAN gemeinsam mit anderen.
   offline), parallel dazu **Bilderkennung** per Perceptual Hash — die Karte wird dafür
   im Bild eingerastet, auch wenn sie kleiner, versetzt oder auf einem Stapel liegt.
   Beide Signale bestätigen sich gegenseitig. Dazu: Set-Modus, **Auto-Korb** für Stapel („Karte für
-  Karte hinlegen"), Ton + Vibration, Tap-to-Focus, Licht, Querformat, Scan-Verlauf
+  Karte hinlegen"), **Tokens** werden erkannt und gezählt, Ton + Vibration, Tap-to-Focus, Licht, Querformat, Scan-Verlauf
   mit Rückgängig. Im Browser läuft ein Fallback mit Tesseract.
 - **Suche** über den ganzen Katalog: Name, Typ oder Regeltext (DE/EN), mehrere Farben
   (enthält / genau / höchstens), Kartentyp, Manawert, Format, Regeltext- und

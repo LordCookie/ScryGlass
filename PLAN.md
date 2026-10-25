@@ -1,6 +1,6 @@
 # PLAN.md — ScryGlass (MTG Sammlungs- & Deckbau-App)
 
-> **ScryGlass** — Stand **v0.2.3** (2026-10-19), Tester-Version für Android.
+> **ScryGlass** — Stand **v0.2.4** (2026-10-25), Tester-Version für Android.
 > Local-first, offline-fähig, nicht-kommerziell. Basiert auf dem wiederverwendbaren
 > Kern von [engram](https://github.com/LordCookie/Engram) (Scanner, Sammlung, Dexie,
 > Offline-Bilder, Capacitor), aber mit komplett neuer Datenschicht.
@@ -804,7 +804,7 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
 - [ ] Scanner § 6.3 (Artwork-Hash, Entzerrung, Embedding)
 - [ ] Peer: Auto-Discovery (`NsdManager`), Geräte-Tests aus M8
 - [ ] Sprite-Animationen aus DESIGN § 7 (Flip, Stapeln, Stempel)
-- [x] Tokens erkennen statt falsch zuordnen + Gesamtzahl zählen (nach v0.2.3, siehe unten)
+- [x] Tokens erkennen statt falsch zuordnen + Gesamtzahl zählen (v0.2.4)
 - [ ] **Großes Token-Update (User-Wunsch, nicht vergessen):** Tokens einzeln mit Artwork
       erfassen — Pipeline nimmt `token`/`double_faced_token` (ggf. Embleme) mit Kennzeichen
       in den Katalog, eigene Bild-Hashes; Scanner ordnet konkrete Tokens zu; Sammlung zeigt
@@ -879,3 +879,4 @@ Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zä
 | 0.2.1 | 2026-09-23 | Scanner im Querformat, Suche mit Mehrfarben-/Regeltext-/Typfilter, Pixel-Checkbox |
 | 0.2.2 | 2026-09-23 | Pixel-Icons in der Navigationsleiste |
 | 0.2.3 | 2026-10-19 | Katalog 19.10. (Reality Fracture), Karte einrasten + Scanner-Diagnose + ViewPort, Zurück-Taste, Set-Fortschritt, Deck-Wert, Farbschema Halloween |
+| 0.2.4 | 2026-10-25 | Tokens erkennen statt falsche Karte zuordnen, Token-Zähler (Statistik, Sammlung, Backup) |
