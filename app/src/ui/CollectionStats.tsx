@@ -8,11 +8,12 @@ import { getPrices, refreshCollectionPrices } from '../data/prices';
 import { setProgressFor } from '../data/setProgress';
 import { getSetList } from '../data/nextSet';
 import type { SetProgress } from '../domain/setProgress';
-import { addTokens, getTokenCount } from '../data/tokens';
+import { addTokens, getTokenSummary } from '../data/tokens';
 
 /**
  * Sammlungs-Statistik: Kennzahlen, Farben, Kartentypen, Manakurve und die häufigsten
  * Sets. Zeigt immer die aktuell gefilterte Auswahl (ohne Filter = ganze Sammlung).
+ * Für Tokens (M14) nur das Passende: Kennzahlen je Artwork, Wert, Farben, Sets.
  */
 
 const COLOR_BAR: Record<ColorKey, string> = {
@@ -23,8 +24,9 @@ const COLOR_NAME: Record<ColorKey, string> = {
 };
 const nf = new Intl.NumberFormat('de-DE');
 
-export function CollectionStats({ rows }: { rows: readonly FilterRow[] }) {
+export function CollectionStats({ rows, tokens = false }: { rows: readonly FilterRow[]; tokens?: boolean }) {
   const s = useMemo(() => summarizeCollection(rows), [rows]);
+  const artworks = useMemo(() => new Set(rows.map((r) => r.owned.printingId ?? r.owned.oracleId)).size, [rows]);
 
   if (s.total === 0) {
     return <p className="px-1 font-mono text-sm text-muted">Keine Karten für die Statistik.</p>;
@@ -40,12 +42,20 @@ export function CollectionStats({ rows }: { rows: readonly FilterRow[] }) {
     <div className="space-y-3 font-mono text-xs">
       {/* Kennzahlen */}
       <div className="grid grid-cols-4 gap-2">
-        {[
-          { label: 'KARTEN', value: s.total },
-          { label: 'VERSCH.', value: s.distinct },
-          { label: 'FOIL', value: s.foil },
-          { label: 'LÄNDER', value: s.stats.lands },
-        ].map((k) => (
+        {(tokens
+          ? [
+              { label: 'TOKENS', value: s.total },
+              { label: 'VERSCH.', value: s.distinct },
+              { label: 'ARTWORKS', value: artworks },
+              { label: 'FOIL', value: s.foil },
+            ]
+          : [
+              { label: 'KARTEN', value: s.total },
+              { label: 'VERSCH.', value: s.distinct },
+              { label: 'FOIL', value: s.foil },
+              { label: 'LÄNDER', value: s.stats.lands },
+            ]
+        ).map((k) => (
           <div key={k.label} className="frame bg-surface px-2 py-2 text-center">
             <div className="font-hud text-[11px] text-text">{nf.format(k.value)}</div>
             <div className="mt-1 font-hud text-[7px] text-muted">{k.label}</div>
@@ -63,25 +73,29 @@ export function CollectionStats({ rows }: { rows: readonly FilterRow[] }) {
         ))}
       </Section>
 
-      <Section title="KARTENTYPEN">
-        {types.map(([t, n]) => (
-          <Bar key={t} label={TYPE_LABEL[t] ?? t} value={n} max={maxType} />
-        ))}
-      </Section>
+      {!tokens && (
+        <>
+          <Section title="KARTENTYPEN">
+            {types.map(([t, n]) => (
+              <Bar key={t} label={TYPE_LABEL[t] ?? t} value={n} max={maxType} />
+            ))}
+          </Section>
 
-      <Section title="MANAKURVE" note="ohne Länder">
-        <div className="flex items-end gap-1" style={{ height: 96 }}>
-          {Array.from({ length: CURVE_BUCKETS }, (_, i) => (
-            <div key={i} className="flex flex-1 flex-col items-center justify-end">
-              <span className="text-[10px] text-muted">{s.stats.manaCurve[i] || ''}</span>
-              <div className="w-full bg-fill" style={{ height: `${(s.stats.manaCurve[i] / maxCurve) * 64}px` }} />
-              <span className="mt-1 font-hud text-[8px] text-muted">{i === CURVE_BUCKETS - 1 ? '7+' : i}</span>
+          <Section title="MANAKURVE" note="ohne Länder">
+            <div className="flex items-end gap-1" style={{ height: 96 }}>
+              {Array.from({ length: CURVE_BUCKETS }, (_, i) => (
+                <div key={i} className="flex flex-1 flex-col items-center justify-end">
+                  <span className="text-[10px] text-muted">{s.stats.manaCurve[i] || ''}</span>
+                  <div className="w-full bg-fill" style={{ height: `${(s.stats.manaCurve[i] / maxCurve) * 64}px` }} />
+                  <span className="mt-1 font-hud text-[8px] text-muted">{i === CURVE_BUCKETS - 1 ? '7+' : i}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </Section>
+          </Section>
 
-      <SetProgressSection rows={rows} />
+          <SetProgressSection rows={rows} />
+        </>
+      )}
 
       <Section title="SETS" note={`${nf.format(s.knownSetQty)} von ${nf.format(s.total)} mit bekannter Ausgabe`}>
         {s.sets.length === 0 ? (
@@ -94,15 +108,20 @@ export function CollectionStats({ rows }: { rows: readonly FilterRow[] }) {
   );
 }
 
-/** Gezählte Spielsteine (Tokens) mit Korrektur-Knöpfen. */
+/** Spielsteine (Tokens) der ganzen Sammlung: je Artwork erfasst + ohne Artwork gezählt (M14). */
 function TokenSection() {
-  // Live (Dexie beobachtet meta), damit Scanner-Zählungen sofort erscheinen.
-  const n = useLiveQuery(() => getTokenCount(), []) ?? 0;
+  // Live (Dexie beobachtet owned + meta), damit Scanner-Zählungen sofort erscheinen.
+  const t = useLiveQuery(() => getTokenSummary(), []);
+  const n = t?.withoutArt ?? 0;
   return (
-    <Section title="TOKENS" note="Spielsteine, nur gezählt (ohne Artwork)">
+    <Section title="TOKENS" note="Spielsteine, ganze Sammlung">
+      <div className="flex items-center gap-2">
+        <span className="font-hud text-[14px] text-text">{nf.format(t?.withArt ?? 0)}</span>
+        <span className="flex-1 text-muted">mit Artwork ({nf.format(t?.artworks ?? 0)} verschiedene) · unter Sammlung → Tokens</span>
+      </div>
       <div className="flex items-center gap-2">
         <span className="font-hud text-[14px] text-text">{nf.format(n)}</span>
-        <span className="flex-1 text-muted">{n === 1 ? 'Token' : 'Tokens'}</span>
+        <span className="flex-1 text-muted">ohne Artwork gezählt</span>
         <button onClick={() => void addTokens(-1)} disabled={n === 0} aria-label="Ein Token weniger"
           className="bg-bg px-3 py-1 text-paper disabled:text-muted">−</button>
         <button onClick={() => void addTokens(1)} aria-label="Ein Token mehr" className="bg-bg px-3 py-1 text-paper">+</button>

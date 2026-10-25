@@ -115,7 +115,10 @@ function InboxReview({ basket }: { basket: InboxBasket }) {
 
   async function accept() {
     await addOwnedBatch(
-      entries.map((e) => ({ oracleId: e.oracleId, finish: e.finish, qty: e.qty, source: 'peer' as const, peerDevice: basket.deviceName })),
+      entries.map((e) => ({
+        oracleId: e.oracleId, finish: e.finish, qty: e.qty, source: 'peer' as const, peerDevice: basket.deviceName,
+        printingId: e.printingId, // Tokens: das gescannte Artwork (M14)
+      })),
     );
     await setInboxStatus(basket.basketId, 'accepted');
     await deleteInbox(basket.basketId);

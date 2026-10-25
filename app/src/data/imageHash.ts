@@ -1,6 +1,7 @@
 import { db, getMeta, setMeta } from '../db/db';
 import type { HashEntry } from '../domain/types';
 import { NdjsonBuffer } from './ndjson';
+import { loadTokenCatalog } from './tokenCatalog';
 
 /**
  * Bild-Matching für den Scanner (Scanner v2). Ergänzt/übertrifft OCR bei Showcase-/
@@ -124,13 +125,20 @@ export function hammingHex(a: string, b: string): number {
 }
 
 // --- In-Memory-Index --------------------------------------------------------
+// Karten vorn [0, cardCount), Tokens dahinter [cardCount, count) — so sucht der Scanner
+// Karten und Tokens getrennt (M14), ohne Mehraufwand je Eintrag: ein Token-Artwork darf
+// nie eine Karte verdrängen und umgekehrt.
 
 let buf: Uint8Array | null = null; // n * 32 Bytes, flach
 let words: Uint32Array | null = null; // derselbe Speicher als 32-Bit-Wörter (schneller Vergleich)
 let oracleIds: string[] = [];
 let scryfallIds: string[] = [];
 let count = 0;
+let cardCount = 0;
 let loading: Promise<void> | null = null;
+
+/** Welcher Teil des Index: Karten (Standard) oder Tokens. */
+export type HashKind = 'card' | 'token';
 
 export function invalidateHashIndex(): void {
   buf = null;
@@ -138,11 +146,22 @@ export function invalidateHashIndex(): void {
   oracleIds = [];
   scryfallIds = [];
   count = 0;
+  cardCount = 0;
   loading = null;
 }
 
+/** Karten im Bild-Index (ohne Tokens). */
 export function hashCount(): number {
-  return count;
+  return cardCount;
+}
+
+/** Token-Artworks im Bild-Index. */
+export function tokenHashCount(): number {
+  return count - cardCount;
+}
+
+function range(kind: HashKind): [number, number] {
+  return kind === 'token' ? [cardCount, count] : [0, cardCount];
 }
 
 /** Lädt den Hash-Index aus Dexie in den RAM (einmal). Leer, wenn keine Hashes da. */
@@ -150,7 +169,10 @@ export async function loadHashIndex(): Promise<void> {
   if (buf) return;
   if (!loading) {
     loading = (async () => {
-      const rows = await db.hashes.toArray();
+      const [all, tokens] = await Promise.all([db.hashes.toArray(), loadTokenCatalog()]);
+      const rows = all.filter((r) => !tokens.oracleIds.has(r.oracleId));
+      cardCount = rows.length;
+      for (const r of all) if (tokens.oracleIds.has(r.oracleId)) rows.push(r);
       count = rows.length;
       buf = new Uint8Array(count * HASH_BYTES);
       oracleIds = new Array(count);
@@ -248,10 +270,10 @@ export interface HashMatch {
   score: number;
 }
 
-/** Positionen im Hash-Index, deren Ausgabe in `ids` liegt (Set-Modus). */
+/** Positionen im Hash-Index, deren Ausgabe in `ids` liegt (Set-Modus, nur Karten). */
 export function hashIndicesFor(ids: ReadonlySet<string>): Int32Array {
   const out: number[] = [];
-  for (let i = 0; i < count; i++) if (ids.has(scryfallIds[i])) out.push(i);
+  for (let i = 0; i < cardCount; i++) if (ids.has(scryfallIds[i])) out.push(i);
   return Int32Array.from(out);
 }
 
@@ -273,8 +295,8 @@ export function popcount32(x: number): number {
  * Index geladen ist. `subset` (Set-Modus): nur diese Index-Positionen vergleichen —
  * auch der Margin zählt dann nur Karten aus dem Set als Konkurrenz.
  */
-export function nearestByHash(hashHex: string, subset?: Int32Array): HashMatch | null {
-  return nearestByHashMulti([hashHex], subset);
+export function nearestByHash(hashHex: string, subset?: Int32Array, kind: HashKind = 'card'): HashMatch | null {
+  return nearestByHashMulti([hashHex], subset, kind);
 }
 
 /** Vorauswahl über die ersten 64 Bit: höchstens so viele abweichende Bits. Zufällige
@@ -295,18 +317,25 @@ export const MARGIN_CAP = 48;
  * Variante. Danach ein Lauf nur für die Gewinner-Variante: Abstand zur nächsten FREMDEN
  * Karte (Reprints desselben Oracle zählen nicht — der Margin misst „wie klar besser").
  */
-export function nearestByHashMulti(hashes: readonly string[], subset?: Int32Array): HashMatch | null {
+export function nearestByHashMulti(
+  hashes: readonly string[],
+  subset?: Int32Array,
+  kind: HashKind = 'card',
+): HashMatch | null {
   const W = words;
   if (!buf || !W || count === 0) return null;
   const qs = hashes.filter(Boolean).map(toWords);
   if (qs.length === 0) return null;
-  const n = subset ? subset.length : count;
+  // Ohne Teilmenge: der Bereich der Art (Karten bzw. Tokens), Position = lo + s.
+  const [lo, hi] = range(kind);
+  const n = subset ? subset.length : hi - lo;
+  if (n === 0) return null;
 
   // Stufe 1: grobe Vorauswahl (Eintrag, Variante).
   const candIdx: number[] = [];
   const candVar: number[] = [];
   for (let s = 0; s < n; s++) {
-    const i = subset ? subset[s] : s;
+    const i = subset ? subset[s] : lo + s;
     const off = i * WORDS;
     const w0 = W[off];
     const w1 = W[off + 1];
@@ -337,7 +366,7 @@ export function nearestByHashMulti(hashes: readonly string[], subset?: Int32Arra
   if (candIdx.length) {
     for (let c = 0; c < candIdx.length; c++) exact(candIdx[c], candVar[c]);
   } else {
-    for (let s = 0; s < n; s++) exact(subset ? subset[s] : s, 0);
+    for (let s = 0; s < n; s++) exact(subset ? subset[s] : lo + s, 0);
   }
   if (bi < 0) return null;
 
@@ -345,7 +374,7 @@ export function nearestByHashMulti(hashes: readonly string[], subset?: Int32Arra
   const q = qs[bv];
   let secondDiff = Math.min(257, best + MARGIN_CAP);
   for (let s = 0; s < n; s++) {
-    const i = subset ? subset[s] : s;
+    const i = subset ? subset[s] : lo + s;
     if (oracleIds[i] === bestOracle) continue;
     const off = i * WORDS;
     let d = 0;
@@ -385,6 +414,44 @@ export function distanceToOracle(hashes: readonly string[], oracleId: string): {
     }
   }
   return bi < 0 ? null : { distance: best, scryfallId: scryfallIds[bi] };
+}
+
+export interface PrintingDistance {
+  oracleId: string;
+  scryfallId: string;
+  distance: number;
+}
+
+/**
+ * Die bildnächsten Ausgaben unter bestimmten Karten (beste Variante je Ausgabe),
+ * aufsteigend — für Tokens: welches Artwork der gelesenen Namen passt am besten?
+ * Linear über den Bereich der Art (Tokens: wenige tausend Einträge).
+ */
+export function nearestPrintingsOf(
+  hashes: readonly string[],
+  oracles: ReadonlySet<string>,
+  limit: number,
+  kind: HashKind = 'token',
+): PrintingDistance[] {
+  const W = words;
+  if (!W || count === 0 || oracles.size === 0) return [];
+  const qs = hashes.filter(Boolean).map(toWords);
+  if (qs.length === 0) return [];
+  const [lo, hi] = range(kind);
+  const out: PrintingDistance[] = [];
+  for (let i = lo; i < hi; i++) {
+    if (!oracles.has(oracleIds[i])) continue;
+    const off = i * WORDS;
+    let best = 257;
+    for (const q of qs) {
+      let d = 0;
+      for (let k = 0; k < WORDS && d < best; k++) d += popcount32(q[k] ^ W[off + k]);
+      if (d < best) best = d;
+    }
+    out.push({ oracleId: oracleIds[i], scryfallId: scryfallIds[i], distance: best });
+  }
+  out.sort((a, b) => a.distance - b.distance);
+  return out.slice(0, limit);
 }
 
 /**

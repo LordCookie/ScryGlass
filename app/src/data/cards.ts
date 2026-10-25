@@ -57,6 +57,14 @@ export async function previewImageIds(
   return out;
 }
 
+/** Ausgaben mehrerer Karten, englische zuerst, höchstens `limit` (Token-Artworks ohne Bild-Index). */
+export async function printingsOf(oracleIds: readonly string[], limit: number): Promise<Printing[]> {
+  if (oracleIds.length === 0) return [];
+  const rows = await db.printings.where('oracleId').anyOf([...new Set(oracleIds)]).toArray();
+  rows.sort((a, b) => Number(b.lang === 'en') - Number(a.lang === 'en'));
+  return rows.slice(0, limit);
+}
+
 /** Sammlungsbestand je oracleId (über alle Finishes summiert) — für „Fehlt mir" & Suche. */
 export async function ownedByOracle(): Promise<Map<string, number>> {
   const rows = await db.owned.toArray();

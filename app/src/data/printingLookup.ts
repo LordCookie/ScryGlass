@@ -1,5 +1,6 @@
 import { db } from '../db/db';
 import type { Printing } from '../domain/types';
+import { tokenOnlySets } from './tokenCatalog';
 
 /**
  * Ausgaben-Suche für den Scanner: Set-Code + Sammlernummer (Druckinfo unten links)
@@ -36,7 +37,9 @@ export async function setMembers(code: string): Promise<SetMembers> {
   };
 }
 
-/** Alle Set-Codes im Katalog (für die Auswahl), schnell über den Index. */
+/** Alle Set-Codes im Katalog (für die Auswahl), schnell über den Index — ohne reine
+ *  Token-Sets (Tokens sucht der Scanner ohnehin im eigenen Bereich, M14). */
 export async function catalogSetCodes(): Promise<string[]> {
-  return (await db.printings.orderBy('set').uniqueKeys()) as string[];
+  const [codes, tokenSets] = await Promise.all([db.printings.orderBy('set').uniqueKeys(), tokenOnlySets()]);
+  return (codes as string[]).filter((c) => !tokenSets.has(c));
 }

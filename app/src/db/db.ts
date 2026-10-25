@@ -13,6 +13,7 @@ import type {
   OwnedSource,
 } from '../domain/types';
 import type { PriceEntry } from '../domain/prices';
+import { isTokenCard } from '../domain/tokens';
 
 /**
  * Persistenz via IndexedDB/Dexie (PLAN.md § 3). Kein LocalStorage.
@@ -67,6 +68,10 @@ export class ScryGlassDB extends Dexie {
     this.version(4).stores({
       prices: 'key, at',
     });
+    // v5: Layout-Index — Tokens/Embleme schnell finden (Großes Token-Update, M14).
+    this.version(5).stores({
+      cards: 'oracleId, normName, cmc, *colorIdentity, layout',
+    });
   }
 }
 
@@ -86,6 +91,14 @@ export async function setMeta(key: string, value: unknown): Promise<void> {
 // --- Sammlung (owned) -------------------------------------------------------
 // v1 zählt auf Oracle-Ebene je Finish (PLAN.md § 3). Ein Bestand ist eindeutig
 // über [oracleId+finish]; printingId wird mitgeschrieben, sobald bekannt.
+// Ausnahme Tokens (M14): die zählen je Artwork, also über [oracleId+finish+printingId].
+
+/** Bestandszeile zu einer Karte bzw. (Token) zu genau dieser Druckausgabe. */
+async function findOwned(oracleId: string, finish: Finish, printingId: string | undefined): Promise<Owned | undefined> {
+  const rows = db.owned.where('[oracleId+finish]').equals([oracleId, finish]);
+  if (!isTokenCard(await db.cards.get(oracleId))) return rows.first();
+  return rows.filter((r) => r.printingId === printingId).first();
+}
 
 /**
  * Ändert den Bestand um `delta` (+ beim Erfassen, − beim Undo). Fällt die Menge
@@ -97,8 +110,8 @@ export async function addOwned(
   delta = 1,
   opts: { printingId?: string; source?: OwnedSource; peerDevice?: string } = {},
 ): Promise<number> {
-  return db.transaction('rw', db.owned, async () => {
-    const existing = await db.owned.where('[oracleId+finish]').equals([oracleId, finish]).first();
+  return db.transaction('rw', db.owned, db.cards, async () => {
+    const existing = await findOwned(oracleId, finish, opts.printingId);
     const qty = (existing?.qty ?? 0) + delta;
     if (qty <= 0) {
       if (existing?.id != null) await db.owned.delete(existing.id);
@@ -129,13 +142,10 @@ export async function addOwnedBatch(
     peerDevice?: string;
   }[],
 ): Promise<void> {
-  await db.transaction('rw', db.owned, async () => {
+  await db.transaction('rw', db.owned, db.cards, async () => {
     for (const it of items) {
       const finish = it.finish ?? 'nonfoil';
-      const existing = await db.owned
-        .where('[oracleId+finish]')
-        .equals([it.oracleId, finish])
-        .first();
+      const existing = await findOwned(it.oracleId, finish, it.printingId);
       await db.owned.put({
         id: existing?.id,
         oracleId: it.oracleId,
@@ -151,7 +161,8 @@ export async function addOwnedBatch(
 }
 
 /** Merkt die gewählte Druckausgabe (Artwork) für alle Bestände einer Karte —
- *  damit Sammlung/Detail dieses Artwork anzeigen (PLAN.md § 3, printingId). */
+ *  damit Sammlung/Detail dieses Artwork anzeigen (PLAN.md § 3, printingId).
+ *  Nicht für Tokens: dort IST die Ausgabe der Bestand (je Artwork gezählt). */
 export async function setOwnedPrinting(oracleId: string, printingId: string): Promise<void> {
   await db.transaction('rw', db.owned, async () => {
     const rows = await db.owned.where('oracleId').equals(oracleId).toArray();

@@ -4,6 +4,7 @@ import { db, saveDeck, deleteDeck, listDecks } from '../db/db';
 import { getCards, ownedByOracle, ownedPrintingByOracle, previewImageIds, previewPrinting } from '../data/cards';
 import { searchCards } from '../data/search';
 import { normalizeName } from '../domain/nameMatch';
+import { isTokenCard } from '../domain/tokens';
 import { validateDeck, availableColors } from '../domain/deckValidate';
 import { computeStats, isBasicLand, CURVE_BUCKETS, COLOR_KEYS } from '../domain/deckStats';
 import { computeMissing } from '../domain/deckMissing';
@@ -570,7 +571,8 @@ function DeckTextView({
       for (const l of lines) {
         const norm = normalizeName(l.name);
         const nameHit = await db.names.where('normName').equals(norm).first();
-        const id = nameHit?.oracleId ?? (await db.cards.where('normName').equals(norm).first())?.oracleId;
+        // Tokens gehören nicht ins Deck (M14) — nur echte Karten auflösen.
+        const id = nameHit?.oracleId ?? (await db.cards.where('normName').equals(norm).filter((c) => !isTokenCard(c)).first())?.oracleId;
         if (id) {
           const ex = out.find((c) => c.oracleId === id);
           if (ex) ex.qty += l.qty;

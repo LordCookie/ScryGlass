@@ -2,18 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, addOwned } from '../db/db';
 import { getCards, previewImageIds } from '../data/cards';
-import { searchCards } from '../data/search';
+import { searchCards, searchTokens } from '../data/search';
 import type { Card, Owned, Finish } from '../domain/types';
 import {
   matchesFilter, extraFilterCount, EMPTY_FILTER, TYPE_FILTERS,
   type CollectionFilter, type FilterRow,
 } from '../domain/collectionFilter';
 import { priceKey, fallbackPriceKey, ownedUnitPrice, formatEur } from '../domain/prices';
+import { isTokenCard } from '../domain/tokens';
 import { getPrices } from '../data/prices';
 import { CardImage } from './CardImage';
 import { CardDetail } from './CardDetail';
 import { CollectionStats } from './CollectionStats';
-import { getTokenCount } from '../data/tokens';
+import { addTokens, getTokenCount } from '../data/tokens';
 import { ManaCost, ColorPips } from './mana';
 
 /**
@@ -21,10 +22,14 @@ import { ManaCost, ColorPips } from './mana';
  * Drei Ansichten: Bild-Raster (mit Anzahl-Badge), Liste (Mini-Kartenrahmen) und
  * Statistik (der gefilterten Auswahl). Klick auf eine Karte öffnet das Detail.
  * Reaktiv über Dexie.
+ *
+ * Karten und Tokens getrennt (Großes Token-Update, M14): Tokens zählen je Artwork,
+ * ihr Raster zeigt deshalb jede Druckausgabe einzeln.
  */
 
 type SortKey = 'name' | 'cmc' | 'qty' | 'value';
 type ViewMode = 'grid' | 'list' | 'stats';
+type Kind = 'cards' | 'tokens';
 const CMC_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7];
 const FINISH_LABEL: Record<Finish, string> = { nonfoil: 'normal', foil: 'foil', etched: 'etched' };
 const COLORS: { key: string; label: string }[] = [
@@ -38,15 +43,17 @@ interface Row {
   scryfallId?: string;
   /** Set der gemerkten Ausgabe (nur mit printingId bekannt). */
   set?: string;
+  token: boolean;
 }
 type KnownRow = FilterRow & { scryfallId?: string };
 
 export function CollectionView() {
+  const [kind, setKind] = useState<Kind>('cards');
   const [filter, setFilter] = useState<CollectionFilter>(EMPTY_FILTER);
   const [showFilters, setShowFilters] = useState(false);
   const [sort, setSort] = useState<SortKey>('name');
   const [view, setView] = useState<ViewMode>('grid');
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<{ oracleId: string; printingId?: string } | null>(null);
   const patch = (p: Partial<CollectionFilter>) => setFilter((f) => ({ ...f, ...p }));
 
   const rows = useLiveQuery<Row[]>(async () => {
@@ -57,27 +64,31 @@ export function CollectionView() {
     const setOf = new Map<string, string>();
     for (const p of prints) if (p) setOf.set(p.scryfallId, p.set);
     // Gewählte Ausgabe (printingId) bevorzugen, sonst die Standard-Vorschau.
-    return owned.map((o) => ({
-      owned: o,
-      card: cards.get(o.oracleId),
-      scryfallId: o.printingId ?? imgs.get(o.oracleId),
-      set: o.printingId ? setOf.get(o.printingId) : undefined,
-    }));
+    return owned.map((o) => {
+      const card = cards.get(o.oracleId);
+      return {
+        owned: o,
+        card,
+        scryfallId: o.printingId ?? imgs.get(o.oracleId),
+        set: o.printingId ? setOf.get(o.printingId) : undefined,
+        token: isTokenCard(card),
+      };
+    });
   }, []);
+  const ownRows = useMemo(() => (rows ?? []).filter((r) => r.token === (kind === 'tokens')), [rows, kind]);
 
   // Preise (gemerkte Ausgabe + Ersatz über die Standardausgabe) für Wert-Sortierung und Liste.
   const priceKeys = useMemo(
-    () => (rows ?? []).flatMap((r) => {
+    () => ownRows.flatMap((r) => {
       const fb = fallbackPriceKey(r.owned);
       return fb ? [priceKey(r.owned), fb] : [priceKey(r.owned)];
     }),
-    [rows],
+    [ownRows],
   );
   const prices = useLiveQuery(() => getPrices(priceKeys), [priceKeys]);
 
   const filtered = useMemo<KnownRow[]>(() => {
-    if (!rows) return [];
-    const out = rows.filter((r): r is KnownRow => !!r.card && matchesFilter(r as KnownRow, filter));
+    const out = ownRows.filter((r): r is Row & KnownRow => !!r.card && matchesFilter(r as KnownRow, filter));
     out.sort((a, b) => {
       if (sort === 'cmc') return a.card.cmc - b.card.cmc || a.card.name.localeCompare(b.card.name);
       if (sort === 'qty') return b.owned.qty - a.owned.qty || a.card.name.localeCompare(b.card.name);
@@ -89,42 +100,56 @@ export function CollectionView() {
       return a.card.name.localeCompare(b.card.name);
     });
     return out;
-  }, [rows, filter, sort, prices]);
+  }, [ownRows, filter, sort, prices]);
 
-  // Sets, die in der Sammlung vorkommen (für den Set-Filter), nach Anzahl sortiert.
+  // Sets, die in der Auswahl vorkommen (für den Set-Filter), nach Anzahl sortiert.
   const setOptions = useMemo(() => {
     const m = new Map<string, number>();
-    for (const r of rows ?? []) if (r.set) m.set(r.set, (m.get(r.set) ?? 0) + r.owned.qty);
+    for (const r of ownRows) if (r.set) m.set(r.set, (m.get(r.set) ?? 0) + r.owned.qty);
     return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  }, [rows]);
+  }, [ownRows]);
   const extraCount = extraFilterCount(filter);
 
-  // Fürs Raster je oracleId zusammenfassen (Anzahl über Ausführungen summieren).
+  // Fürs Raster zusammenfassen (Anzahl über Ausführungen summieren): Karten je oracleId,
+  // Tokens je Artwork.
   const gridItems = useMemo(() => {
-    const map = new Map<string, { card: Card; scryfallId?: string; qty: number }>();
+    const map = new Map<string, { key: string; card: Card; scryfallId?: string; printingId?: string; qty: number }>();
     for (const r of filtered) {
-      const cur = map.get(r.owned.oracleId);
+      const key = kind === 'tokens' ? `${r.owned.oracleId}|${r.owned.printingId ?? ''}` : r.owned.oracleId;
+      const cur = map.get(key);
       if (cur) cur.qty += r.owned.qty;
-      else map.set(r.owned.oracleId, { card: r.card!, scryfallId: r.scryfallId, qty: r.owned.qty });
+      else map.set(key, { key, card: r.card, scryfallId: r.scryfallId, printingId: r.owned.printingId, qty: r.owned.qty });
     }
     return [...map.values()];
-  }, [filtered]);
+  }, [filtered, kind]);
 
-  const totalCards = rows?.reduce((s, r) => s + r.owned.qty, 0) ?? 0;
-  const distinct = new Set(rows?.map((r) => r.owned.oracleId)).size;
-  const tokens = useLiveQuery(() => getTokenCount(), []) ?? 0;
+  const cardRows = (rows ?? []).filter((r) => !r.token);
+  const totalCards = cardRows.reduce((s, r) => s + r.owned.qty, 0);
+  const distinct = new Set(cardRows.map((r) => r.owned.oracleId)).size;
+  const withoutArt = useLiveQuery(() => getTokenCount(), []) ?? 0;
+  const tokenTotal = (rows ?? []).reduce((s, r) => s + (r.token ? r.owned.qty : 0), 0) + withoutArt;
+  const tokens = kind === 'tokens';
 
   return (
     <section className="space-y-3">
       <div className="rounded-lg bg-surface p-4">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="font-hud text-sm text-text">SAMMLUNG</h2>
-          <span className="font-mono text-xs text-muted">{totalCards} Karten · {distinct} verschiedene{tokens > 0 ? ` · ${tokens} Tokens` : ''}</span>
+          <span className="font-mono text-xs text-muted">{totalCards} Karten · {distinct} verschiedene{tokenTotal > 0 ? ` · ${tokenTotal} Tokens` : ''}</span>
+        </div>
+        {/* Karten oder Tokens (M14) — Tokens zählen je Artwork und nicht für Decks. */}
+        <div className="mb-2 flex gap-1 font-mono text-xs">
+          {(['cards', 'tokens'] as Kind[]).map((k) => (
+            <button key={k} onClick={() => setKind(k)} aria-pressed={kind === k}
+              className={`px-3 py-1 ${kind === k ? 'bg-fill text-paper' : 'bg-bg text-muted hover:text-text'}`}>
+              {k === 'cards' ? 'Karten' : `Tokens${tokenTotal > 0 ? ` (${tokenTotal})` : ''}`}
+            </button>
+          ))}
         </div>
         <input
           value={filter.query}
           onChange={(e) => patch({ query: e.target.value })}
-          placeholder="Suchen (Name, Typ oder Regeltext)…"
+          placeholder={tokens ? 'Tokens suchen (Name oder Typ)…' : 'Suchen (Name, Typ oder Regeltext)…'}
           className="mb-2 w-full border-2 border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-paper"
         />
         <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
@@ -205,7 +230,7 @@ export function CollectionView() {
                 {(Object.keys(FINISH_LABEL) as Finish[]).map((f) => <option key={f} value={f}>{FINISH_LABEL[f]}</option>)}
               </select>
             </label>
-            {setOptions.length === 0 && (
+            {setOptions.length === 0 && !tokens && (
               <p className="col-span-2 text-[10px] text-muted">
                 Set-Filter: kennt nur Karten, deren Artwork im Kartendetail gewählt wurde.
               </p>
@@ -220,23 +245,37 @@ export function CollectionView() {
         )}
       </div>
 
-      <ManualAddBox />
+      <ManualAddBox tokens={tokens} onPickToken={(card) => setDetail({ oracleId: card.oracleId })} />
+
+      {/* Ohne Artwork gezählte Tokens (Katalog kannte sie nicht, oder von vor dem Update). */}
+      {tokens && withoutArt > 0 && (
+        <div className="flex items-center gap-2 rounded-lg bg-surface px-4 py-2 font-mono text-xs">
+          <span className="min-w-0 flex-1 text-muted">Ohne Artwork gezählt: <span className="text-text">{withoutArt}</span></span>
+          <button onClick={() => void addTokens(-1)} aria-label="Ein Token weniger" className="bg-bg px-3 py-1 text-paper">−</button>
+          <button onClick={() => void addTokens(1)} aria-label="Ein Token mehr" className="bg-bg px-3 py-1 text-paper">+</button>
+        </div>
+      )}
 
       {rows === undefined ? (
         <p className="px-1 font-mono text-sm text-muted">Lade…</p>
       ) : filtered.length === 0 ? (
         <p className="px-1 font-mono text-sm text-muted">
-          {distinct === 0 ? 'Noch keine Karten. Scanne welche im Scanner-Tab.' : 'Keine Treffer.'}
+          {ownRows.length > 0
+            ? 'Keine Treffer.'
+            : tokens
+              ? 'Noch keine Tokens mit Artwork. Scanne welche oder füge sie oben hinzu.'
+              : 'Noch keine Karten. Scanne welche im Scanner-Tab.'}
         </p>
       ) : view === 'stats' ? (
         // Statistik der aktuell gefilterten Auswahl.
-        <CollectionStats rows={filtered} />
+        <CollectionStats rows={filtered} tokens={tokens} />
       ) : view === 'grid' ? (
         // Bild-Raster mit Anzahl-Badge oben rechts.
         <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {gridItems.map((it) => (
-            <li key={it.card.oracleId}>
-              <button onClick={() => setDetailId(it.card.oracleId)} className="relative block w-full" title={it.card.name}>
+            <li key={it.key}>
+              <button onClick={() => setDetail({ oracleId: it.card.oracleId, printingId: it.printingId })}
+                className="relative block w-full" title={it.card.name}>
                 <CardImage scryfallId={it.scryfallId} name={it.card.name} size="normal" className="h-auto w-full" />
                 <span className="absolute right-0 top-0 bg-titlebar px-1.5 py-0.5 font-hud text-[10px] text-paper"
                   style={{ boxShadow: 'calc(var(--px)*-1) calc(var(--px)*1) 0 rgb(var(--c-fill))' }}>
@@ -250,8 +289,8 @@ export function CollectionView() {
         <ul className="space-y-2">
           {filtered.map((r) => (
             // Jede Zeile = Mini-Kartenrahmen (DESIGN § 1/§ 6): Titelbalken Name/Mana, Meta-Zeile.
-            <li key={`${r.owned.oracleId}-${r.owned.finish}`} className="frame font-mono">
-              <button onClick={() => setDetailId(r.owned.oracleId)} className="titlebar w-full text-left">
+            <li key={`${r.owned.oracleId}-${r.owned.finish}-${r.owned.printingId ?? ''}`} className="frame font-mono">
+              <button onClick={() => setDetail({ oracleId: r.owned.oracleId, printingId: r.owned.printingId })} className="titlebar w-full text-left">
                 <span className="min-w-0 flex-1 truncate text-text">{r.card!.name}</span>
                 <ManaCost cost={r.card!.manaCost} />
               </button>
@@ -259,21 +298,24 @@ export function CollectionView() {
                 <ColorPips colors={r.card!.colorIdentity} />
                 <span className="min-w-0 flex-1 truncate text-muted">
                   {r.card!.typeLine}
+                  {tokens && r.set && <span className="ml-2">{r.set.toUpperCase()}</span>}
                   {r.owned.finish !== 'nonfoil' && <span className="ml-2 text-accent">✦ {r.owned.finish}</span>}
                 </span>
                 {prices && ownedUnitPrice(r.owned, prices) != null && (
                   <span className="shrink-0 text-xs text-text">{formatEur(ownedUnitPrice(r.owned, prices))}</span>
                 )}
-                <button onClick={() => void addOwned(r.owned.oracleId, r.owned.finish, -1)} aria-label="weniger" className="px-2 py-1 text-muted hover:text-paper">−</button>
+                <button onClick={() => void addOwned(r.owned.oracleId, r.owned.finish, -1, { printingId: r.owned.printingId })}
+                  aria-label="weniger" className="px-2 py-1 text-muted hover:text-paper">−</button>
                 <span className="w-10 text-center font-hud text-[10px] text-text">{r.owned.qty}×</span>
-                <button onClick={() => void addOwned(r.owned.oracleId, r.owned.finish, 1, { source: 'manual' })} aria-label="mehr" className="px-2 py-1 text-muted hover:text-paper">+</button>
+                <button onClick={() => void addOwned(r.owned.oracleId, r.owned.finish, 1, { source: 'manual', printingId: r.owned.printingId })}
+                  aria-label="mehr" className="px-2 py-1 text-muted hover:text-paper">+</button>
               </div>
             </li>
           ))}
         </ul>
       )}
 
-      {detailId && <CardDetail oracleId={detailId} onClose={() => setDetailId(null)} />}
+      {detail && <CardDetail oracleId={detail.oracleId} printingId={detail.printingId} onClose={() => setDetail(null)} />}
     </section>
   );
 }
@@ -281,8 +323,9 @@ export function CollectionView() {
 /**
  * Karte per Hand in die Sammlung aufnehmen (Katalogsuche über Name, Typ UND
  * Regeltext, DE+EN → Klick fügt +1 hinzu). Ergänzt den Scanner (PLAN.md § 0/§ 5).
+ * Tokens: Klick öffnet das Detail — dort das Artwork wählen und hinzufügen (M14).
  */
-function ManualAddBox() {
+function ManualAddBox({ tokens, onPickToken }: { tokens: boolean; onPickToken: (card: Card) => void }) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<Card[]>([]);
   const [finish, setFinish] = useState<Finish>('nonfoil');
@@ -290,12 +333,16 @@ function ManualAddBox() {
 
   useEffect(() => {
     let alive = true;
-    if (q.trim()) void searchCards(q, 8).then((r) => { if (alive) setResults(r); });
+    if (q.trim()) void (tokens ? searchTokens(q, 8) : searchCards(q, 8)).then((r) => { if (alive) setResults(r); });
     else setResults([]);
     return () => { alive = false; };
-  }, [q]);
+  }, [q, tokens]);
 
   async function add(card: Card) {
+    if (tokens) {
+      onPickToken(card);
+      return;
+    }
     await addOwned(card.oracleId, finish, 1, { source: 'manual' });
     setAdded(card.name);
     window.setTimeout(() => setAdded(null), 1500);
@@ -304,24 +351,26 @@ function ManualAddBox() {
   return (
     <div className="rounded-lg bg-surface p-4">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="font-mono text-sm">Karte manuell hinzufügen</h3>
-        <label className="flex items-center gap-1 font-mono text-xs text-muted">
-          Ausführung
-          <select
-            value={finish}
-            onChange={(e) => setFinish(e.target.value as Finish)}
-            className="border-2 border-border bg-bg px-2 py-1 outline-none focus:border-paper"
-          >
-            <option value="nonfoil">normal</option>
-            <option value="foil">foil</option>
-            <option value="etched">etched</option>
-          </select>
-        </label>
+        <h3 className="font-mono text-sm">{tokens ? 'Token manuell hinzufügen' : 'Karte manuell hinzufügen'}</h3>
+        {!tokens && (
+          <label className="flex items-center gap-1 font-mono text-xs text-muted">
+            Ausführung
+            <select
+              value={finish}
+              onChange={(e) => setFinish(e.target.value as Finish)}
+              className="border-2 border-border bg-bg px-2 py-1 outline-none focus:border-paper"
+            >
+              <option value="nonfoil">normal</option>
+              <option value="foil">foil</option>
+              <option value="etched">etched</option>
+            </select>
+          </label>
+        )}
       </div>
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Name, Typ oder Regeltext (DE/EN)…"
+        placeholder={tokens ? 'Token-Name oder Typ (EN), z. B. Treasure…' : 'Name, Typ oder Regeltext (DE/EN)…'}
         className="w-full border-2 border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-paper"
       />
       {added && <p className="mt-2 font-mono text-xs text-ok">✓ „{added}" in die Sammlung ({finish})</p>}
@@ -338,11 +387,14 @@ function ManualAddBox() {
                   <span className="block truncate">{card.name}</span>
                   <span className="block truncate text-[10px] text-muted">{card.typeLine}</span>
                 </span>
-                <span className="shrink-0 text-accent">＋</span>
+                <span className="shrink-0 text-accent">{tokens ? 'Artwork ›' : '＋'}</span>
               </button>
             </li>
           ))}
         </ul>
+      )}
+      {tokens && results.length === 0 && q.trim() !== '' && (
+        <p className="mt-2 font-mono text-[10px] text-muted">Kein Token gefunden — der Katalog braucht den Stand mit Tokens.</p>
       )}
     </div>
   );

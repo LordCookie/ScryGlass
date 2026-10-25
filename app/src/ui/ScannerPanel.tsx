@@ -4,7 +4,12 @@ import jsQR from 'jsqr';
 import { matchOcr } from '../data/matcher';
 import { getCards, previewImageIds } from '../data/cards';
 import { searchCards } from '../data/search';
-import { phashFromCanvas, nearestByHashMulti, hashCount, hashIndicesFor, distanceToOracle, betterMatch, type HashMatch } from '../data/imageHash';
+import {
+  phashFromCanvas, nearestByHashMulti, hashCount, tokenHashCount, hashIndicesFor, distanceToOracle, betterMatch,
+  type HashMatch, type HashKind,
+} from '../data/imageHash';
+import { scanToken } from '../data/tokenScan';
+import { isTokenCard } from '../domain/tokens';
 import { getScanDiag } from '../data/scanDiag';
 import { snapCard, hashVariantRects, type Rect } from '../domain/cardSnap';
 import { fuseScan, type FuseConfig, type FuseResult } from '../domain/scanFuse';
@@ -189,8 +194,20 @@ interface EvalInput {
   cropMap?: string;
   /** native Kamera: Karte eingerastet statt Rahmen */
   cropSnapped?: boolean;
-  /** Spielstein/Emblem erkannt — nicht im Katalog, also nichts zuordnen */
+  /** Spielstein/Emblem erkannt — wird gegen den Token-Teil des Katalogs geprüft (M14) */
   isToken?: boolean;
+  /** in welchem Teil des Bild-Index `hashMatch` gesucht wurde (Standard: Karten) */
+  hashKind?: HashKind;
+}
+
+/** Ergebnis der Auswertung eines Bildes: Anzeige-Liste und Fusions-Entscheidung. */
+interface Decision {
+  matches: ScanMatch[];
+  fused: FuseResult;
+  /** bester Namenstreffer (Protokoll) */
+  ocrBest?: ScanMatch;
+  hash: HashMatch | null;
+  printRead?: string;
 }
 
 interface BasketItem {
@@ -202,6 +219,11 @@ interface BasketItem {
   ocrRaw: string;
   confidence: number;
   lang: Lang;
+}
+
+/** Korb-Position: Karten je Oracle + Ausführung, Tokens zusätzlich je Artwork (M14). */
+function sameItem(x: BasketItem, oracleId: string, finish: Finish, scryfallId?: string): boolean {
+  return x.oracleId === oracleId && x.finish === finish && (!isTokenCard(x.card) || x.scryfallId === scryfallId);
 }
 
 /** Kurzlabel, wie ein Treffer zustande kam (Trefferliste, Verlauf). */
@@ -258,10 +280,12 @@ export function ScannerPanel() {
   const [scanning, setScanning] = useState(false);
   const [ocrText, setOcrText] = useState('');
   const [matches, setMatches] = useState<ScanMatch[]>([]);
-  // Spielstein im Bild (nicht im Katalog) → Hinweis statt falscher Karte; Tokens werden
-  // nur gezählt (data/tokens). Kennung je Token-Name für die Kartenwechsel-Logik.
-  const [tokenSeen, setTokenSeen] = useState(false);
+  // Spielstein im Bild, aber kein Treffer: 'counter' = Katalog ohne Tokens (nur zählen),
+  // 'unknown' = nicht gefunden (ohne Artwork zählen, data/tokens). Kennung je Token-Name
+  // für die Kartenwechsel-Logik; gewähltes Artwork (Overlay) bleibt vorn.
+  const [tokenSeen, setTokenSeen] = useState<false | 'counter' | 'unknown'>(false);
   const tokenIdRef = useRef('token:?');
+  const tokenArtPrefRef = useRef<string | null>(null);
   const tokenCount = useLiveQuery(() => getTokenCount(), []) ?? 0;
   const [finish, setFinish] = useState<Finish>('nonfoil');
   const [basket, setBasket] = useState<BasketItem[]>([]);
@@ -278,6 +302,7 @@ export function ScannerPanel() {
   const [pairing, setPairing] = useState(false);
   const [pairMsg, setPairMsg] = useState<string | null>(null);
   const [hashN, setHashN] = useState(0); // Karten im Bild-Hash-Index (Scanner v2)
+  const [tokenHashN, setTokenHashN] = useState(0); // Token-Artworks im Bild-Index (M14)
 
   // Manueller Fallback (§ 6): Full-Art/textless/Secret-Lair haben keinen lesbaren
   // Titelbalken → Karte suchen statt Fehltreffer riskieren.
@@ -386,8 +411,12 @@ export function ScannerPanel() {
 
   // Bild-Hash-Index lädt im Hintergrund (App) — Status fürs UI mitziehen.
   useEffect(() => {
-    setHashN(hashCount());
-    const id = window.setInterval(() => setHashN(hashCount()), 2000);
+    const upd = () => {
+      setHashN(hashCount());
+      setTokenHashN(tokenHashCount());
+    };
+    upd();
+    const id = window.setInterval(upd, 2000);
     return () => window.clearInterval(id);
   }, []);
 
@@ -766,30 +795,9 @@ export function ScannerPanel() {
     return { oracleId, card, scryfallId, score: fused.score, method: fused.method, lang: print?.lang ?? 'en' };
   }
 
-  /**
-   * Gemeinsame Auswertung für beide Kamerawege (Web: Tesseract, nativ: ML Kit):
-   * Name abgleichen → Druckinfo nachschlagen → fusionieren → anzeigen → Konsens →
-   * ggf. automatisch in den Korb.
-   */
-  async function evaluate(inp: EvalInput): Promise<void> {
+  /** Karte im Bild: Name abgleichen → Druckinfo nachschlagen → fusionieren. */
+  async function decideCard(inp: EvalInput): Promise<Decision> {
     const setData = currentSetData();
-    setOcrText(inp.titleText || inp.fullText);
-
-    // 0) Spielstein/Emblem: steht nicht im Katalog — sonst fände der Abgleich den
-    //    ähnlichsten echten Namen („Mouse" → „Mouse Trapper") und der Auto-Korb nähme ihn.
-    if (inp.isToken) {
-      const tokenId = `token:${normalizeName(inp.titleText) || '?'}`;
-      tokenIdRef.current = tokenId;
-      setTokenSeen(true);
-      setMatches([]);
-      consensusRef.current = { oracleId: '', count: 0 };
-      // Ein liegender Token zählt wie eine Karte im Bild (sonst gälte jedes dritte Bild
-      // als Wechsel und er würde immer wieder gezählt).
-      autoBasketRef.current = observeFrame(autoBasketRef.current, { blurry: false, hasCard: true });
-      if (autoAdd && target.kind === 'local' && mayAutoAdd(autoBasketRef.current, tokenId)) countToken(tokenId);
-      return;
-    }
-    setTokenSeen(false);
 
     // 1) Name: saubere Titelzeile zuerst (exakt/Präfix), sonst Volltext (Fuzzy).
     //    OCR-Schwelle 0.62: schwammige Reads sollen keine falschen Namen erzeugen.
@@ -815,35 +823,92 @@ export function ScannerPanel() {
     );
 
     // 4) Anzeige: fusionierter Bester oben.
-    let finalMatches = shown;
+    let matches = shown;
     const top = await topMatch(fused, inp.hashMatch, print);
     if (top) {
       // Starker Alleingang des Bildes: nur ihn zeigen (kein OCR-Rauschen).
-      finalMatches = fused.showAlone ? [top] : [top, ...shown.filter((m) => m.oracleId !== top.oracleId)];
+      matches = fused.showAlone ? [top] : [top, ...shown.filter((m) => m.oracleId !== top.oracleId)];
     }
-    setMatches(finalMatches);
+    return {
+      matches, fused, ocrBest, hash: inp.hashMatch,
+      printRead: col ? [printSet ?? '?', col.number ?? '?', col.lang ?? ''].join(' ').trim() : undefined,
+    };
+  }
+
+  /** Spielstein/Emblem im Bild (M14, data/tokenScan). `null` = Katalog kennt keine Tokens. */
+  async function decideToken(inp: EvalInput): Promise<Decision | null> {
+    const r = await scanToken({
+      titleText: inp.titleText,
+      hashes: inp.hashes,
+      tokenHash: inp.hashKind === 'token' ? inp.hashMatch : undefined,
+      collector: inp.collector,
+      cfg: FUSE_CFG,
+    });
+    if (!r) return null;
+    // Im Overlay gewähltes Artwork bleibt vorn (bis es übernommen ist).
+    const pref = tokenArtPrefRef.current;
+    const i = pref ? r.arts.findIndex((m) => m.scryfallId === pref) : -1;
+    const matches = i > 0 ? [r.arts[i], ...r.arts.filter((_, j) => j !== i)] : r.arts;
+    return { matches, fused: r.fused, hash: r.hash, printRead: r.printRead };
+  }
+
+  /** Katalog ohne Tokens (älterer Stand): Spielstein nur zählen, nichts zuordnen. */
+  function countTokenFrame() {
+    setTokenSeen('counter');
+    setMatches([]);
+    consensusRef.current = { oracleId: '', count: 0 };
+    // Ein liegender Token zählt wie eine Karte im Bild (sonst gälte jedes dritte Bild
+    // als Wechsel und er würde immer wieder gezählt).
+    autoBasketRef.current = observeFrame(autoBasketRef.current, { blurry: false, hasCard: true });
+    const tokenId = tokenIdRef.current;
+    if (autoAdd && target.kind === 'local' && mayAutoAdd(autoBasketRef.current, tokenId)) countToken(tokenId);
+  }
+
+  /**
+   * Gemeinsame Auswertung für beide Kamerawege (Web: Tesseract, nativ: ML Kit):
+   * Karte bzw. Token bestimmen → anzeigen → Konsens → ggf. automatisch in den Korb.
+   */
+  async function evaluate(inp: EvalInput): Promise<void> {
+    setOcrText(inp.titleText || inp.fullText);
+
+    // 0) Spielstein/Emblem: eigener Teil des Katalogs (M14) — sonst fände der Abgleich
+    //    den ähnlichsten echten Namen („Mouse" → „Mouse Trapper").
+    let d: Decision | null;
+    if (inp.isToken) {
+      tokenIdRef.current = `token:${normalizeName(inp.titleText) || '?'}`;
+      d = await decideToken(inp);
+      if (!d) {
+        countTokenFrame();
+        return;
+      }
+    } else {
+      d = await decideCard(inp);
+    }
+    setTokenSeen(inp.isToken && d.matches.length === 0 ? 'unknown' : false);
+    setMatches(d.matches);
+    const { fused } = d;
 
     // Rohdaten des Scans fürs Fixture-Protokoll merken (ungefiltert).
     const text = inp.fullText || inp.titleText;
     lastScanRef.current = {
       at: Date.now(),
       ocrRaw: text,
-      ocrBestOracle: shown[0]?.oracleId,
-      ocrScore: shown[0]?.score,
-      ocrMethod: shown[0]?.method,
-      hashOracle: inp.hashMatch?.oracleId,
-      hashDist: inp.hashMatch?.distance,
-      hashMargin: inp.hashMatch?.margin,
+      ocrBestOracle: d.ocrBest?.oracleId,
+      ocrScore: d.ocrBest?.score,
+      ocrMethod: d.ocrBest?.method,
+      hashOracle: d.hash?.oracleId,
+      hashDist: d.hash?.distance,
+      hashMargin: d.hash?.margin,
       sharpness: inp.sharpness,
       ocrConf: inp.ocrConf,
-      printRead: col ? [printSet ?? '?', col.number ?? '?', col.lang ?? ''].join(' ').trim() : undefined,
+      printRead: d.printRead,
       hashes: inp.hashes,
       crop: inp.crop,
       cropMap: inp.cropMap,
       cropSnapped: inp.cropSnapped,
     };
 
-    const best = finalMatches[0];
+    const best = d.matches[0];
     // Zeitlicher Konsens: gleiche Karte über mehrere Frames zählen (Bestätigungen
     // dürfen sofort). Verhindert, dass ein Ausreißer-Frame eine falsche Karte auto-addet.
     if (fused.oracleId && fused.confident) {
@@ -856,8 +921,8 @@ export function ScannerPanel() {
     const consensusOk = fused.confident && consensusRef.current.count >= required;
     // Auto-Korb (Stapel-Scan): Bild verbuchen; eine andere Karte darf sofort, dieselbe
     // erst nach einem echten Wechsel (Hand/Leere) — sonst würde die liegende Karte
-    // bei jedem Bild erneut gezählt.
-    autoBasketRef.current = observeFrame(autoBasketRef.current, { blurry: false, hasCard: !!best });
+    // bei jedem Bild erneut gezählt. Ein nicht gefundener Token liegt trotzdem da.
+    autoBasketRef.current = observeFrame(autoBasketRef.current, { blurry: false, hasCard: !!best || !!inp.isToken });
     if (autoAdd && best && consensusOk && mayAutoAdd(autoBasketRef.current, best.oracleId)) {
       const entryId = addToBasket(best, text, true); // setzt den Kartenwechsel-Zustand
       setAutoToast({ name: best.card.name, entryId });
@@ -950,6 +1015,10 @@ export function ScannerPanel() {
       const nameLine = pickNameLine(lines);
       const fullText = lines.map((l) => l.text).join(' ').replace(/\s+/g, ' ').trim();
       const collector = parseCollectorText(collectorText(lines));
+      // Spielstein? Dann im Token-Bereich des Bild-Index suchen, ohne Set-Modus (M14).
+      const isToken = looksLikeToken(lines);
+      const kind: HashKind = isToken ? 'token' : 'card';
+      const haveHashes = isToken ? tokenHashCount() > 0 : hashCount() > 0;
       let hashMatch: HashMatch | null = null;
       let hashes: string[] = [];
       let cropSnapped: boolean | undefined;
@@ -963,18 +1032,18 @@ export function ScannerPanel() {
         const g = grayOf(img);
         const snap = g ? snapCard(g.gray, g.w, g.h, reticle) : { rect: reticle, snapped: false, score: 0 };
         cropSnapped = snap.snapped;
-        if (hashCount() > 0) {
-          const setData = currentSetData();
+        if (haveHashes) {
+          const setData = isToken ? null : currentSetData();
           const subset = setData?.subset ?? undefined;
           const cfg = setData ? FUSE_CFG_SET : FUSE_CFG;
           // Eingerastet: erst die eingerasteten Varianten; ist das schon auto-sicher, reicht
           // es. Sonst zusätzlich (als Netz) der Rahmen wie bisher — der größere Vorsprung
           // gewinnt. Nicht eingerastet: nur der Rahmen mit Versatz-Varianten.
           const snapV = snap.snapped ? cardHashes(img, hashVariantRects(snap.rect, true)) : null;
-          const mSnap = snapV ? nearestByHashMulti(snapV.hashes, subset) : null;
+          const mSnap = snapV ? nearestByHashMulti(snapV.hashes, subset, kind) : null;
           const strong = !!mSnap && mSnap.distance <= cfg.hashAutoDist && mSnap.margin >= cfg.hashAutoMargin;
           const retV = strong ? null : cardHashes(img, hashVariantRects(reticle, false).slice(0, snap.snapped ? 2 : undefined));
-          const mRet = retV ? nearestByHashMulti(retV.hashes, subset) : null;
+          const mRet = retV ? nearestByHashMulti(retV.hashes, subset, kind) : null;
           hashMatch = betterMatch(mSnap, mRet);
           hashes = [...(snapV?.hashes ?? []), ...(retV?.hashes ?? [])];
           if (diagRef.current) {
@@ -990,9 +1059,9 @@ export function ScannerPanel() {
       } else if (f.crop) {
         // Ältere Plugin-Version ohne Einrast-Ausschnitt: der Rahmen selbst.
         const img = await decodeJpeg(f.crop);
-        if (hashCount() > 0) {
+        if (haveHashes) {
           hashes = cardHashes(img, hashVariantRects({ l: 0, t: 0, r: img.naturalWidth, b: img.naturalHeight }, false)).hashes;
-          if (hashes.length) hashMatch = nearestByHashMulti(hashes, currentSetData()?.subset ?? undefined);
+          if (hashes.length) hashMatch = nearestByHashMulti(hashes, isToken ? undefined : currentSetData()?.subset ?? undefined, kind);
         }
         if (diagRef.current) {
           setDiagCrop(f.crop);
@@ -1006,7 +1075,7 @@ export function ScannerPanel() {
       await evaluate({
         mode: 'live', titleText: nameLine ? cleanNameText(nameLine.text) : '', fullText, ocrConf, hashMatch,
         sharpness: f.sharpness, collector, hashes, crop: diagImg, cropMap: f.mapping, cropSnapped,
-        isToken: looksLikeToken(lines),
+        isToken, hashKind: kind,
       });
     } catch {
       /* einzelnes Bild fehlgeschlagen — das nächste kommt gleich */
@@ -1278,6 +1347,7 @@ export function ScannerPanel() {
     // Egal ob automatisch oder per Knopf: dieselbe liegende Karte erst nach einem
     // Kartenwechsel wieder automatisch zählen (kein Doppel durch Knopf + Auto-Korb).
     autoBasketRef.current = afterAutoAdd(m.oracleId);
+    tokenArtPrefRef.current = null; // gewähltes Token-Artwork ist übernommen
     // Fixture protokollieren (§ 5): der bestätigte Treffer ist die Ground Truth.
     const via = m.method.startsWith('bild') ? 'bild' : m.method === 'manuell' ? 'manuell' : 'ocr';
     const ls = lastScanRef.current;
@@ -1315,7 +1385,7 @@ export function ScannerPanel() {
       }),
     );
     setBasket((b) => {
-      const i = b.findIndex((x) => x.oracleId === m.oracleId && x.finish === finish);
+      const i = b.findIndex((x) => sameItem(x, m.oracleId, finish, m.scryfallId));
       if (i >= 0) return b.map((x, j) => (j === i ? { ...x, qty: x.qty + 1 } : x));
       return [
         ...b,
@@ -1343,8 +1413,8 @@ export function ScannerPanel() {
    *  Protokolleintrag als Fehltreffer markieren (wertvolles Tuning-Signal). */
   async function undoEntry(e: HistoryEntry) {
     if (!canUndo(e)) return;
-    if (e.state === 'basket') basketAdjust(e.oracleId, e.finish, -1);
-    else await addOwned(e.oracleId, e.finish, -1);
+    if (e.state === 'basket') basketAdjust(e.oracleId, e.finish, -1, e.scryfallId);
+    else await addOwned(e.oracleId, e.finish, -1, { printingId: isTokenCard(e.card) ? e.scryfallId : undefined });
     setHistory((h) => patchEntry(h, e.id, { state: 'undone' }));
     if (e.logId != null) void markScanRejected(e.logId);
     setAutoToast((t) => (t?.entryId === e.id ? null : t));
@@ -1358,10 +1428,10 @@ export function ScannerPanel() {
     setManualQuery('');
     setManualResults([]);
   }
-  function basketAdjust(oracleId: string, fin: Finish, delta: number) {
+  function basketAdjust(oracleId: string, fin: Finish, delta: number, scryfallId?: string) {
     setBasket((b) =>
       b
-        .map((x) => (x.oracleId === oracleId && x.finish === fin ? { ...x, qty: x.qty + delta } : x))
+        .map((x) => (sameItem(x, oracleId, fin, scryfallId) ? { ...x, qty: x.qty + delta } : x))
         .filter((x) => x.qty > 0),
     );
   }
@@ -1372,7 +1442,11 @@ export function ScannerPanel() {
   async function commitLocal() {
     const items = basket;
     await addOwnedBatch(
-      items.map((it) => ({ oracleId: it.oracleId, finish: it.finish, qty: it.qty, source: 'scan' as const })),
+      items.map((it) => ({
+        oracleId: it.oracleId, finish: it.finish, qty: it.qty, source: 'scan' as const,
+        // Tokens zählen je Artwork (M14) — Karten behalten ihr gewähltes Artwork.
+        printingId: isTokenCard(it.card) ? it.scryfallId : undefined,
+      })),
     );
     setBasket([]);
     setHistory((h) => markAll(h, 'basket', 'collection')); // Rückgängig geht weiter (aus der Sammlung)
@@ -1387,6 +1461,7 @@ export function ScannerPanel() {
     const entries: BasketEntry[] = basket.map((it) => ({
       entryId: (crypto as { randomUUID?: () => string }).randomUUID?.() ?? `${it.oracleId}-${Math.random()}`,
       oracleId: it.oracleId,
+      printingId: isTokenCard(it.card) ? it.scryfallId : undefined,
       lang: it.lang,
       finish: it.finish,
       qty: it.qty,
@@ -1450,8 +1525,16 @@ export function ScannerPanel() {
     autoToastTimer.current = window.setTimeout(() => setAutoToast(null), 4000);
   }
 
+  /** Overlay: Bild antippen = nächstes Artwork/Token zur Auswahl (bleibt vorn, bis übernommen). */
+  function nextTokenArt() {
+    if (matches.length < 2) return;
+    const next = [...matches.slice(1), matches[0]];
+    tokenArtPrefRef.current = next[0].scryfallId ?? null;
+    setMatches(next);
+  }
+
   const toastText = autoToast
-    ? autoToast.token ? `Token gezählt (${tokenCount})` : `${autoToast.name} in den Korb`
+    ? autoToast.token ? `Token ohne Artwork gezählt (${tokenCount})` : `${autoToast.name} in den Korb`
     : null;
 
   return (
@@ -1464,7 +1547,8 @@ export function ScannerPanel() {
         </p>
         {hashN > 0 && (
           <p className="mb-3 font-mono text-[11px] text-ok">
-            ✓ Bild-Abgleich aktiv ({hashN.toLocaleString('de-DE')} Karten) — findet auch
+            ✓ Bild-Abgleich aktiv ({hashN.toLocaleString('de-DE')} Karten
+            {tokenHashN > 0 ? ` + ${tokenHashN.toLocaleString('de-DE')} Token-Artworks` : ''}) — findet auch
             Showcase-/Borderless-Rahmen.
           </p>
         )}
@@ -1695,8 +1779,10 @@ export function ScannerPanel() {
       {tokenSeen && matches.length === 0 && (
         <div className="flex items-center gap-2 rounded-lg bg-warn/15 p-3 font-mono text-sm text-warn">
           <span className="min-w-0 flex-1">
-            Spielstein (Token) erkannt — Tokens werden nur gezählt (bisher {tokenCount})
-            {target.kind === 'peer' ? ', und nur für die eigene Sammlung.' : '.'}
+            {tokenSeen === 'unknown'
+              ? `Spielstein (Token) erkannt, aber nicht im Katalog gefunden — ohne Artwork zählen? (bisher ${tokenCount})`
+              : `Spielstein (Token) erkannt — Tokens werden nur gezählt (bisher ${tokenCount})`}
+            {target.kind === 'peer' ? ' Nur für die eigene Sammlung.' : ''}
           </span>
           {target.kind === 'local' && (
             <button onClick={() => countToken(tokenIdRef.current)} className="shrink-0 bg-accent px-3 py-1 text-on-accent">＋ Token</button>
@@ -1714,7 +1800,7 @@ export function ScannerPanel() {
               const borderColor =
                 m.score >= 0.85 ? 'rgb(var(--c-ok))' : m.score < 0.6 ? 'rgb(var(--c-warn))' : 'rgb(var(--c-fill))';
               return (
-                <li key={m.oracleId} className="frame font-mono" style={{ borderColor }}>
+                <li key={`${m.oracleId}-${m.scryfallId ?? i}`} className="frame font-mono" style={{ borderColor }}>
                   <div className="titlebar" style={{ background: i === 0 ? undefined : 'rgb(var(--c-elevated))' }}>
                     <span className="min-w-0 flex-1 truncate text-text">
                       {i > 0 && <span className="text-muted">{i + 1}. </span>}{m.card.name}
@@ -1767,15 +1853,16 @@ export function ScannerPanel() {
             <>
               <ul className="mb-3 space-y-1">
                 {basket.map((it) => (
-                  <li key={`${it.oracleId}-${it.finish}`} className="flex items-center gap-1.5 font-mono text-sm">
+                  <li key={`${it.oracleId}-${it.finish}-${it.scryfallId ?? ''}`} className="flex items-center gap-1.5 font-mono text-sm">
                     <ColorPips colors={it.card.colorIdentity} />
-                    <button onClick={() => basketAdjust(it.oracleId, it.finish, -1)} aria-label="weniger" className="px-2 py-1 text-muted hover:text-paper">−</button>
+                    <button onClick={() => basketAdjust(it.oracleId, it.finish, -1, it.scryfallId)} aria-label="weniger" className="px-2 py-1 text-muted hover:text-paper">−</button>
                     <span className="w-9 text-center font-hud text-[10px] text-text">{it.qty}×</span>
-                    <button onClick={() => basketAdjust(it.oracleId, it.finish, 1)} aria-label="mehr" className="px-2 py-1 text-muted hover:text-paper">+</button>
+                    <button onClick={() => basketAdjust(it.oracleId, it.finish, 1, it.scryfallId)} aria-label="mehr" className="px-2 py-1 text-muted hover:text-paper">+</button>
                     <span className="min-w-0 flex-1 truncate">{it.card.name}</span>
+                    {isTokenCard(it.card) && <span className="text-[10px] text-muted">Token</span>}
                     {it.finish !== 'nonfoil' && <span className="text-[10px] text-accent">✦ {it.finish}</span>}
                     {it.confidence < 0.7 && <span className="text-[10px] text-warn" title={`OCR: ${it.ocrRaw}`}>?</span>}
-                    <button onClick={() => basketAdjust(it.oracleId, it.finish, -it.qty)} aria-label="entfernen" className="px-2 py-1 text-muted hover:text-danger">✕</button>
+                    <button onClick={() => basketAdjust(it.oracleId, it.finish, -it.qty, it.scryfallId)} aria-label="entfernen" className="px-2 py-1 text-muted hover:text-danger">✕</button>
                   </li>
                 ))}
               </ul>
@@ -1836,7 +1923,7 @@ export function ScannerPanel() {
           mode={nativeMode}
           flashKey={flashKey}
           qrHint={qrHint}
-          notice={tokenSeen ? 'Spielstein (Token) erkannt' : null}
+          notice={tokenSeen === 'unknown' ? 'Token erkannt — Artwork nicht gefunden' : tokenSeen ? 'Spielstein (Token) erkannt' : null}
           token={tokenSeen ? { count: tokenCount, onAdd: target.kind === 'local' ? () => countToken(tokenIdRef.current) : undefined } : null}
           blurry={blurry}
           scanning={scanning}
@@ -1848,6 +1935,10 @@ export function ScannerPanel() {
                   scryfallId: matches[0].scryfallId,
                   score: matches[0].score,
                   method: methodLabel(matches[0].method),
+                  // Tokens: Bild antippen wechselt durch die Artwork-Kandidaten.
+                  more: isTokenCard(matches[0].card) && matches.length > 1
+                    ? { count: matches.length - 1, onNext: nextTokenArt }
+                    : undefined,
                 }
               : undefined
           }

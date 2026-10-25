@@ -8,6 +8,8 @@ import { toMoxfieldCsv, type CsvRow } from '../domain/collectionCsv';
 import { getCards } from '../data/cards';
 import { fetchRemoteVersion, applyUpdate, getLocalCatalogVersion, type CatalogVersion, type SyncProgress } from '../data/catalog';
 import { invalidateNameIndex } from '../data/matcher';
+import { invalidateSearchIndex } from '../data/search';
+import { loadTokenCatalog } from '../data/tokenCatalog';
 import { initFeedbackPrefs, getVibration, setVibration, hapticTap } from '../native/feedback';
 import { PixelIcon } from './PixelIcon';
 import { THEMES, currentTheme, chooseTheme, type ThemeKey } from './themes';
@@ -282,12 +284,19 @@ function BackupSection() {
 
   async function exportCsv() {
     const owned = await db.owned.toArray();
-    const cards = await getCards(owned.map((o) => o.oracleId));
-    const rows: CsvRow[] = owned.map((o) => ({
+    const [cards, prints] = await Promise.all([
+      getCards(owned.map((o) => o.oracleId)),
+      db.printings.bulkGet(owned.map((o) => o.printingId ?? '')),
+    ]);
+    // Mit bekannter Ausgabe (gewähltes Artwork, Tokens immer) auch Set + Nummer — sonst
+    // wären gleichnamige Tokens („Soldier") beim Import nicht zu unterscheiden.
+    const rows: CsvRow[] = owned.map((o, i) => ({
       name: cards.get(o.oracleId)?.name ?? o.oracleId,
       qty: o.qty,
       finish: o.finish,
-      lang: 'en',
+      lang: prints[i]?.lang ?? 'en',
+      setCode: prints[i]?.set,
+      collectorNumber: prints[i]?.collectorNumber,
     }));
     await saveFile(`scryglass-collection-${new Date().toISOString().slice(0, 10)}.csv`, toMoxfieldCsv(rows), 'text/csv');
     setMsg(`${rows.length} Zeilen als CSV exportiert (Moxfield/ManaBox).`);
@@ -330,10 +339,16 @@ function CatalogSection() {
   const [remote, setRemote] = useState<CatalogVersion | null>(null);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [cardCount, setCardCount] = useState<number>(0);
+  const [tokenKinds, setTokenKinds] = useState<number>(0);
+  const countCatalog = async () => {
+    const [n, t] = await Promise.all([db.cards.count(), loadTokenCatalog()]);
+    setCardCount(n - t.oracleIds.size);
+    setTokenKinds(t.oracleIds.size);
+  };
 
   useEffect(() => {
     void getLocalCatalogVersion().then(setLocal);
-    void db.cards.count().then(setCardCount);
+    void countCatalog();
   }, []);
 
   async function doCheck() {
@@ -345,11 +360,12 @@ function CatalogSection() {
     if (!remote) return;
     await applyUpdate(remote, { onProgress: setProgress });
     invalidateNameIndex();
+    invalidateSearchIndex();
     setLocal(remote.catalogVersion);
     setRemote(null);
     setCheck('idle');
     setProgress(null);
-    setCardCount(await db.cards.count());
+    await countCatalog();
   }
 
   const hasUpdate = check === 'done' && remote != null && remote.catalogVersion !== local;
@@ -357,7 +373,9 @@ function CatalogSection() {
   return (
     <div className="rounded-lg bg-surface p-4">
       <h2 className="mb-2 font-mono text-lg">Katalog</h2>
-      <p className="mb-2 font-mono text-xs text-muted">Version: {local ?? '—'} · {cardCount} Karten lokal</p>
+      <p className="mb-2 font-mono text-xs text-muted">
+        Version: {local ?? '—'} · {cardCount} Karten{tokenKinds > 0 ? ` + ${tokenKinds} Tokens` : ''} lokal
+      </p>
       {progress ? (
         <p className="font-mono text-xs text-accent">Import {progress.phase}: {progress.overallDone}/{progress.overallTotal}</p>
       ) : (

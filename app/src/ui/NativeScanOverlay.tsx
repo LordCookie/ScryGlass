@@ -28,6 +28,8 @@ export interface OverlayMatch {
   scryfallId?: string;
   score: number;
   method: string;
+  /** weitere Kandidaten (Token-Artworks): Bild antippen zeigt den nächsten */
+  more?: { count: number; onNext: () => void };
 }
 
 interface Props {
@@ -54,7 +56,7 @@ interface Props {
   qrHint?: string | null;
   /** Hinweis statt Treffer, z. B. „Spielstein erkannt" */
   notice?: string | null;
-  /** Spielstein im Bild: Zählerstand und (nur eigene Sammlung) „+ Token" */
+  /** Spielstein ohne Treffer: Zählerstand (ohne Artwork) und (nur eigene Sammlung) „+ Token" */
   token?: { count: number; onAdd?: () => void } | null;
   /** Diagnose: zuletzt ausgewerteter Ausschnitt (JPEG, Base64) — zeigt, was die Erkennung sieht */
   diagCrop?: string | null;
@@ -173,14 +175,24 @@ export function NativeScanOverlay(p: Props) {
       <button onClick={withTick(p.onUndoToast)} className="shrink-0 px-1 text-paper underline">Rückgängig</button>
     </div>
   );
+  const matchImg = p.best && (
+    <CardImage key={p.best.scryfallId} scryfallId={p.best.scryfallId} name={p.best.name} size="small" className="h-20 w-[3.6rem] shrink-0" />
+  );
+  const more = p.best?.more;
   const matchInfo = p.best && (
     <>
-      <CardImage scryfallId={p.best.scryfallId} name={p.best.name} size="small" className="h-20 w-[3.6rem] shrink-0" />
+      {more ? (
+        <button onClick={withTick(more.onNext)} aria-label="Anderes Artwork" className="relative shrink-0">
+          {matchImg}
+          <span className="absolute right-0 top-0 bg-titlebar px-1 font-hud text-[8px] text-paper">+{more.count}</span>
+        </button>
+      ) : matchImg}
       <div className="min-w-0 flex-1">
         <div className="truncate text-text">{p.best.name}</div>
         <div className="truncate text-[10px] text-muted">{p.best.typeLine}</div>
-        <div className="text-[10px] text-muted">
+        <div className="truncate text-[10px] text-muted">
           {p.best.method} · <span className="font-hud text-[9px] text-text">{Math.round(p.best.score * 100)}%</span>
+          {more ? ' · Bild tippen: anderes Artwork' : ''}
         </div>
       </div>
     </>
@@ -196,7 +208,7 @@ export function NativeScanOverlay(p: Props) {
       <div className="min-w-0 flex-1">
         <div className="truncate text-text">Spielstein (Token)</div>
         <div className="text-[10px] text-muted">
-          nur gezählt · bisher {p.token.count}{p.token.onAdd ? '' : ' · nur für die eigene Sammlung'}
+          ohne Artwork zählen · bisher {p.token.count}{p.token.onAdd ? '' : ' · nur für die eigene Sammlung'}
         </div>
       </div>
       {p.token.onAdd && (

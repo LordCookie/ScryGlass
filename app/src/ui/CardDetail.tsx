@@ -4,6 +4,7 @@ import { db, addOwned, setOwnedPrinting } from '../db/db';
 import { getCard } from '../data/cards';
 import { LEGALITY_FORMATS, FORMAT_LABELS, isLegal, type Card, type Finish, type Owned, type Printing } from '../domain/types';
 import { isDoubleFaced, type CardFace } from '../domain/cardFaces';
+import { isTokenCard } from '../domain/tokens';
 import { formatEur, PRICE_MAX_AGE_MS, type PriceEntry } from '../domain/prices';
 import { fetchPrices, priceForPrinting } from '../data/prices';
 import { CardImage } from './CardImage';
@@ -17,8 +18,11 @@ import { useBackHandler } from './backStack';
  * Feature: **Tippen aufs Bild wechselt die Ausgabe/Artwork** (alle Druckausgaben
  * der Karte durchblättern) — mit Set, Sammlernummer, Sprache und Zähler.
  * Overlay über der Sammlung; schließen per Backdrop, ✕ oder Escape.
+ *
+ * Tokens (M14) zählen je Artwork: der Bestand gilt für die GEZEIGTE Ausgabe, Blättern
+ * wählt also, welches Artwork man hinzufügt. `printingId` = Startausgabe.
  */
-export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: () => void }) {
+export function CardDetail({ oracleId, printingId, onClose }: { oracleId: string; printingId?: string; onClose: () => void }) {
   const [card, setCard] = useState<Card | null>(null);
   const [printings, setPrintings] = useState<Printing[]>([]);
   const [idx, setIdx] = useState(0);
@@ -54,11 +58,12 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
   const inited = useRef(false);
   useEffect(() => {
     if (inited.current || printings.length === 0 || owned === undefined) return;
-    const savedPid = owned.find((o) => o.printingId)?.printingId;
+    const savedPid = printingId ?? owned.find((o) => o.printingId)?.printingId;
     let start = savedPid ? printings.findIndex((p) => p.scryfallId === savedPid) : -1;
     if (start < 0) start = printings.findIndex((p) => p.lang === 'en');
     setIdx(start >= 0 ? start : 0);
     inited.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [printings, owned]);
 
   useEffect(() => {
@@ -78,13 +83,19 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
       const n = (i + delta + printings.length) % printings.length;
       const sid = printings[n]?.scryfallId;
       // Gewählte Ausgabe als „meine" merken → Sammlung/Detail zeigen dieses Artwork.
-      if (sid && owned && owned.length > 0) void setOwnedPrinting(oracleId, sid);
+      // Nicht bei Tokens: deren Bestand IST je Artwork (M14).
+      if (sid && owned && owned.length > 0 && !token) void setOwnedPrinting(oracleId, sid);
       return n;
     });
   }
 
+  const token = isTokenCard(card ?? undefined);
   const legal = card ? LEGALITY_FORMATS.filter((f) => isLegal(card.legalities, f)) : [];
   const current = printings[idx];
+  // Tokens: Bestand der gezeigten Ausgabe; Karten: Bestand der Karte (je Ausführung).
+  const ownedHere = token ? (owned ?? []).filter((o) => o.printingId === current?.scryfallId) : (owned ?? []);
+  const tokenTotal = token ? (owned ?? []).reduce((s, o) => s + o.qty, 0) : 0;
+  const tokenArts = token ? new Set((owned ?? []).map((o) => o.printingId)).size : 0;
   const hasMany = printings.length > 1;
   const dfc = isDoubleFaced(card?.layout);
 
@@ -169,6 +180,7 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
                   </div>
                 )}
                 {hasMany && <p className="mt-1 text-center text-[10px] text-muted">Bild antippen = Artwork wechseln</p>}
+                {token && ownedHere.length > 0 && <p className="mt-1 text-center text-[10px] text-ok">✓ dieses Artwork in der Sammlung</p>}
                 {!hasMany && current && <p className="mt-1 text-center text-[10px] text-muted">{setLabel}</p>}
                 {dfc && (
                   <button
@@ -183,7 +195,7 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex items-center gap-2">
                   <ColorPips colors={card.colorIdentity} />
-                  <span className="text-muted">Manawert {card.cmc}</span>
+                  <span className="text-muted">{token ? 'Token' : `Manawert ${card.cmc}`}</span>
                 </div>
                 {/* Preis (Cardmarket via Scryfall) */}
                 <p className="text-xs text-muted">
@@ -198,19 +210,26 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
                         </>}
                 </p>
                 <p className="text-text">{card.typeLine}</p>
-                {/* Bestand je Ausführung */}
+                {/* Bestand je Ausführung (Tokens: dieses Artwork) */}
                 <div className="space-y-1">
+                  {token && <p className="text-[10px] text-muted">Dieses Artwork:</p>}
                   {(['nonfoil', 'foil', 'etched'] as Finish[]).map((f) => {
-                    const qty = owned?.find((o) => o.finish === f)?.qty ?? 0;
+                    const qty = ownedHere.find((o) => o.finish === f)?.qty ?? 0;
+                    const pid = token ? current?.scryfallId : undefined;
                     return (
                       <div key={f} className="flex items-center gap-2">
                         <span className="w-14 text-muted">{f === 'nonfoil' ? 'normal' : f}</span>
-                        <button onClick={() => void addOwned(oracleId, f, -1)} aria-label="weniger" className="px-2 text-muted hover:text-paper">−</button>
+                        <button onClick={() => void addOwned(oracleId, f, -1, { printingId: pid })} disabled={token && !pid}
+                          aria-label="weniger" className="px-2 text-muted hover:text-paper">−</button>
                         <span className="w-8 text-center font-hud text-[10px] text-text">{qty}×</span>
-                        <button onClick={() => void addOwned(oracleId, f, 1, { source: 'manual' })} aria-label="mehr" className="px-2 text-muted hover:text-paper">+</button>
+                        <button onClick={() => void addOwned(oracleId, f, 1, { source: 'manual', printingId: pid })} disabled={token && !pid}
+                          aria-label="mehr" className="px-2 text-muted hover:text-paper">+</button>
                       </div>
                     );
                   })}
+                  {token && tokenTotal > 0 && (
+                    <p className="text-[10px] text-muted">Gesamt {tokenTotal} in {tokenArts} {tokenArts === 1 ? 'Artwork' : 'Artworks'}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -226,7 +245,9 @@ export function CardDetail({ oracleId, onClose }: { oracleId: string; onClose: (
             {/* Formatlegalität */}
             <div>
               <h4 className="mb-1 font-hud text-[9px] text-muted">LEGAL IN</h4>
-              {legal.length === 0 ? (
+              {token ? (
+                <p className="text-muted">Spielstein — gehört in kein Deck, zählt nur in der Sammlung.</p>
+              ) : legal.length === 0 ? (
                 <p className="text-muted">In keinem der geführten Formate legal.</p>
               ) : (
                 <div className="flex flex-wrap gap-1">

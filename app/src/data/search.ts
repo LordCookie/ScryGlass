@@ -2,6 +2,8 @@ import { db } from '../db/db';
 import { normalizeName } from '../domain/nameMatch';
 import type { Card } from '../domain/types';
 import { matchesCardFilter, hasCardFilter, germanTypeWords, collectSubtypes, type CardFilter } from '../domain/cardFilter';
+import { isTokenCard } from '../domain/tokens';
+import { loadTokenCatalog } from './tokenCatalog';
 
 /**
  * Katalogsuche für Deckbau, manuelles Hinzufügen und den Scanner-Fallback.
@@ -13,6 +15,7 @@ import { matchesCardFilter, hasCardFilter, germanTypeWords, collectSubtypes, typ
  * Dafür wird beim ersten Bedarf ein In-Memory-Suchindex aufgebaut (34k Karten +
  * DE-Namen zu einem gelowercten „Heuhaufen" je Karte). Lazy — belastet den Start
  * nicht; nach einem Katalog-Update per `invalidateSearchIndex()` verwerfen.
+ * Tokens/Embleme gehören nicht hinein (Deckbau, M14) — die sucht `searchTokens`.
  */
 
 interface SearchEntry {
@@ -45,7 +48,7 @@ async function ensureIndex(): Promise<SearchEntry[]> {
           else deByOracle.set(n.oracleId, [n.normName]);
         }
       }
-      const built = cards.map((c) => ({
+      const built = cards.filter((c) => !isTokenCard(c)).map((c) => ({
         card: c,
         nameLower: c.name.toLowerCase(),
         hay: (
@@ -103,6 +106,22 @@ export async function searchCatalog(
     ? scoreEntries(idx, query).map((s) => s.entry.card).filter(keep)
     : idx.map((e) => e.card).filter(keep).sort((a, b) => a.name.localeCompare(b.name));
   return { cards: hits.slice(0, limit), total: hits.length };
+}
+
+/** Spielsteine/Embleme nach Name oder Typ (Sammlung → Tokens, manuell hinzufügen). */
+export async function searchTokens(query: string, limit = 20): Promise<Card[]> {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+  const q = words.join(' ');
+  const hits: { card: Card; score: number }[] = [];
+  for (const card of (await loadTokenCatalog()).cards.values()) {
+    const name = card.name.toLowerCase();
+    const hay = `${name} ${card.typeLine.toLowerCase()} ${card.oracleText.toLowerCase()}`;
+    if (!words.every((w) => hay.includes(w))) continue;
+    hits.push({ card, score: name === q ? 3 : name.startsWith(q) ? 2 : name.includes(q) ? 1 : 0 });
+  }
+  hits.sort((a, b) => b.score - a.score || a.card.name.localeCompare(b.card.name) || a.card.typeLine.localeCompare(b.card.typeLine));
+  return hits.slice(0, limit).map((h) => h.card);
 }
 
 let subtypes: string[] | null = null;
