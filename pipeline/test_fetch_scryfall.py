@@ -84,7 +84,10 @@ def test_max_copies_default():
 def test_keep_card_filters():
     assert fs.keep_card({"lang": "en", "layout": "normal", "games": ["paper"]})
     assert not fs.keep_card({"lang": "fr", "layout": "normal"})
-    assert not fs.keep_card({"lang": "en", "layout": "token"})
+    # Tokens/Embleme bleiben (Großes Token-Update), Art-Series-Karten nicht:
+    assert fs.keep_card({"lang": "en", "layout": "token", "games": ["paper"]})
+    assert fs.keep_card({"lang": "en", "layout": "emblem", "games": ["paper"]})
+    assert not fs.keep_card({"lang": "en", "layout": "art_series"})
     assert not fs.keep_card({"lang": "en", "layout": "normal", "set_type": "memorabilia"})
     # Nur-Online-Karten (kein paper) raus:
     assert not fs.keep_card({"lang": "en", "layout": "normal", "games": ["mtgo", "arena"]})
@@ -102,11 +105,31 @@ def test_catalog_counts():
     cards = list(cat.card_rows())
     printings = list(cat.printing_rows())
     names = list(cat.name_rows())
-    # 7 Oracle-Karten (Token/Memorabilia/fr/Nur-Online gefiltert).
-    assert len(cards) == 7
-    # 8 Printings (dieselben Filter).
-    assert len(printings) == 8
+    # 9 Oracle-Karten inkl. zwei Tokens (Memorabilia/fr/Nur-Online gefiltert).
+    assert len(cards) == 9
+    # 10 Printings (dieselben Filter).
+    assert len(printings) == 10
+    # Tokens nicht im Namensindex.
     assert len(names) == 8
+
+
+def test_tokens_in_catalog_but_not_in_names():
+    cat = load_catalog()
+    by_id = {c["oracleId"]: c for c in cat.card_rows()}
+    assert by_id["ob-token"]["layout"] == "token"
+    assert by_id["ob-token"]["legalities"] == 0
+    assert all(n["oracleId"] != "ob-token" for n in cat.name_rows())
+    assert all("ob-token" not in t["oracleIds"] for t in cat.trigram_rows())
+    assert any(p["oracleId"] == "ob-token" and p["set"] == "tdom" for p in cat.printing_rows())
+
+
+def test_double_faced_token_gets_combined_oracle_id():
+    cat = load_catalog()
+    by_id = {c["oracleId"]: c for c in cat.card_rows()}
+    dfc = by_id["ob-treasure+ob-clue"]
+    assert dfc["name"] == "Treasure // Clue"
+    assert dfc["typeLine"] == "Token Artifact — Treasure // Token Artifact — Clue"
+    assert dfc["layout"] == "double_faced_token"
 
 
 def test_catalog_bilingual_names():
@@ -200,6 +223,6 @@ def test_write_catalog_roundtrip(tmp_path):
 
     v = json.loads((tmp_path / "version.json").read_text(encoding="utf-8"))
     assert v["counts"] == version["counts"]
-    assert v["counts"]["cards"] == 7
+    assert v["counts"]["cards"] == 9
     assert v["scryfallBulkDate"] == "2026-09-01"
     assert v["catalogVersion"]

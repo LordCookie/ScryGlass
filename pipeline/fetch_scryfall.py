@@ -52,7 +52,12 @@ FORMATS: Tuple[str, ...] = (
 ANY_NUMBER_MARKER = "a deck can have any number of cards named"
 
 # Layouts, die keine „echten" Karten sind (PLAN.md § 2, Schritt 3).
-DROP_LAYOUTS = frozenset({"token", "double_faced_token", "emblem", "art_series"})
+DROP_LAYOUTS = frozenset({"art_series"})
+# Spielsteine und Embleme kommen mit in den Katalog (Großes Token-Update, M14): die App
+# erkennt sie am Layout, sammelt sie je Artwork und hält sie aus Deckbau und Suche raus.
+# In den Namensindex kommen sie NICHT — sonst fände der Karten-Abgleich „Soldier" oder
+# „Treasure" statt der echten Karte, und Token-Namen sind ohnehin nicht eindeutig.
+TOKEN_LAYOUTS = frozenset({"token", "double_faced_token", "emblem"})
 KEEP_LANGS = frozenset({"en", "de"})
 
 # Sehr häufige Trigramme tragen kaum Signal; ihre Postings-Liste wird gekappt, damit
@@ -152,14 +157,23 @@ def _colors(card: Dict) -> List[str]:
 
 
 def oracle_id_of(card: Dict) -> Optional[str]:
-    """Oracle-ID der Karte — bei reversible_card steckt sie in der ersten Face."""
+    """Oracle-ID der Karte — bei reversible_card steckt sie in der ersten Face.
+
+    Doppelseitige Tokens tragen je Seite eine eigene Oracle-ID; die Kombination ist
+    eine eigene „Karte" (sonst landete ein einseitiger Treasure-Token unter dem Namen
+    „Treasure // Clue"), also beide IDs verbinden.
+    """
     oid = card.get("oracle_id")
     if oid:
         return oid
-    for face in card.get("card_faces") or []:
-        if face.get("oracle_id"):
-            return face["oracle_id"]
-    return None
+    ids = [f["oracle_id"] for f in card.get("card_faces") or [] if f.get("oracle_id")]
+    if card.get("layout") == "double_faced_token" and len(ids) > 1:
+        return "+".join(ids)
+    return ids[0] if ids else None
+
+
+def is_token(card: Dict) -> bool:
+    return card.get("layout") in TOKEN_LAYOUTS
 
 
 def keep_card(card: Dict) -> bool:
@@ -235,7 +249,9 @@ class Catalog:
             }
             self._card_is_en[oid] = is_en
 
-        # --- Namensindex ---
+        # --- Namensindex (ohne Tokens, siehe TOKEN_LAYOUTS) ---
+        if is_token(card):
+            return
         # Englischer Oracle-Name (aus der en-Ausgabe) …
         if is_en:
             self._add_name(card.get("name", ""), oid, "en")
