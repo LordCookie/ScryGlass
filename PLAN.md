@@ -121,10 +121,12 @@ Kauf-Links, kein Handel.
    `download_uri`-JSON-Files sind abgeschaltet. Die Datei ist ein gzip-File auf der
    Platte, kein Transport-Encoding → `gzip.open()`, zeilenweise streamen, niemals
    komplett in den RAM.
-3. Filtern: `lang in ("en", "de")`, `set_type != "memorabilia"`, keine Tokens/Emblems
-   (der Scanner erkennt Tokens trotzdem und zählt sie nur — `domain/cardText.looksLikeToken`,
-   `data/tokens`; einzeln erfassen = großes Token-Update, M14)
-   (`layout in ("token","double_faced_token","emblem","art_series")` raus)
+3. Filtern: `lang in ("en", "de")`, `set_type != "memorabilia"`, keine Art-Series-Karten
+   (`layout == "art_series"` raus). **Tokens und Embleme bleiben drin** (Großes
+   Token-Update, M14): Karten + Druckausgaben + Bild-Hashes, aber NICHT im Namens-/
+   Trigramm-Index (sonst fände der Karten-Abgleich „Soldier" statt der echten Karte;
+   Token-Namen sind ohnehin nicht eindeutig). Doppelseitige Tokens bekommen die
+   verbundene Oracle-ID beider Seiten (`a+b`). Die App erkennt Tokens am Layout.
 4. Gruppieren nach `oracle_id`
 5. Vier NDJSON-Files schreiben (siehe unten)
 6. `version.json` mit Zeitstempel + Zeilenzahlen + Scryfall-Bulk-Datum
@@ -709,7 +711,7 @@ auseinander, die man abstrahieren würde.
 
 ### M1 — Pipeline
 - [x] `pipeline/fetch_scryfall.py`: Bulk-Index abfragen, `all_cards` per `jsonl_download_uri` ziehen
-- [x] Streaming-Parse (gzip + zeilenweise), Filter `lang in (en,de)`, Tokens raus
+- [x] Streaming-Parse (gzip + zeilenweise), Filter `lang in (en,de)` (Tokens seit M14 drin)
 - [x] Ableitungen: `normName`, `maxCopies`, `legalities`-Bitmaske, Trigramme
 - [x] Vier NDJSON-Files + `version.json` nach `dist/`
 - [x] `.github/workflows/catalog.yml`: wöchentlich, Release-Asset, Daten gitignored
@@ -805,11 +807,16 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
 - [ ] Peer: Auto-Discovery (`NsdManager`), Geräte-Tests aus M8
 - [ ] Sprite-Animationen aus DESIGN § 7 (Flip, Stapeln, Stempel)
 - [x] Tokens erkennen statt falsch zuordnen + Gesamtzahl zählen (v0.2.4)
-- [ ] **Großes Token-Update (User-Wunsch, nicht vergessen):** Tokens einzeln mit Artwork
-      erfassen — Pipeline nimmt `token`/`double_faced_token` (ggf. Embleme) mit Kennzeichen
-      in den Katalog, eigene Bild-Hashes; Scanner ordnet konkrete Tokens zu; Sammlung zeigt
-      sie getrennt (Filter/Suche „Tokens"), Deckbau ignoriert sie; der bisherige Zähler
-      (meta `tokenCount`) wird dabei übernommen.
+- [x] **Großes Token-Update:** Tokens einzeln mit Artwork (lokal fertig, nach v0.2.4,
+      noch nicht released) — Katalog 25.10. mit 1.003 Tokens/Emblemen und 3.173 Artworks
+      (alle gehasht). Bild-Index getrennt (Karten vorn, Tokens dahinter); Scanner prüft
+      Spielsteine gegen den Token-Teil: Name (nicht eindeutig) + Artwork per Bild-Hash +
+      Druckinfo im Token-Set (`BLB 4` → `tblb`); Name allein ist nie auto-sicher, im
+      Overlay wechselt Antippen das Artwork. Bestand je Artwork (`db.addOwned` erkennt
+      Tokens am Layout, db v5), Sammlung mit Umschalter Karten/Tokens, Detail wählt das
+      Artwork. Ohne Artwork gezählte Tokens (meta `tokenCount`) bleiben. Suche, Deckbau,
+      Set-Fortschritt und Set-Auswahl ohne Tokens. Test mit 22 echten Token-Bildern:
+      Token 22/22, exakte Ausgabe 18/22 (die übrigen 4: gleiches Artwork aus anderem Set).
 
 ---
 
