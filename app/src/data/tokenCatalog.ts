@@ -1,5 +1,5 @@
-import { db, getMeta } from '../db/db';
-import type { Card, Printing } from '../domain/types';
+import { db, getMeta, whereAnyOf } from '../db/db';
+import type { Card } from '../domain/types';
 import { TOKEN_LAYOUTS, buildTokenNameIndex } from '../domain/tokens';
 
 /**
@@ -41,15 +41,6 @@ export function invalidateTokenCatalog(): void {
   onlySets = null;
 }
 
-/** Ausgaben zu vielen Schlüsseln: Einzelabfragen parallel in EINER Transaktion — im
- *  Browser gemessen 0,2 s statt 15 s für `anyOf` mit tausend Schlüsseln (Dexie springt
- *  dort per Cursor von Schlüssel zu Schlüssel). */
-function printingsWhere(index: 'oracleId' | 'set', keys: readonly string[]): Promise<Printing[]> {
-  return db.transaction('r', db.printings, async () =>
-    (await Promise.all(keys.map((k) => db.printings.where(index).equals(k).toArray()))).flat(),
-  );
-}
-
 /** Set-Codes, die nur Tokens enthalten (Token-Sets wie „tblb") — für die Set-Auswahl.
  *  Gemerkt je Katalog-Version. */
 let onlySets: { version: string | undefined; sets: Promise<Set<string>> } | null = null;
@@ -62,11 +53,11 @@ export async function tokenOnlySets(): Promise<Set<string>> {
       sets: (async () => {
         const { oracleIds } = await loadTokenCatalog();
         if (oracleIds.size === 0) return new Set<string>();
-        const tokenPrints = await printingsWhere('oracleId', [...oracleIds]);
+        const tokenPrints = await whereAnyOf(db.printings, 'oracleId', [...oracleIds]);
         const sets = [...new Set(tokenPrints.map((p) => p.set))];
         // Gemischte Sets (Secret Lair: Karten UND Tokens) bleiben in der Auswahl.
         const mixed = new Set<string>();
-        for (const p of await printingsWhere('set', sets)) {
+        for (const p of await whereAnyOf(db.printings, 'set', sets)) {
           if (!oracleIds.has(p.oracleId)) mixed.add(p.set);
         }
         return new Set(sets.filter((s) => !mixed.has(s)));

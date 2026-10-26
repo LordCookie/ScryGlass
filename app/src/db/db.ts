@@ -88,6 +88,23 @@ export async function setMeta(key: string, value: unknown): Promise<void> {
   await db.meta.put({ key, value });
 }
 
+// --- Viele Schlüssel auf einmal ---------------------------------------------
+
+/**
+ * Alle Zeilen zu vielen Schlüsseln eines Index — statt `where(index).anyOf(keys)`.
+ * Dexie springt bei `anyOf` per Cursor von Schlüssel zu Schlüssel, jeder Sprung ist ein
+ * eigener Umlauf: 400 verstreute Karten brauchten im Browser 7 s. Hier läuft je Schlüssel
+ * eine `equals`-Abfrage (ein einziges getAll), alle parallel in EINER Lesetransaktion.
+ * Reihenfolge wie bei `anyOf`: aufsteigend nach Schlüssel, darin nach Primärschlüssel.
+ */
+export function whereAnyOf<T, K>(table: Table<T, K>, index: string, keys: readonly string[]): Promise<T[]> {
+  const uniq = [...new Set(keys)].sort();
+  if (uniq.length === 0) return Promise.resolve([]);
+  return db.transaction('r', table, async () =>
+    (await Promise.all(uniq.map((k) => table.where(index).equals(k).toArray()))).flat(),
+  );
+}
+
 // --- Sammlung (owned) -------------------------------------------------------
 // v1 zählt auf Oracle-Ebene je Finish (PLAN.md § 3). Ein Bestand ist eindeutig
 // über [oracleId+finish]; printingId wird mitgeschrieben, sobald bekannt.

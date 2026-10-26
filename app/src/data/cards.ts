@@ -1,4 +1,4 @@
-import { db } from '../db/db';
+import { db, whereAnyOf } from '../db/db';
 import type { Card, Printing, Lang } from '../domain/types';
 
 /**
@@ -40,13 +40,11 @@ export async function previewPrinting(
   return en ?? printings[0];
 }
 
-/** scryfallId je oracleId (fürs Bild), bevorzugt englische Ausgabe. Ein Query. */
+/** scryfallId je oracleId (fürs Bild), bevorzugt englische Ausgabe. Eine Lesetransaktion. */
 export async function previewImageIds(
   oracleIds: readonly string[],
 ): Promise<Map<string, string>> {
-  const uniq = [...new Set(oracleIds)];
-  if (uniq.length === 0) return new Map();
-  const rows = await db.printings.where('oracleId').anyOf(uniq).toArray();
+  const rows = await whereAnyOf(db.printings, 'oracleId', oracleIds);
   const out = new Map<string, string>();
   for (const p of rows) {
     const cur = out.get(p.oracleId);
@@ -59,8 +57,7 @@ export async function previewImageIds(
 
 /** Ausgaben mehrerer Karten, englische zuerst, höchstens `limit` (Token-Artworks ohne Bild-Index). */
 export async function printingsOf(oracleIds: readonly string[], limit: number): Promise<Printing[]> {
-  if (oracleIds.length === 0) return [];
-  const rows = await db.printings.where('oracleId').anyOf([...new Set(oracleIds)]).toArray();
+  const rows = await whereAnyOf(db.printings, 'oracleId', oracleIds);
   rows.sort((a, b) => Number(b.lang === 'en') - Number(a.lang === 'en'));
   return rows.slice(0, limit);
 }
