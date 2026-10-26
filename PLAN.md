@@ -1,6 +1,6 @@
 # PLAN.md — ScryGlass (MTG Sammlungs- & Deckbau-App)
 
-> **ScryGlass** — Stand **v0.2.4** (2026-10-25), Tester-Version für Android.
+> **ScryGlass** — Stand **v0.2.5** (2026-10-26), Tester-Version für Android.
 > Local-first, offline-fähig, nicht-kommerziell. Basiert auf dem wiederverwendbaren
 > Kern von [engram](https://github.com/LordCookie/Engram) (Scanner, Sammlung, Dexie,
 > Offline-Bilder, Capacitor), aber mit komplett neuer Datenschicht.
@@ -807,8 +807,7 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
 - [ ] Peer: Auto-Discovery (`NsdManager`), Geräte-Tests aus M8
 - [ ] Sprite-Animationen aus DESIGN § 7 (Flip, Stapeln, Stempel)
 - [x] Tokens erkennen statt falsch zuordnen + Gesamtzahl zählen (v0.2.4)
-- [x] **Großes Token-Update:** Tokens einzeln mit Artwork (lokal fertig, nach v0.2.4,
-      noch nicht released) — Katalog 25.10. mit 1.003 Tokens/Emblemen und 3.173 Artworks
+- [x] **Großes Token-Update:** Tokens einzeln mit Artwork (v0.2.5) — Katalog 25.10. mit 1.003 Tokens/Emblemen und 3.173 Artworks
       (alle gehasht). Bild-Index getrennt (Karten vorn, Tokens dahinter); Scanner prüft
       Spielsteine gegen den Token-Teil: Name (nicht eindeutig) + Artwork per Bild-Hash +
       Druckinfo im Token-Set (`BLB 4` → `tblb`); Name allein ist nie auto-sicher, im
@@ -817,6 +816,8 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
       Artwork. Ohne Artwork gezählte Tokens (meta `tokenCount`) bleiben. Suche, Deckbau,
       Set-Fortschritt und Set-Auswahl ohne Tokens. Test mit 22 echten Token-Bildern:
       Token 22/22, exakte Ausgabe 18/22 (die übrigen 4: gleiches Artwork aus anderem Set).
+- [x] Abfragen über viele Schlüssel ohne Dexie-`anyOf` (`whereAnyOf`, v0.2.5): Sammlung
+      7,2 s → 0,14 s, Set-Fortschritt 15,6 s → 2,2 s (400 verstreute Karten, Browser)
 
 ---
 
@@ -887,3 +888,4 @@ Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zä
 | 0.2.2 | 2026-09-23 | Pixel-Icons in der Navigationsleiste |
 | 0.2.3 | 2026-10-19 | Katalog 19.10. (Reality Fracture), Karte einrasten + Scanner-Diagnose + ViewPort, Zurück-Taste, Set-Fortschritt, Deck-Wert, Farbschema Halloween |
 | 0.2.4 | 2026-10-25 | Tokens erkennen statt falsche Karte zuordnen, Token-Zähler (Statistik, Sammlung, Backup) |
+| 0.2.5 | 2026-10-26 | Großes Token-Update: Tokens je Artwork (Katalog 25.10. inkl. Tokens, Scanner, Sammlung Karten/Tokens), schnellere Sammlung und Set-Fortschritt |
