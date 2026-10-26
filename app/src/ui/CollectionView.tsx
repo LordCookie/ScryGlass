@@ -328,13 +328,21 @@ export function CollectionView() {
 function ManualAddBox({ tokens, onPickToken }: { tokens: boolean; onPickToken: (card: Card) => void }) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<Card[]>([]);
+  // Suchbegriff, zu dem `results` gehören — „nichts gefunden" erst, wenn die Suche fertig ist.
+  const [doneQ, setDoneQ] = useState('');
   const [finish, setFinish] = useState<Finish>('nonfoil');
   const [added, setAdded] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    if (q.trim()) void (tokens ? searchTokens(q, 8) : searchCards(q, 8)).then((r) => { if (alive) setResults(r); });
-    else setResults([]);
+    const query = q.trim();
+    if (query) {
+      void (tokens ? searchTokens(query, 8) : searchCards(query, 8)).then((r) => {
+        if (!alive) return;
+        setResults(r);
+        setDoneQ(query);
+      });
+    } else setResults([]);
     return () => { alive = false; };
   }, [q, tokens]);
 
@@ -393,7 +401,7 @@ function ManualAddBox({ tokens, onPickToken }: { tokens: boolean; onPickToken: (
           ))}
         </ul>
       )}
-      {tokens && results.length === 0 && q.trim() !== '' && (
+      {tokens && results.length === 0 && q.trim() !== '' && doneQ === q.trim() && (
         <p className="mt-2 font-mono text-[10px] text-muted">Kein Token gefunden — der Katalog braucht den Stand mit Tokens.</p>
       )}
     </div>

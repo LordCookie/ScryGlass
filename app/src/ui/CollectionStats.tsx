@@ -63,7 +63,7 @@ export function CollectionStats({ rows, tokens = false }: { rows: readonly Filte
         ))}
       </div>
 
-      <ValueSection rows={rows} />
+      <ValueSection rows={rows} unit={tokens ? 'Tokens' : 'Karten'} />
 
       <TokenSection />
 
@@ -217,7 +217,7 @@ const dateFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-dig
  * oder sind sie älter als 24 h, werden sie beim Öffnen einmal automatisch geholt
  * (nur online); offline gilt der letzte Stand.
  */
-function ValueSection({ rows }: { rows: readonly FilterRow[] }) {
+function ValueSection({ rows, unit }: { rows: readonly FilterRow[]; unit: string }) {
   const valueRows = useMemo(
     () => rows.map((r) => ({
       key: priceKey(r.owned), fallbackKey: fallbackPriceKey(r.owned), finish: r.owned.finish, qty: r.owned.qty, name: r.card.name,
@@ -264,15 +264,16 @@ function ValueSection({ rows }: { rows: readonly FilterRow[] }) {
         </button>
       </div>
       <p className="text-[10px] text-muted">
-        {nf.format(value.pricedQty)} Karten mit Preis
+        {nf.format(value.pricedQty)} {unit} mit Preis
         {value.unpricedQty > 0 ? ` · ${nf.format(value.unpricedQty)} ohne` : ''}
         {value.oldestAt ? ` · Stand ${dateFmt.format(value.oldestAt)}` : ''}
       </p>
       {error && <p className="text-[10px] text-warn">{error}</p>}
       {value.top.length > 0 && (
         <ul className="mt-1 space-y-0.5">
-          {value.top.map((t) => (
-            <li key={`${t.name}-${t.finish}`} className="flex gap-2">
+          {value.top.map((t, i) => (
+            // Index im Schlüssel: Token-Artworks teilen sich Name und Ausführung.
+            <li key={`${t.name}-${t.finish}-${i}`} className="flex gap-2">
               <span className="min-w-0 flex-1 truncate text-muted">
                 {t.name}{t.finish !== 'nonfoil' ? ' ✦' : ''}
               </span>

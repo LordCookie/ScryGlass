@@ -829,6 +829,8 @@ export function ScannerPanel() {
       // Starker Alleingang des Bildes: nur ihn zeigen (kein OCR-Rauschen).
       matches = fused.showAlone ? [top] : [top, ...shown.filter((m) => m.oracleId !== top.oracleId)];
     }
+    // Karten-Weg zeigt nie Tokens (ein Secret-Lair-Token steht z. B. auch im Namensindex).
+    matches = matches.filter((m) => !isTokenCard(m.card));
     return {
       matches, fused, ocrBest, hash: inp.hashMatch,
       printRead: col ? [printSet ?? '?', col.number ?? '?', col.lang ?? ''].join(' ').trim() : undefined,
