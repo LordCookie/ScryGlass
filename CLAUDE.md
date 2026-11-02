@@ -25,7 +25,10 @@ Code-Kommentare referenzieren die Abschnitte (`§ 5`, `E3`, `M4` …).
 ## Build
 
 - App: `cd app && npm run build` (`tsc -b && vite build`).
-- APK: `npm run cap:sync && cd android && ./gradlew assembleDebug` — **JDK 17**.
+- APK: `npm run cap:sync && cd android && ./gradlew assembleRelease` — **JDK 17**.
+  Signiert wird mit dem Release-Schlüssel aus `android/keystore.properties` (nur lokal,
+  nie committen). Immer derselbe Schlüssel, sonst lassen sich installierte Apps nicht
+  mehr updaten. Ausgabe: `android/app/build/outputs/apk/release/app-release.apk`.
 - Pipeline: `cd pipeline && python -m pytest`.
 
 ## Commit-Konventionen

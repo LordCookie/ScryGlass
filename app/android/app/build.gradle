@@ -1,6 +1,16 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
+// Release-Signatur: der Schlüssel liegt außerhalb des Repos, Pfad + Passwort stehen in
+// android/keystore.properties (nur lokal, .gitignore). Es ist der bisherige Debug-Schlüssel
+// mit eigenem Passwort — gleiches Zertifikat, installierte Apps lassen sich weiter updaten.
+// Fehlt die Datei, entsteht eine unsignierte Release-APK statt einer mit falschem Schlüssel.
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
 android {
     namespace "com.lordcookie.scryglass"
     compileSdk rootProject.ext.compileSdkVersion
@@ -22,8 +32,20 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (keystorePropsFile.exists()) {
+            release {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                // PKCS12: Schlüssel-Passwort = Keystore-Passwort
+                keyPassword keystoreProps['keyPassword'] ?: keystoreProps['storePassword']
+            }
+        }
+    }
     buildTypes {
         release {
+            if (keystorePropsFile.exists()) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

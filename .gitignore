@@ -35,6 +35,9 @@ app/android/app/release/
 *.apk
 *.aab
 *.keystore
+*.jks
+# Release-Signatur: Pfad + Passwort, nur lokal (app/android/app/build.gradle)
+keystore.properties
 
 # OS / Editor
 .DS_Store
