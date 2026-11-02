@@ -1,18 +1,13 @@
 import { db } from '../db/db';
-import {
-  NameIndex,
-  matchName,
-  normalizeName,
-  trigramsOf,
-  type MatchResult,
-} from '../domain/nameMatch';
+import { NameIndex, matchName, type MatchResult } from '../domain/nameMatch';
 
 /**
  * Verdrahtet den puren Matcher (§ 5) mit Dexie (PLAN.md E3):
  *   - Der Namensindex wird beim ersten Bedarf EINMAL aus `names` in den RAM geladen
- *     und bleibt liegen. Exakt-/Präfix-Treffer fassen die DB nie an.
- *   - Nur bei einem Miss werden die Trigramm-Postings für die OCR-Trigramme aus
- *     Dexie geholt (der einzige DB-Zugriff pro Scan-Miss).
+ *     und bleibt liegen. Danach fasst kein Scan die DB mehr an.
+ *   - Die Trigramm-Postings für den Fuzzy-Fallback baut der Index beim ersten Miss
+ *     selbst aus den Namen (früher eigene Dexie-Tabelle `trigrams`, seit 0.2.7 nicht
+ *     mehr importiert).
  */
 
 let indexPromise: Promise<NameIndex> | null = null;
@@ -24,7 +19,11 @@ export async function loadNameIndex(force = false): Promise<NameIndex> {
   if (!indexPromise) {
     indexPromise = (async () => {
       const names = await db.names.toArray();
-      return new NameIndex(names);
+      const index = new NameIndex(names);
+      // Postings gleich hinterher bauen (~0,3 s Desktop), damit der erste Verleser beim
+      // Scannen nicht darauf wartet.
+      setTimeout(() => index.trigramPostings(), 1000);
+      return index;
     })();
   }
   return indexPromise;
@@ -41,25 +40,16 @@ export interface MatchOptions {
 }
 
 /**
- * Gleicht einen OCR-Text gegen den Katalog ab (§ 5). Exakt/Präfix laufen rein im
- * RAM; nur bei Miss werden Trigramm-Postings nachgeladen und der Fuzzy-Fallback
- * gefahren.
+ * Gleicht einen OCR-Text gegen den Katalog ab (§ 5) — komplett im RAM. Die
+ * Trigramm-Postings entstehen erst beim ersten Miss (Exakt/Präfix brauchen sie nicht).
  */
 export async function matchOcr(ocrText: string, opts: MatchOptions = {}): Promise<MatchResult> {
   const index = await loadNameIndex();
 
-  // Schritt 1+2 (Exakt/Präfix) — null DB-Zugriffe.
+  // Schritt 1+2 (Exakt/Präfix).
   const quick = matchName(ocrText, index, null, opts);
   if (quick.best) return quick;
 
-  // Schritt 3 (Fuzzy) — jetzt (und nur jetzt) den Trigramm-Index anfassen.
-  const norm = normalizeName(ocrText);
-  const tris = [...new Set(trigramsOf(norm))];
-  if (tris.length === 0) return quick;
-  const rows = await db.trigrams.bulkGet(tris);
-  const postings = new Map<string, string[]>();
-  rows.forEach((row, i) => {
-    if (row) postings.set(tris[i], row.oracleIds);
-  });
-  return matchName(ocrText, index, postings, opts);
+  // Schritt 3 (Fuzzy).
+  return matchName(ocrText, index, index.trigramPostings(), opts);
 }

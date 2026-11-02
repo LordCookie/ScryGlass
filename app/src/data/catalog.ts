@@ -1,6 +1,5 @@
-import type { Table } from 'dexie';
 import { db, getMeta, setMeta } from '../db/db';
-import { NdjsonBuffer } from './ndjson';
+import { streamImport } from './bulkImport';
 import { isNewerCatalog } from '../domain/updates';
 
 /**
@@ -9,9 +8,9 @@ import { isNewerCatalog } from '../domain/updates';
  *   2. remote version.json holen (Timeout 3s) — Fehler/kein Netz = stiller Fallback
  *   3. lokal fehlt → Vollimport (Pflicht) · remote neuer → Hinweis (nicht erzwingen)
  *
- * Import: NDJSON zeilenweise streamen, `bulkPut` in 1500er-Chunks, zwischen Chunks
- * dem UI-Thread Luft geben. Abbruchsicher: `catalogVersion` wird ERST nach dem
- * letzten Chunk gesetzt — Abbruch mittendrin → nächster Start importiert neu.
+ * Import: NDJSON zeilenweise streamen, in 1500er-Chunks schreiben, beim Update nur
+ * Neues und Geändertes (data/bulkImport). Abbruchsicher: `catalogVersion` wird ERST
+ * nach dem letzten Chunk gesetzt — Abbruch mittendrin → nächster Start importiert neu.
  *
  * Quellen: der in die APK eingebaute Katalog (`/catalog`) und — seit M15 — der wöchentlich
  * gebaute auf GitHub (`data/updates.ts`), dort gzip-komprimiert (110 → 45 MB).
@@ -27,7 +26,6 @@ export const CATALOG_BASE_URL: string =
   (import.meta.env?.VITE_CATALOG_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '/catalog';
 
 const VERSION_KEY = 'catalogVersion';
-const CHUNK = 1500;
 
 export interface CatalogVersion {
   catalogVersion: string;
@@ -36,7 +34,7 @@ export interface CatalogVersion {
   counts: { cards: number; printings: number; names: number; trigrams: number };
 }
 
-export type SyncPhase = 'cards' | 'printings' | 'names' | 'trigrams';
+export type SyncPhase = 'cards' | 'printings' | 'names';
 
 export interface SyncProgress {
   phase: SyncPhase;
@@ -57,8 +55,6 @@ export interface SyncResult {
   local?: string;
   remote?: CatalogVersion;
 }
-
-const tick = () => new Promise((r) => setTimeout(r, 0));
 
 async function fetchWithTimeout(url: string, ms: number, signal?: AbortSignal): Promise<Response> {
   const ctrl = new AbortController();
@@ -91,51 +87,15 @@ export async function getLocalCatalogVersion(): Promise<string | undefined> {
   return getMeta<string>(VERSION_KEY);
 }
 
-/** Streamt ein NDJSON-File und schreibt es in Chunks in eine Dexie-Tabelle. */
-async function importFile<T>(
-  url: string,
-  table: Table<T, unknown>,
-  phaseTotal: number,
-  onChunk: (phaseDone: number) => void | Promise<void>,
-  signal?: AbortSignal,
-  gzip = false,
-): Promise<number> {
-  const res = await fetch(url, signal ? { signal } : undefined);
-  if (!res.ok || !res.body) throw new Error(`Katalog-Download fehlgeschlagen: ${url} (${res.status})`);
-
-  const reader = (gzip ? res.body.pipeThrough(new DecompressionStream('gzip')) : res.body).getReader();
-  const decoder = new TextDecoder();
-  const buf = new NdjsonBuffer<T>();
-  let pending: T[] = [];
-  let done = 0;
-
-  const flush = async () => {
-    if (pending.length === 0) return;
-    await table.bulkPut(pending);
-    done += pending.length;
-    pending = [];
-    await onChunk(done);
-    await tick(); // UI bleibt bedienbar (§ 4)
-  };
-
-  for (;;) {
-    const { done: streamDone, value } = await reader.read();
-    if (streamDone) break;
-    for (const row of buf.push(decoder.decode(value, { stream: true }))) {
-      pending.push(row);
-      if (pending.length >= CHUNK) await flush();
-    }
-  }
-  for (const row of buf.flush()) pending.push(row);
-  await flush();
-  void phaseTotal; // nur für die Fortschrittsanzeige nach außen relevant
-  return done;
-}
-
 /**
- * Vollimport/Update. Reihenfolge cards → printings → names → trigrams. Setzt
- * `catalogVersion` erst nach dem letzten Chunk (abbruchsicher). `owned`/`decks`/
- * `inbox` werden nie angefasst (§ 4). `gzip`: Dateien als `*.ndjson.gz` (GitHub).
+ * Vollimport/Update. Reihenfolge cards → printings → names (data/bulkImport: beim Update
+ * nur Neues und Geändertes). Setzt `catalogVersion` erst nach dem letzten Chunk
+ * (abbruchsicher). `owned`/`decks`/`inbox` werden nie angefasst (§ 4). `gzip`: Dateien
+ * als `*.ndjson.gz` (GitHub).
+ *
+ * `trigrams.ndjson` liegt weiter im Katalog (0.2.6 lädt es noch), wird aber seit 0.2.7
+ * nicht mehr importiert — der Namensindex baut die Trigramme selbst (domain/nameMatch).
+ * Das war über die Hälfte des Downloads.
  */
 export async function importCatalog(
   remote: CatalogVersion,
@@ -144,31 +104,35 @@ export async function importCatalog(
   signal?: AbortSignal,
   gzip = false,
 ): Promise<void> {
-  const phases: { phase: SyncPhase; table: Table<unknown, unknown>; total: number }[] = [
-    { phase: 'cards', table: db.cards as unknown as Table<unknown, unknown>, total: remote.counts.cards },
-    { phase: 'printings', table: db.printings as unknown as Table<unknown, unknown>, total: remote.counts.printings },
-    { phase: 'names', table: db.names as unknown as Table<unknown, unknown>, total: remote.counts.names },
-    { phase: 'trigrams', table: db.trigrams as unknown as Table<unknown, unknown>, total: remote.counts.trigrams },
+  const file = (name: SyncPhase) => `${base}/${name}.ndjson${gzip ? '.gz' : ''}`;
+  const phases: { phase: SyncPhase; total: number; run: (onChunk: (done: number) => void) => Promise<unknown> }[] = [
+    {
+      phase: 'cards',
+      total: remote.counts.cards,
+      run: (onChunk) => streamImport(file('cards'), db.cards, { gzip, signal, onChunk, key: (c) => c.oracleId, diff: 'rows' }),
+    },
+    {
+      phase: 'printings',
+      total: remote.counts.printings,
+      run: (onChunk) => streamImport(file('printings'), db.printings, { gzip, signal, onChunk, key: (p) => p.scryfallId, diff: 'rows' }),
+    },
+    {
+      phase: 'names',
+      total: remote.counts.names,
+      run: (onChunk) =>
+        streamImport(file('names'), db.names, {
+          gzip, signal, onChunk, diff: 'keys',
+          key: (n) => [n.normName, n.oracleId, n.lang] as [string, string, string],
+        }),
+    },
   ];
   const overallTotal = phases.reduce((s, p) => s + p.total, 0);
   let overallBefore = 0;
 
-  for (const { phase, table, total } of phases) {
+  for (const { phase, total, run } of phases) {
     const before = overallBefore;
-    await importFile(
-      `${base}/${phase}.ndjson${gzip ? '.gz' : ''}`,
-      table,
-      total,
-      (phaseDone) =>
-        onProgress?.({
-          phase,
-          phaseDone,
-          phaseTotal: total,
-          overallDone: before + phaseDone,
-          overallTotal,
-        }),
-      signal,
-      gzip,
+    await run((phaseDone) =>
+      onProgress?.({ phase, phaseDone, phaseTotal: total, overallDone: before + phaseDone, overallTotal }),
     );
     overallBefore += total;
   }

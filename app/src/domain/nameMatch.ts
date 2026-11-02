@@ -10,9 +10,9 @@
  *     → 3. Fuzzy-Fallback     Trigramme → Kandidaten → Levenshtein (nur bei Miss)
  *     → 4. kein Treffer über Schwelle → manuelle Eingabe
  *
- * Schritt 1+2 sind synchron gegen den RAM-Index. Schritt 3 braucht den Trigramm-
- * Index (in Dexie); die Verdrahtung liegt in `data/matcher.ts`, hier bleibt die
- * reine Logik (Ranking über bereits geladene Kandidaten).
+ * Alle Schritte laufen synchron gegen den RAM-Index; die Trigramm-Postings für
+ * Schritt 3 baut der Index beim ersten Miss selbst (`trigramPostings`). Das Laden
+ * aus Dexie liegt in `data/matcher.ts`, hier bleibt die reine Logik.
  */
 
 import type { Lang, NameEntry } from './types';
@@ -157,6 +157,33 @@ export class NameIndex {
     return this.exact.size;
   }
 
+  private postings: Map<string, string[]> | null = null;
+
+  /**
+   * Trigramm-Postings (trigram → oracleIds) für den Fuzzy-Fallback (Schritt 3), beim
+   * ersten Bedarf aus den Namen gebaut und gemerkt. Früher kamen sie als eigene
+   * Katalog-Tabelle (`trigrams.ndjson`, über die Hälfte von Download und Import) —
+   * aus den ~65.000 Namen sind sie in Sekundenbruchteilen berechnet. Jede oracleId
+   * steht höchstens einmal je Trigramm (DE + EN zusammen); anders als die Pipeline
+   * ohne Obergrenze je Trigramm.
+   */
+  trigramPostings(): ReadonlyMap<string, readonly string[]> {
+    if (!this.postings) {
+      const postings = new Map<string, string[]>();
+      for (const [oracleId, names] of this.namesByOracle) {
+        const tris = new Set<string>();
+        for (const n of names) for (const t of trigramsOf(n.normName)) tris.add(t);
+        for (const t of tris) {
+          const list = postings.get(t);
+          if (list) list.push(oracleId);
+          else postings.set(t, [oracleId]);
+        }
+      }
+      this.postings = postings;
+    }
+    return this.postings;
+  }
+
   namesOf(oracleId: string): IndexedName[] {
     return this.namesByOracle.get(oracleId) ?? [];
   }
@@ -236,7 +263,7 @@ export function rankFuzzy(
 /**
  * Kandidaten-oracleIds nach Trigramm-Overlap (Schritt 3, Vorfilter): zählt, in wie
  * vielen Trigrammen des OCR-Textes eine oracleId vorkommt, und gibt die Top-N zurück.
- * `postings` ist trigram → oracleIds (aus dem Dexie-Index geladen).
+ * `postings` ist trigram → oracleIds (`NameIndex.trigramPostings`).
  */
 export function topTrigramCandidates(
   ocrNorm: string,
@@ -291,7 +318,7 @@ export function matchName(
     return { norm, candidates: prefix, best: prefix[0], ambiguous: distinctOracles(prefix) > 1 };
   }
 
-  // Schritt 3 — Fuzzy-Fallback (nur bei Miss, nur hier wird der Trigramm-Index gelesen).
+  // Schritt 3 — Fuzzy-Fallback (nur bei Miss, nur hier werden Trigramm-Postings gebraucht).
   if (fuzzyPostings) {
     const candIds = topTrigramCandidates(norm, fuzzyPostings, 20);
     const candNames = candIds.flatMap((id) => index.namesOf(id));

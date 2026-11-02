@@ -61,7 +61,6 @@ async function clearAll() {
     db.cards.clear(),
     db.printings.clear(),
     db.names.clear(),
-    db.trigrams.clear(),
     db.meta.clear(),
     db.owned.clear(),
   ]);
@@ -86,18 +85,48 @@ describe('fetchRemoteVersion', () => {
 });
 
 describe('importCatalog', () => {
-  it('importiert alle vier Tabellen und meldet Fortschritt', async () => {
-    vi.stubGlobal('fetch', mockFetch());
+  it('importiert Karten, Ausgaben und Namen und meldet Fortschritt', async () => {
+    const fetchMock = mockFetch();
+    vi.stubGlobal('fetch', fetchMock);
     const phases: string[] = [];
     await importCatalog(VERSION, '/catalog', (p) => phases.push(p.phase));
 
     expect(await db.cards.count()).toBe(2);
     expect(await db.printings.count()).toBe(2);
     expect(await db.names.count()).toBe(3);
-    expect(await db.trigrams.count()).toBe(2);
     // catalogVersion erst am Ende gesetzt (abbruchsicher).
     expect(await getLocalCatalogVersion()).toBe(VERSION.catalogVersion);
-    expect(new Set(phases)).toEqual(new Set(['cards', 'printings', 'names', 'trigrams']));
+    expect(new Set(phases)).toEqual(new Set(['cards', 'printings', 'names']));
+    // Trigramme baut der Namensindex selbst (0.2.7) — die Datei wird nicht mehr geladen.
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('trigrams'))).toBe(false);
+  });
+
+  it('Update schreibt nur Neues und Geändertes', async () => {
+    vi.stubGlobal('fetch', mockFetch());
+    await importCatalog(VERSION, '/catalog');
+
+    const [bolt, forest] = FILES['cards.ndjson'].trim().split('\n');
+    const boltErrata = bolt.replace('"oracleText":""', '"oracleText":"3 Schaden."');
+    const newCard = forest.replace('"o2"', '"o3"').replace('Forest', 'Island').replace('"forest"', '"island"');
+    const newName = '{"normName":"island","oracleId":"o3","lang":"en"}';
+    const newer = { ...VERSION, catalogVersion: '20270101000000' };
+    vi.stubGlobal('fetch', mockFetch({
+      'cards.ndjson': () => streamResponse([boltErrata, forest, newCard].join('\n') + '\n'),
+      'names.ndjson': () => streamResponse(FILES['names.ndjson'] + newName + '\n'),
+    }));
+    const cardsPut = vi.spyOn(db.cards, 'bulkPut');
+    const printingsPut = vi.spyOn(db.printings, 'bulkPut');
+    const namesPut = vi.spyOn(db.names, 'bulkPut');
+    await importCatalog(newer, '/catalog');
+
+    // Karten: geänderte (o1) + neue (o3); Forest unverändert → nicht geschrieben.
+    expect(cardsPut.mock.calls.flatMap(([rows]) => rows.map((c) => c.oracleId))).toEqual(['o1', 'o3']);
+    expect((await db.cards.get('o1'))?.oracleText).toBe('3 Schaden.');
+    expect(printingsPut).not.toHaveBeenCalled();
+    expect(namesPut.mock.calls.flatMap(([rows]) => rows.map((n) => n.normName))).toEqual(['island']);
+    expect(await db.cards.count()).toBe(3);
+    expect(await db.names.count()).toBe(4);
+    expect(await getLocalCatalogVersion()).toBe(newer.catalogVersion);
   });
 
   it('liest gzip-komprimierte Dateien (*.ndjson.gz, Katalog von GitHub)', async () => {

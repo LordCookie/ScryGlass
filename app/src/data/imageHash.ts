@@ -1,6 +1,6 @@
 import { db, getMeta, setMeta } from '../db/db';
 import type { HashEntry } from '../domain/types';
-import { NdjsonBuffer } from './ndjson';
+import { streamImport } from './bulkImport';
 import { loadTokenCatalog } from './tokenCatalog';
 
 /**
@@ -192,8 +192,6 @@ export async function loadHashIndex(): Promise<void> {
 // --- Import (streamt hashes.ndjson in Dexie) --------------------------------
 
 const HASHES_META = 'hashesFor';
-const tick = () => new Promise((r) => setTimeout(r, 0));
-
 interface RawHash {
   id: string;
   o: string;
@@ -201,40 +199,23 @@ interface RawHash {
 }
 
 /** Streamt `hashes.ndjson` (kompakte Keys {id,o,h}) in die `hashes`-Tabelle;
- *  `gzip`: als `hashes.ndjson.gz` (GitHub, M15). */
+ *  `gzip`: als `hashes.ndjson.gz` (GitHub, M15). Beim Update kommen nur neue Ausgaben
+ *  dazu — hashes.yml hasht Vorhandenes nie neu (data/bulkImport, `keys`). */
 export async function importHashes(
   base: string,
   onProgress?: (done: number) => void,
   signal?: AbortSignal,
   gzip = false,
 ): Promise<number> {
-  const res = await fetch(`${base}/hashes.ndjson${gzip ? '.gz' : ''}`, signal ? { signal } : undefined);
-  if (!res.ok || !res.body) throw new Error(`hashes.ndjson nicht ladbar (${res.status})`);
-  const reader = (gzip ? res.body.pipeThrough(new DecompressionStream('gzip')) : res.body).getReader();
-  const decoder = new TextDecoder();
-  const nb = new NdjsonBuffer<RawHash>();
-  let pending: HashEntry[] = [];
-  let done = 0;
-  const flush = async () => {
-    if (pending.length === 0) return;
-    await db.hashes.bulkPut(pending);
-    done += pending.length;
-    pending = [];
-    onProgress?.(done);
-    await tick();
-  };
-  const map = (r: RawHash): HashEntry => ({ scryfallId: r.id, oracleId: r.o, h: r.h });
-  for (;;) {
-    const { done: streamDone, value } = await reader.read();
-    if (streamDone) break;
-    for (const r of nb.push(decoder.decode(value, { stream: true }))) {
-      pending.push(map(r));
-      if (pending.length >= 1500) await flush();
-    }
-  }
-  for (const r of nb.flush()) pending.push(map(r));
-  await flush();
-  return done;
+  const { rows } = await streamImport<RawHash, HashEntry, string>(`${base}/hashes.ndjson${gzip ? '.gz' : ''}`, db.hashes, {
+    gzip,
+    signal,
+    map: (r) => ({ scryfallId: r.id, oracleId: r.o, h: r.h }),
+    key: (e) => e.scryfallId,
+    diff: 'keys',
+    onChunk: onProgress,
+  });
+  return rows;
 }
 
 /**

@@ -3,20 +3,20 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
 import { APP_VERSION } from '../version';
 import {
-  checkForUpdates, currentUpdateStatus, downloadAndInstall, openInstallSettings, applyRemoteCatalog,
-  canDownloadUpdates, UpdateError, RELEASES_PAGE, type InstallStep, type CatalogStep,
+  checkForUpdates, currentUpdateStatus, openInstallSettings, canDownloadUpdates, UpdateError, RELEASES_PAGE,
+  appUpdateJob, startAppUpdate, catalogJob, startCatalogUpdate, type InstallStep, type CatalogStep,
 } from '../data/updates';
-import { fetchRemoteVersion, applyUpdate, getLocalCatalogVersion, type CatalogVersion } from '../data/catalog';
-import { invalidateNameIndex } from '../data/matcher';
-import { invalidateSearchIndex } from '../data/search';
+import { fetchRemoteVersion, getLocalCatalogVersion, type CatalogVersion } from '../data/catalog';
 import { loadTokenCatalog } from '../data/tokenCatalog';
 import { hasAppUpdater } from '../native/appUpdater';
 import { noteLines, catalogDate, formatMb, isNewerCatalog } from '../domain/updates';
+import { useJob } from './useJob';
 
 /**
  * „Mehr" → Updates (PLAN.md M15): App-Update von GitHub (laden, prüfen, installieren)
- * und Katalog-Update (wöchentlich neu gebaut). Der Punkt am „Mehr"-Tab und „Was ist neu"
- * hängen in App.tsx.
+ * und Katalog-Update (wöchentlich neu gebaut). Beide laufen als Hintergrund-Aufgabe
+ * (data/job) — der Bildschirm zeigt nur den Stand. Der Punkt am „Mehr"-Tab, die
+ * Fortschrittsleiste in den anderen Tabs und „Was ist neu" hängen in App.tsx.
  */
 
 const dateTime = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -52,18 +52,31 @@ function Bar({ value, max }: { value: number; max: number }) {
 function stepText(s: InstallStep): string {
   if (s.phase === 'sicherung') return 'Sichere deine Sammlung…';
   if (s.phase === 'download') return `Lade ${formatMb(s.done)} von ${formatMb(s.total)}…`;
-  if (s.phase === 'pruefen') return 'Prüfe die Datei (Prüfsumme, Signatur)…';
-  return 'Android fragt jetzt nach der Installation — bestätigen, danach „Öffnen" tippen.';
+  return 'Prüfe die Datei (Prüfsumme, Signatur)…';
+}
+
+const pct = (done: number, total: number) => `${Math.min(100, Math.round((done / Math.max(1, total)) * 100))} %`;
+
+/** Text + Balken für ein laufendes Katalog-Update (hier und in der Leiste über den Tabs). */
+function catalogProgress(s: CatalogStep | null): { label: string; done: number; total: number } {
+  if (!s) return { label: 'Katalog: verbinde…', done: 0, total: 1 };
+  if (s.phase === 'katalog') {
+    const { overallDone: done, overallTotal: total } = s.progress;
+    return { label: `Katalog wird geladen · ${pct(done, total)}`, done, total };
+  }
+  return { label: `Bild-Abgleich · ${pct(s.done, s.total)}`, done: s.done, total: s.total };
 }
 
 export function AppUpdateSection() {
   const status = useLiveQuery(() => currentUpdateStatus(), []);
+  const job = useJob(appUpdateJob);
   const [checking, setChecking] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [step, setStep] = useState<InstallStep | null>(null);
-  const [needPerm, setNeedPerm] = useState(false);
   const app = status?.app;
   const native = hasAppUpdater();
+  const step = job.step;
+  const needPerm = job.error instanceof UpdateError && job.error.code === 'ERLAUBNIS';
+  const jobMsg = job.error && !needPerm ? (job.error as Error).message : null;
   // Taucht eine neue Version auf, ist ein altes „neueste Version" überholt.
   useEffect(() => {
     if (app) setMsg(null);
@@ -82,19 +95,14 @@ export function AppUpdateSection() {
     }
   }
 
-  async function install() {
+  // Läuft im Hintergrund weiter, auch wenn man „Mehr" verlässt (data/job).
+  function install() {
     if (!app) return;
     setMsg(null);
-    setNeedPerm(false);
-    try {
-      await downloadAndInstall(app, setStep);
-    } catch (e) {
-      setStep(null);
-      if (e instanceof UpdateError && e.code === 'ERLAUBNIS') setNeedPerm(true);
-      else setMsg((e as Error).message);
-    }
+    void startAppUpdate(app);
   }
 
+  const shown = msg ?? jobMsg;
   return (
     <div className="rounded-lg bg-surface p-4">
       <h2 className="mb-1 font-mono text-lg">App-Update</h2>
@@ -117,18 +125,20 @@ export function AppUpdateSection() {
               className="inline-block rounded bg-accent px-3 py-1.5 font-mono text-sm text-on-accent">
               Zur Release-Seite
             </a>
-          ) : step ? (
+          ) : job.running ? (
             <div className="space-y-1 font-mono text-xs">
-              {step.phase === 'download' && <Bar value={step.done} max={step.total} />}
-              <p className={step.phase === 'installer' ? 'text-ok' : 'text-accent'}>{stepText(step)}</p>
-              {step.phase === 'installer' && (
-                <button onClick={() => setStep(null)} className="text-muted underline hover:text-text">
-                  Abgebrochen? Nochmal versuchen
-                </button>
-              )}
+              {step?.phase === 'download' && <Bar value={step.done} max={step.total} />}
+              <p className="text-accent">{step ? stepText(step) : 'Starte…'}</p>
+            </div>
+          ) : job.result === 'installer' ? (
+            <div className="space-y-1 font-mono text-xs">
+              <p className="text-ok">Android fragt jetzt nach der Installation — bestätigen, danach „Öffnen" tippen.</p>
+              <button onClick={() => appUpdateJob.reset()} className="text-muted underline hover:text-text">
+                Abgebrochen? Nochmal versuchen
+              </button>
             </div>
           ) : (
-            <button onClick={() => void install()} className="rounded bg-accent px-3 py-1.5 font-mono text-sm text-on-accent">
+            <button onClick={install} className="rounded bg-accent px-3 py-1.5 font-mono text-sm text-on-accent">
               Herunterladen und installieren ({formatMb(app.apk.size)})
             </button>
           )}
@@ -139,9 +149,11 @@ export function AppUpdateSection() {
               <button onClick={() => void openInstallSettings()} className="bg-accent px-3 py-1 text-on-accent">Erlauben</button>
             </div>
           )}
-          {native && !step && <p className="font-mono text-[10px] text-muted">Vorher wird deine Sammlung automatisch gesichert (Backup → Automatische Sicherungen).</p>}
+          {native && !job.running && job.result == null && (
+            <p className="font-mono text-[10px] text-muted">Vorher wird deine Sammlung automatisch gesichert (Backup → Automatische Sicherungen).</p>
+          )}
           <div>
-            <button onClick={() => void check()} disabled={checking || !!step}
+            <button onClick={() => void check()} disabled={checking || job.running}
               className="font-mono text-[10px] text-muted underline hover:text-text disabled:opacity-40">
               {checking ? 'Prüfe…' : 'Nochmal prüfen'}
             </button>
@@ -153,7 +165,7 @@ export function AppUpdateSection() {
           {checking ? 'Prüfe…' : 'Nach Updates suchen'}
         </button>
       )}
-      {msg && <p className="mt-2 font-mono text-xs text-muted">{msg}</p>}
+      {shown && <p className="mt-2 font-mono text-xs text-muted">{shown}</p>}
     </div>
   );
 }
@@ -166,10 +178,10 @@ function onCellular(): boolean {
 export function CatalogUpdateSection() {
   const local = useLiveQuery(() => getLocalCatalogVersion(), []);
   const status = useLiveQuery(() => currentUpdateStatus(), []);
+  const job = useJob(catalogJob);
   const [counts, setCounts] = useState<{ cards: number; tokens: number } | null>(null);
   const [checking, setChecking] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [step, setStep] = useState<CatalogStep | null>(null);
   // Browser (Entwicklung): nur der eingebaute Katalog unter /catalog.
   const [embedded, setEmbedded] = useState<CatalogVersion | null>(null);
   const remote = canDownloadUpdates();
@@ -201,26 +213,20 @@ export function CatalogUpdateSection() {
     }
   }
 
-  async function load() {
+  // Läuft im Hintergrund weiter, auch wenn man „Mehr" verlässt (data/job).
+  function load() {
     setMsg(null);
-    try {
-      if (remote) {
-        const v = await applyRemoteCatalog(setStep);
-        setMsg(`Katalog vom ${catalogDate(v)} eingespielt.`);
-      } else if (embedded) {
-        await applyUpdate(embedded, { onProgress: (progress) => setStep({ phase: 'katalog', progress }) });
-        invalidateNameIndex();
-        invalidateSearchIndex();
-        setEmbedded(null);
-      }
-    } catch (e) {
-      setMsg(`Update abgebrochen: ${(e as Error).message}`);
-    } finally {
-      setStep(null);
-    }
+    if (remote) void startCatalogUpdate({ kind: 'github' });
+    else if (embedded) void startCatalogUpdate({ kind: 'eingebaut', version: embedded });
   }
 
-  const available = remote ? update : embedded ? { version: embedded.catalogVersion, bytes: 0 } : undefined;
+  const embeddedNewer = embedded && isNewerCatalog(embedded.catalogVersion, local) ? embedded : null;
+  const available = remote ? update : embeddedNewer ? { version: embeddedNewer.catalogVersion, bytes: 0 } : undefined;
+  const progress = catalogProgress(job.step);
+  const jobMsg = job.error
+    ? `Update abgebrochen: ${(job.error as Error).message}`
+    : job.result ? `Katalog vom ${catalogDate(job.result)} eingespielt.` : null;
+  const shown = msg ?? jobMsg;
 
   return (
     <div className="rounded-lg bg-surface p-4">
@@ -231,17 +237,11 @@ export function CatalogUpdateSection() {
         {remote ? ' · neue Sets kommen wöchentlich' : ''}
       </p>
 
-      {step ? (
+      {job.running ? (
         <div className="space-y-1 font-mono text-xs text-accent">
-          {step.phase === 'katalog' ? (
-            <>
-              <Bar value={step.progress.overallDone} max={step.progress.overallTotal} />
-              <p>Karten {step.progress.overallDone.toLocaleString('de-DE')} / {step.progress.overallTotal.toLocaleString('de-DE')}</p>
-            </>
-          ) : (
-            <p>Bild-Abgleich: {step.done.toLocaleString('de-DE')} Bilder</p>
-          )}
-          <p className="text-muted">Nicht schließen — die Sammlung bleibt unberührt.</p>
+          <Bar value={progress.done} max={progress.total} />
+          <p>{progress.label}</p>
+          <p className="text-muted">Läuft weiter, auch wenn du den Tab wechselst. Die Sammlung bleibt unberührt.</p>
         </div>
       ) : available ? (
         <div className="space-y-2">
@@ -249,7 +249,7 @@ export function CatalogUpdateSection() {
             Neuer Katalog vom {catalogDate(available.version)}{available.bytes ? ` · ca. ${formatMb(available.bytes)}` : ''}
           </p>
           {onCellular() && <p className="font-mono text-xs text-warn">Du bist im Mobilfunknetz — lieber im WLAN laden.</p>}
-          <button onClick={() => void load()} className="rounded bg-accent px-3 py-1.5 font-mono text-sm text-on-accent">
+          <button onClick={load} className="rounded bg-accent px-3 py-1.5 font-mono text-sm text-on-accent">
             Katalog laden
           </button>
         </div>
@@ -259,7 +259,31 @@ export function CatalogUpdateSection() {
           {checking ? 'Prüfe…' : 'Nach neuem Katalog suchen'}
         </button>
       )}
-      {msg && <p className="mt-2 font-mono text-xs text-muted">{msg}</p>}
+      {shown && <p className="mt-2 font-mono text-xs text-muted">{shown}</p>}
     </div>
+  );
+}
+
+/**
+ * Läuft ein Update, während man in einem anderen Tab ist: schmale Leiste unter dem Kopf
+ * (App.tsx), damit man sieht, dass es weitergeht. Tippen führt zu „Mehr".
+ */
+export function UpdateProgressStrip({ onOpen }: { onOpen: () => void }) {
+  const catalog = useJob(catalogJob);
+  const app = useJob(appUpdateJob);
+  let p: { label: string; done: number; total: number } | null = null;
+  if (catalog.running) p = catalogProgress(catalog.step);
+  else if (app.running) {
+    const s = app.step;
+    p = s?.phase === 'download'
+      ? { label: `App-Update wird geladen · ${pct(s.done, s.total)}`, done: s.done, total: s.total }
+      : { label: s ? stepText(s) : 'App-Update startet…', done: 0, total: 1 };
+  }
+  if (!p) return null;
+  return (
+    <button onClick={onOpen} className="mx-4 mb-2 block space-y-1 rounded-md bg-accent/10 px-3 py-2 text-left font-mono text-xs text-accent">
+      <span className="block">{p.label}</span>
+      <Bar value={p.done} max={p.total} />
+    </button>
   );
 }

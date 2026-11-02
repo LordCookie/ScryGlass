@@ -6,12 +6,16 @@ import {
   pickLatestAppRelease, parseSha256, isNewerVersion, isNewerCatalog, updateCheckDue,
   type AppRelease, type GhRelease, type GhAsset,
 } from '../domain/updates';
-import { fetchRemoteVersion, getLocalCatalogVersion, applyUpdate, type SyncProgress } from './catalog';
+import {
+  fetchRemoteVersion, getLocalCatalogVersion, applyUpdate, CATALOG_BASE_URL,
+  type CatalogVersion, type SyncProgress,
+} from './catalog';
 import { syncHashes, loadHashIndex } from './imageHash';
 import { invalidateNameIndex } from './matcher';
 import { invalidateSearchIndex } from './search';
-import { AppUpdater, hasAppUpdater } from '../native/appUpdater';
+import { AppUpdater, hasAppUpdater, withScreenOn } from '../native/appUpdater';
 import { autoBackup } from './backups';
+import { Job } from './job';
 
 /**
  * Updates aus der App (PLAN.md M15) über die öffentlichen GitHub-Releases:
@@ -29,7 +33,8 @@ export const RELEASES_PAGE = `https://github.com/${REPO}/releases`;
 const API = `https://api.github.com/repos/${REPO}`;
 /** Wöchentlich gebauter Katalog (.github/workflows/catalog.yml, hashes.yml). */
 export const REMOTE_CATALOG_BASE = `https://github.com/${REPO}/releases/download/catalog-latest`;
-const CATALOG_FILES = ['cards', 'printings', 'names', 'trigrams', 'hashes'].map((f) => `${f}.ndjson`);
+// Was die App lädt — `trigrams.ndjson` liegt noch daneben (für 0.2.6), wird aber nicht mehr gebraucht.
+const CATALOG_FILES = ['cards', 'printings', 'names', 'hashes'].map((f) => `${f}.ndjson`);
 
 /** Nur die App kann Katalog und APK laden (Browser: CORS). */
 export function canDownloadUpdates(): boolean {
@@ -126,8 +131,7 @@ export async function checkForUpdates(force = false): Promise<UpdateStatus | und
 export type InstallStep =
   | { phase: 'sicherung' }
   | { phase: 'download'; done: number; total: number }
-  | { phase: 'pruefen' }
-  | { phase: 'installer' };
+  | { phase: 'pruefen' };
 
 export class UpdateError extends Error {
   constructor(message: string, readonly code: string) {
@@ -198,7 +202,17 @@ export async function downloadAndInstall(rel: AppRelease, onStep: (s: InstallSte
     const code = (e as { code?: string }).code ?? 'FEHLER';
     throw new UpdateError(INSTALL_ERRORS[code] ?? `Installation fehlgeschlagen (${(e as Error).message}).`, code);
   }
-  onStep({ phase: 'installer' });
+}
+
+/** Läuft im Hintergrund weiter, auch beim Tab-Wechsel (data/job). Ergebnis `installer`:
+ *  Android zeigt jetzt den Installations-Dialog. */
+export const appUpdateJob = new Job<InstallStep, 'installer'>();
+
+export function startAppUpdate(rel: AppRelease): Promise<void> {
+  return appUpdateJob.run(async (onStep) => {
+    await withScreenOn(() => downloadAndInstall(rel, onStep));
+    return 'installer' as const;
+  });
 }
 
 export async function openInstallSettings(): Promise<void> {
@@ -219,21 +233,42 @@ export async function dismissWhatsNew(): Promise<void> {
 
 // --- Katalog-Update -------------------------------------------------------------
 
-export type CatalogStep = { phase: 'katalog'; progress: SyncProgress } | { phase: 'bilder'; done: number };
+export type CatalogStep =
+  | { phase: 'katalog'; progress: SyncProgress }
+  /** `total` geschätzt: ein Bild-Hash je Druckausgabe */
+  | { phase: 'bilder'; done: number; total: number };
 
-/** Den Katalog von GitHub laden und einspielen, danach den Bild-Abgleich. Sammlung,
- *  Decks und Tokens-Zähler bleiben unberührt (§ 4). */
-export async function applyRemoteCatalog(onStep: (s: CatalogStep) => void): Promise<string> {
-  const [info, remote] = await Promise.all([fetchRemoteCatalogInfo(), fetchRemoteVersion(REMOTE_CATALOG_BASE, 10000)]);
-  if (!info || !remote) throw new Error('Katalog auf GitHub nicht erreichbar.');
-  await applyUpdate(remote, {
-    base: REMOTE_CATALOG_BASE,
-    gzip: info.gzip,
-    onProgress: (progress) => onStep({ phase: 'katalog', progress }),
-  });
+/** Woher: der wöchentliche von GitHub oder der in die APK eingebaute (nach einem App-Update
+ *  mit neuerem Katalog; im Browser beim Entwickeln der einzige). */
+export type CatalogSource = { kind: 'github' } | { kind: 'eingebaut'; version: CatalogVersion };
+
+/** Katalog einspielen, danach den Bild-Abgleich. Sammlung, Decks und Tokens-Zähler
+ *  bleiben unberührt (§ 4). Gibt die neue Katalogversion zurück. */
+async function applyCatalog(source: CatalogSource, onStep: (s: CatalogStep) => void): Promise<string> {
+  let base = CATALOG_BASE_URL;
+  let gzip = false;
+  let version: CatalogVersion;
+  if (source.kind === 'github') {
+    const [info, remote] = await Promise.all([fetchRemoteCatalogInfo(), fetchRemoteVersion(REMOTE_CATALOG_BASE, 10000)]);
+    if (!info || !remote) throw new Error('Katalog auf GitHub nicht erreichbar.');
+    base = REMOTE_CATALOG_BASE;
+    gzip = info.gzip;
+    version = remote;
+  } else {
+    version = source.version;
+  }
+  await applyUpdate(version, { base, gzip, onProgress: (progress) => onStep({ phase: 'katalog', progress }) });
   invalidateNameIndex();
   invalidateSearchIndex();
-  await syncHashes(REMOTE_CATALOG_BASE, remote.catalogVersion, (done) => onStep({ phase: 'bilder', done }), info.gzip);
+  const total = version.counts.printings;
+  await syncHashes(base, version.catalogVersion, (done) => onStep({ phase: 'bilder', done, total }), gzip);
   void loadHashIndex();
-  return remote.catalogVersion;
+  return version.catalogVersion;
+}
+
+/** Läuft im Hintergrund weiter, auch beim Tab-Wechsel (data/job); Ergebnis = neue Version. */
+export const catalogJob = new Job<CatalogStep, string>();
+
+export function startCatalogUpdate(source: CatalogSource): Promise<void> {
+  return catalogJob.run((onStep) => withScreenOn(() => applyCatalog(source, onStep)));
 }

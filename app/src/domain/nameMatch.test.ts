@@ -103,6 +103,26 @@ describe('topTrigramCandidates', () => {
   });
 });
 
+describe('NameIndex.trigramPostings (statt Katalog-Tabelle, 0.2.7)', () => {
+  const { index, postings } = buildFixtures();
+  const asSets = (m: ReadonlyMap<string, readonly string[]>) =>
+    new Map([...m].map(([t, ids]) => [t, [...ids].sort()]));
+
+  it('entspricht den Postings der Pipeline-Logik', () => {
+    expect(asSets(index.trigramPostings())).toEqual(asSets(postings));
+  });
+
+  it('jede oracleId höchstens einmal je Trigramm (DE + EN zusammen)', () => {
+    // „Sol Ring" heißt auf Deutsch gleich → trotzdem nur ein Eintrag.
+    expect(index.trigramPostings().get('sol')).toEqual(['o-sol']);
+    for (const ids of index.trigramPostings().values()) expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('wird nur einmal gebaut', () => {
+    expect(index.trigramPostings()).toBe(index.trigramPostings());
+  });
+});
+
 describe('matchName gestaffelt (§ 5)', () => {
   const { index, postings } = buildFixtures();
 
@@ -132,10 +152,11 @@ describe('matchName gestaffelt (§ 5)', () => {
 
 // --- Der zentrale Test: echte-artige OCR-Fixtures (PLAN.md § 5) --------------
 describe('OCR-Fixtures', () => {
-  const { index, postings, enNormToOracle } = buildFixtures();
+  const { index, enNormToOracle } = buildFixtures();
   for (const sample of ocrSamples as { raw: string; expect: string | null; note: string }[]) {
     it(`"${sample.raw}" -> ${sample.expect ?? 'kein Treffer'} (${sample.note})`, () => {
-      const r = matchName(sample.raw, index, postings);
+      // Wie in der App (data/matcher.ts): Postings aus dem Index selbst.
+      const r = matchName(sample.raw, index, index.trigramPostings());
       if (sample.expect === null) {
         expect(r.best).toBeUndefined();
       } else {

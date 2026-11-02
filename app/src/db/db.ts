@@ -3,7 +3,6 @@ import type {
   Card,
   Printing,
   NameEntry,
-  TrigramEntry,
   HashEntry,
   ScanLog,
   Owned,
@@ -18,8 +17,8 @@ import { isTokenCard } from '../domain/tokens';
 /**
  * Persistenz via IndexedDB/Dexie (PLAN.md § 3). Kein LocalStorage.
  *
- * Der Katalog (cards/printings/names/trigrams) wird per Sync gefüllt (§ 4) und
- * beim Update nur ge-`bulkPut`t — `owned`/`decks` werden dabei NIE angefasst.
+ * Der Katalog (cards/printings/names) wird per Sync gefüllt (§ 4) und beim Update
+ * nur ergänzt/überschrieben — `owned`/`decks` werden dabei NIE angefasst.
  */
 
 export interface MetaEntry {
@@ -31,7 +30,6 @@ export class ScryGlassDB extends Dexie {
   cards!: Table<Card, string>; // PK: oracleId
   printings!: Table<Printing, string>; // PK: scryfallId
   names!: Table<NameEntry, [string, string, string]>; // PK: [normName+oracleId+lang]
-  trigrams!: Table<TrigramEntry, string>; // PK: trigram
   hashes!: Table<HashEntry, string>; // PK: scryfallId (Bild-pHash, Scanner v2)
   scans!: Table<ScanLog, number>; // PK: ++id (Fixture-Sammlung)
   prices!: Table<PriceEntry, string>; // PK: key (Ausgabe oder „oracle:…")
@@ -71,6 +69,11 @@ export class ScryGlassDB extends Dexie {
     // v5: Layout-Index — Tokens/Embleme schnell finden (Großes Token-Update, M14).
     this.version(5).stores({
       cards: 'oracleId, normName, cmc, *colorIdentity, layout',
+    });
+    // v6: Trigramm-Tabelle weg — der Namensindex baut die Trigramme selbst im RAM
+    // (domain/nameMatch, 0.2.7). Gibt ~34 MB frei.
+    this.version(6).stores({
+      trigrams: null,
     });
   }
 }

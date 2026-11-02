@@ -7,6 +7,7 @@ import android.content.pm.Signature
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.view.WindowManager
 import androidx.core.content.FileProvider
 import androidx.core.content.pm.PackageInfoCompat
 import com.getcapacitor.JSObject
@@ -48,6 +49,20 @@ class AppUpdaterPlugin : Plugin() {
             context.startActivity(intent)
         }
         call.resolve()
+    }
+
+    /**
+     * Bildschirm anlassen, solange ein Update lädt (`on`). Geht er aus, drosselt Android
+     * die WebView im Hintergrund — der Katalog-Import stünde dann fast still.
+     */
+    @PluginMethod
+    fun keepScreenOn(call: PluginCall) {
+        val on = call.getBoolean("on") ?: false
+        activity.runOnUiThread {
+            if (on) activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            call.resolve()
+        }
     }
 
     /** APK prüfen und den Installer öffnen. Erwartet `path` (aus downloadFile) und `sha256`. */

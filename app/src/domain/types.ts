@@ -39,12 +39,6 @@ export interface NameEntry {
   lang: Lang;
 }
 
-/** Trigramm-Postings (Fuzzy-Fallback-Index). */
-export interface TrigramEntry {
-  trigram: string;
-  oracleIds: string[];
-}
-
 /** Perceptual-Hash einer Druckausgabe fürs Bild-Matching (Scanner v2). */
 export interface HashEntry {
   scryfallId: string;

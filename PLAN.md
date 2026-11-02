@@ -144,8 +144,9 @@ dist/                       geplant   real (2026-09-18)
 ```
 
 Real deutlich größer als geplant (v. a. Trigramm-Postings mit vollen UUID-oracleIds).
-In der APK zippt es gut; wenn Import/APK kleiner werden sollen: Trigramm-Index mit
-Integer-IDs (§ 10, M14).
+**Seit 0.2.7 lädt die App `trigrams.ndjson` nicht mehr:** der Namensindex baut die
+Postings selbst aus den Namen (`NameIndex.trigramPostings`, ~0,3 s Desktop). Die Datei
+bleibt im Katalog, solange 0.2.6 sie noch lädt.
 
 ### Bild-Hashes
 
@@ -295,18 +296,31 @@ der eingebaute Katalog überschreibt nie einen jüngeren, schon geladenen.
 
 ### Import
 
-- NDJSON-Stream zeilenweise, `bulkPut` in Chunks à **1500 Records**
-- Zwischen den Chunks `await new Promise(r => setTimeout(r, 0))` → UI bleibt bedienbar
+- NDJSON-Stream zeilenweise, `bulkPut` in Chunks à **1500 Records** (`data/bulkImport.ts`)
+- Zwischen den Chunks per `MessageChannel` der UI Luft geben — **nicht** per
+  `setTimeout`: Timer drosselt der Browser bei ausgeblendeter Seite (Bildschirm aus)
+  auf ≥ 1 s, bei Hunderten Chunks stand der Import damit fast still
 - Fortschritt aus `counts` in `version.json`
 - Import ist **abbruchsicher**: `meta.catalogVersion` wird erst nach dem letzten Chunk
   gesetzt. Abbruch mittendrin → beim nächsten Start wird neu importiert.
-- Reihenfolge: `cards` → `printings` → `names` → `trigrams`
+- Reihenfolge: `cards` → `printings` → `names` (Trigramme seit 0.2.7 im RAM, s. o.)
+- Bildschirm bleibt an, solange importiert wird (`AppUpdater.keepScreenOn`)
 
 ### Update
 
-Gleicher Weg, aber `bulkPut` statt Leeren+Neuschreiben. `owned` und `decks` werden
-**nie** angefasst. Alte `oracleId`s, die verschwinden, bleiben stehen (Scryfall
-merged gelegentlich Oracle-IDs — das ist selten genug, um es zu ignorieren).
+Gleicher Weg, aber nur **Neues und Geändertes** wird geschrieben (Schreiben ist das
+Teure, von Woche zu Woche ändert sich ein Bruchteil): Karten und Druckausgaben je Chunk
+mit dem Bestand vergleichen, Namen und Bild-Hashes nur nach Schlüssel (ändern sich
+nie). Gemessen (Browser, gleicher Katalog): Druckausgaben 23,3 s → 5,2 s, Bild-Hashes
+15,5 s → 1,3 s, komplettes Update ~51 s → ~9 s. Parallel in mehrere Tabellen schreiben
+bringt nichts (38 s statt 34 s), größere Chunks auch nicht.
+`owned` und `decks` werden **nie** angefasst. Alte `oracleId`s, die verschwinden,
+bleiben stehen (Scryfall merged gelegentlich Oracle-IDs — das ist selten genug, um es
+zu ignorieren).
+
+Das Update läuft als Hintergrund-Aufgabe (`data/job.ts`), nicht im Bildschirm: Tab
+wechseln bricht nichts ab, ein zweiter Start schließt sich dem laufenden an, und eine
+Leiste unter dem Kopf zeigt den Fortschritt in den anderen Tabs.
 
 ---
 
@@ -806,7 +820,8 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
 - [x] Katalog-Updates ohne neue APK (öffentliches Repo, § 4) → M15
 - [x] Android-Zurück-Taste abfangen (`@capacitor/app`, v0.2.3)
 - [x] Set-Fortschritt in der Statistik, Deck-Wert, Farbschema Halloween (v0.2.3)
-- [ ] Katalog verkleinern (Trigramm-Index mit Integer-IDs)
+- [x] Katalog verkleinern: Trigramme baut die App selbst (0.2.7) — der Rest ist
+      kleiner als gedacht, siehe § 4
 - [ ] Scanner § 6.3 (Artwork-Hash, Entzerrung, Embedding)
 - [ ] Peer: Auto-Discovery (`NsdManager`), Geräte-Tests aus M8
 - [ ] Sprite-Animationen aus DESIGN § 7 (Flip, Stapeln, Stempel)
@@ -840,6 +855,10 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
 - [x] **Hinweis:** höchstens einmal am Tag nachsehen, Punkt am „Mehr"-Tab; nach einem
       Update einmal „Was ist neu" mit den Patch Notes.
 - [x] Katalog-Archiv-Releases mit `--latest=false` (verdrängen die App nicht mehr).
+- [x] **Katalog-Update schneller und robuster** (nach 0.2.6, Tester-Feedback „bricht ab,
+      wenn man aus Mehr rausgeht, sehr langsam"): Hintergrund-Aufgabe statt Bildschirm-
+      Zustand, nur Neues/Geändertes schreiben, Trigramme im RAM (Download 45 → 27 MB),
+      keine gedrosselten Timer, Bildschirm bleibt an. Das App-Update läuft genauso.
 - [ ] Erst-Test am Handy: 0.2.6 von Hand, dann das nächste Release aus der App heraus.
 - [ ] Optional: Releases von GitHub Actions bauen lassen (Schlüssel als Secret).
 

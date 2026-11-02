@@ -2,17 +2,18 @@ import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db/db';
 import {
-  syncOnStartup, applyUpdate, getLocalCatalogVersion, CATALOG_BASE_URL,
+  syncOnStartup, getLocalCatalogVersion, CATALOG_BASE_URL,
   type CatalogVersion, type SyncProgress,
 } from './data/catalog';
 import { invalidateNameIndex } from './data/matcher';
 import { invalidateSearchIndex } from './data/search';
 import { syncHashes, loadHashIndex } from './data/imageHash';
-import { checkForUpdates, currentUpdateStatus, pendingWhatsNew, dismissWhatsNew } from './data/updates';
+import { checkForUpdates, currentUpdateStatus, pendingWhatsNew, dismissWhatsNew, startCatalogUpdate } from './data/updates';
 import { getCachedNextSet, refreshNextSet } from './data/nextSet';
 import { nextSetLabel, type UpcomingSet } from './domain/nextSet';
 import { initFeedbackPrefs } from './native/feedback';
 import { initBackButton } from './native/backButton';
+import { withScreenOn } from './native/appUpdater';
 import { useBackHandler } from './ui/backStack';
 import { ScannerPanel } from './ui/ScannerPanel';
 import { CollectionView } from './ui/CollectionView';
@@ -20,18 +21,17 @@ import { DecksPanel } from './ui/DecksPanel';
 import { SearchPanel } from './ui/SearchPanel';
 import { PixelIcon, type PixelIconName } from './ui/PixelIcon';
 import { MorePanel } from './ui/MorePanel';
-import { ReleaseNotes } from './ui/UpdatePanel';
+import { ReleaseNotes, UpdateProgressStrip } from './ui/UpdatePanel';
 
 type Tab = 'scan' | 'sammlung' | 'decks' | 'suche' | 'mehr';
 type Gate = 'checking' | 'importing' | 'ready' | 'offline';
 
 // Import-Phasen als Pips (DESIGN.md § 5 A1). Reihenfolge = Pipeline-Reihenfolge.
-const PHASES: SyncProgress['phase'][] = ['cards', 'printings', 'names', 'trigrams'];
+const PHASES: SyncProgress['phase'][] = ['cards', 'printings', 'names'];
 const PHASE_LABEL: Record<SyncProgress['phase'], string> = {
   cards: 'Karten',
   printings: 'Editionen',
   names: 'Namen',
-  trigrams: 'Index',
 };
 const nfDe = new Intl.NumberFormat('de-DE');
 
@@ -49,7 +49,6 @@ export default function App() {
   const [gate, setGate] = useState<Gate>('checking');
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [update, setUpdate] = useState<CatalogVersion | null>(null);
-  const [applying, setApplying] = useState(false);
 
   const inboxCount = useLiveQuery(() => db.inbox.count(), []) ?? 0;
   // Neues auf GitHub (App oder Katalog) → Punkt am „Mehr"-Tab (M15).
@@ -67,7 +66,9 @@ export default function App() {
   async function runSync() {
     const local = await getLocalCatalogVersion();
     setGate(local ? 'ready' : 'checking');
-    const res = await syncOnStartup({ onProgress: (p) => { setProgress(p); setGate('importing'); } });
+    // Erstimport: Bildschirm anlassen — geht er aus, bremst Android die WebView aus.
+    const sync = () => syncOnStartup({ onProgress: (p) => { setProgress(p); setGate('importing'); } });
+    const res = local ? await sync() : await withScreenOn(sync);
     setProgress(null);
     invalidateNameIndex();
     invalidateSearchIndex();
@@ -92,17 +93,12 @@ export default function App() {
   useEffect(() => initBackButton(), []);
   useBackHandler(tab !== 'sammlung', () => setTab('sammlung'));
 
-  async function doUpdate() {
+  // Eingebauter Katalog neuer als der lokale (nach einem App-Update): im Hintergrund
+  // einspielen — den Fortschritt zeigen die Leiste unten bzw. „Mehr → Katalog".
+  function doUpdate() {
     if (!update) return;
-    setApplying(true);
-    await applyUpdate(update, { onProgress: setProgress });
-    invalidateNameIndex();
-    invalidateSearchIndex();
-    const ver = await getLocalCatalogVersion();
-    void syncHashes(CATALOG_BASE_URL, ver).then(() => void loadHashIndex());
+    void startCatalogUpdate({ kind: 'eingebaut', version: update });
     setUpdate(null);
-    setProgress(null);
-    setApplying(false);
   }
 
   if (gate === 'checking') {
@@ -133,16 +129,12 @@ export default function App() {
       {update && (
         <div className="mx-4 mb-2 flex items-center gap-2 rounded-md bg-accent/10 px-3 py-2 font-mono text-xs text-accent">
           <span className="flex-1">Katalog-Update verfügbar.</span>
-          {applying ? (
-            <span>{progress ? Math.round((progress.overallDone / Math.max(1, progress.overallTotal)) * 100) : 0}%</span>
-          ) : (
-            <>
-              <button onClick={() => void doUpdate()} className="rounded bg-accent px-2 py-1 text-on-accent">Laden</button>
-              <button onClick={() => setUpdate(null)} className="text-muted hover:text-text">später</button>
-            </>
-          )}
+          <button onClick={doUpdate} className="rounded bg-accent px-2 py-1 text-on-accent">Laden</button>
+          <button onClick={() => setUpdate(null)} className="text-muted hover:text-text">später</button>
         </div>
       )}
+      {/* Läuft ein Update im Hintergrund weiter — in „Mehr" steht es ausführlich. */}
+      {tab !== 'mehr' && <UpdateProgressStrip onOpen={() => setTab('mehr')} />}
 
       <main className="flex-1 px-4 pb-28">
         {tab === 'scan' && <ScannerPanel />}
