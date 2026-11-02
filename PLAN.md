@@ -280,14 +280,18 @@ Ausgabe. Den gescannten Druck automatisch zu merken war bewusst nicht gewünscht
 
 **Die App muss ohne Netz starten.** Im Kartenladen gibt es kein WLAN.
 
-### Eingebetteter Katalog (Stand v0.2.x)
+### Eingebetteter Katalog + Updates von GitHub (M15)
 
 `CATALOG_BASE_URL` ist per Default `/catalog` — der Katalog aus `app/public/catalog/`
 wandert beim Build **in die APK**. Der Erstimport läuft damit auch ohne Netz (~40 s),
-die Bild-Hashes werden danach im Hintergrund importiert. Neue Sets kommen derzeit nur
-mit einer neuen APK: ein Update über das Release `catalog-latest`
-(`VITE_CATALOG_BASE_URL`) scheitert, solange das Repo privat ist (Assets nur mit
-Anmeldung). Offen in M14.
+die Bild-Hashes werden danach im Hintergrund importiert.
+
+Seit das Repo öffentlich ist, lädt die App neuere Kataloge direkt aus dem Release
+`catalog-latest` (wöchentlich von `catalog.yml` gebaut, Bild-Hashes direkt danach von
+`hashes.yml`), gzip-komprimiert (110 → 45 MB). Release-Downloads erlauben keine
+Browser-Anfragen (CORS) — in der App laufen GET-Anfragen aber über den nativen HTTP-Weg
+von Capacitor (`CapacitorHttp`), der streamt. Nur **neuer** zählt (`isNewerCatalog`):
+der eingebaute Katalog überschreibt nie einen jüngeren, schon geladenen.
 
 ### Import
 
@@ -799,7 +803,7 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
 - [ ] Testlauf mit echten Handyfotos (Diagnose an) auswerten, Schwellen nachziehen
 
 ### M14 — Backlog
-- [ ] Katalog-Updates ohne neue APK (öffentliches Repo oder eigenes Hosting, § 4)
+- [x] Katalog-Updates ohne neue APK (öffentliches Repo, § 4) → M15
 - [x] Android-Zurück-Taste abfangen (`@capacitor/app`, v0.2.3)
 - [x] Set-Fortschritt in der Statistik, Deck-Wert, Farbschema Halloween (v0.2.3)
 - [ ] Katalog verkleinern (Trigramm-Index mit Integer-IDs)
@@ -818,6 +822,26 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
       Token 22/22, exakte Ausgabe 18/22 (die übrigen 4: gleiches Artwork aus anderem Set).
 - [x] Abfragen über viele Schlüssel ohne Dexie-`anyOf` (`whereAnyOf`, v0.2.5): Sammlung
       7,2 s → 0,14 s, Set-Fortschritt 15,6 s → 2,2 s (400 verstreute Karten, Browser)
+
+### M15 — Updates aus der App (nach v0.2.5, Repo öffentlich)
+- [x] **Signatur:** Release-Builds (`assembleRelease`) mit dem bisherigen Debug-Schlüssel,
+      jetzt außerhalb des Repos mit eigenem Passwort (`android/keystore.properties`, nur
+      lokal). Gleiches Zertifikat (SHA-256 `0f0a12…d99c`) → installierte Apps updaten ohne
+      Deinstallieren. Schlüssel + Passwort verloren = keine Updates mehr möglich.
+- [x] **App-Update unter „Mehr":** GitHub-API → höchstes `vX.Y.Z` mit APK (NICHT
+      `releases/latest` — das zeigte auf ein Katalog-Release) → automatische Sicherung →
+      APK nativ in den Cache laden → Plugin `AppUpdater` prüft SHA-256 (`<apk>.sha256` im
+      Release), Paket, höhere versionCode und Signatur → Android-Installer. Einmalig
+      „Unbekannte Apps installieren" erlauben (`REQUEST_INSTALL_PACKAGES`).
+- [x] **Automatische Sicherung** vor jedem Update in den App-Speicher (letzte drei),
+      unter Backup wiederherstellen oder teilen; Wiederherstellen sichert vorher selbst.
+- [x] **Katalog von GitHub** unter „Mehr → Katalog" (gzip, Mobilfunk-Hinweis), danach
+      Bild-Hashes; `hashes.yml` läuft jetzt nach jedem Katalog-Bau.
+- [x] **Hinweis:** höchstens einmal am Tag nachsehen, Punkt am „Mehr"-Tab; nach einem
+      Update einmal „Was ist neu" mit den Patch Notes.
+- [x] Katalog-Archiv-Releases mit `--latest=false` (verdrängen die App nicht mehr).
+- [ ] Erst-Test am Handy: 0.2.6 von Hand, dann das nächste Release aus der App heraus.
+- [ ] Optional: Releases von GitHub Actions bauen lassen (Schlüssel als Secret).
 
 ---
 

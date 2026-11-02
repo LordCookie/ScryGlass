@@ -29,6 +29,8 @@ Code-Kommentare referenzieren die Abschnitte (`§ 5`, `E3`, `M4` …).
   Signiert wird mit dem Release-Schlüssel aus `android/keystore.properties` (nur lokal,
   nie committen). Immer derselbe Schlüssel, sonst lassen sich installierte Apps nicht
   mehr updaten. Ausgabe: `android/app/build/outputs/apk/release/app-release.apk`.
+- Release: APK als `ScryGlass-X.Y.Z.apk` UND `ScryGlass-X.Y.Z.apk.sha256` (sha256sum-
+  Format) hochladen — ohne Prüfsumme installiert die App das Update nicht (M15).
 - Pipeline: `cd pipeline && python -m pytest`.
 
 ## Commit-Konventionen
