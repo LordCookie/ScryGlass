@@ -34,6 +34,11 @@ jobs:
         working-directory: pipeline
         run: python fetch_scryfall.py --out dist
 
+      # Komprimiert für die App (110 → 45 MB, M15); die App entpackt beim Streamen.
+      # Die unkomprimierten bleiben für den Hash-Lauf und ältere App-Versionen.
+      - name: Gzip for the app
+        run: gzip -9 -k -f pipeline/dist/*.ndjson
+
       - name: Show output
         run: |
           ls -lh pipeline/dist
@@ -45,12 +50,15 @@ jobs:
         run: |
           DATE=$(date -u +%Y%m%d)
           TAG="catalog-$DATE"
+          # --latest=false: sonst gilt das Katalog-Archiv bei GitHub als „neuestes
+          # Release" und verdrängt die App-Version auf der Repo-Seite.
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" pipeline/dist/*.ndjson pipeline/dist/version.json --clobber
           else
             gh release create "$TAG" pipeline/dist/*.ndjson pipeline/dist/version.json \
               --title "Catalog $DATE" \
-              --notes "Slim-Katalog aus dem Scryfall-Bulk (DE+EN). Automatisch erzeugt."
+              --notes "Slim-Katalog aus dem Scryfall-Bulk (DE+EN). Automatisch erzeugt." \
+              --latest=false
           fi
 
       - name: Rolling 'latest' release (stable URL for the app)
@@ -59,9 +67,9 @@ jobs:
         run: |
           TAG="catalog-latest"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" pipeline/dist/*.ndjson pipeline/dist/version.json --clobber
+            gh release upload "$TAG" pipeline/dist/*.ndjson pipeline/dist/*.ndjson.gz pipeline/dist/version.json --clobber
           else
-            gh release create "$TAG" pipeline/dist/*.ndjson pipeline/dist/version.json \
+            gh release create "$TAG" pipeline/dist/*.ndjson pipeline/dist/*.ndjson.gz pipeline/dist/version.json \
               --title "Catalog (latest)" \
               --notes "Immer der aktuellste Katalog. Die App lädt von hier." \
               --latest=false

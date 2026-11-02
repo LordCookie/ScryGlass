@@ -1,15 +1,16 @@
 name: Build image hashes
 
 # Perceptual-Hash-Index für den Scanner (Scanner v2, PLAN.md § 6). Hasht alle
-# Druckausgaben (Artwork) und hängt `hashes.ndjson` ans catalog-latest-Release.
-# Resumbar: lädt die vorherige hashes.ndjson und überspringt bereits Gehashtes —
-# spätere Läufe hashen also nur neue Karten (schnell). Der ERSTE Vollauf ist lang.
+# Druckausgaben (Artwork) und hängt `hashes.ndjson` (+ .gz für die App, M15) ans
+# catalog-latest-Release. Resumbar: lädt die vorherige hashes.ndjson und überspringt
+# bereits Gehashtes — spätere Läufe hashen also nur neue Karten (schnell).
+# Läuft direkt nach jedem Katalog-Bau, damit neue Karten sofort im Bild-Abgleich sind.
 
 on:
   workflow_dispatch:
-  schedule:
-    # Monatlich (nach dem Katalog-Build), 1. des Monats 05:00 UTC.
-    - cron: "0 5 1 * *"
+  workflow_run:
+    workflows: ["Build catalog"]
+    types: [completed]
 
 permissions:
   contents: write
@@ -20,6 +21,8 @@ concurrency:
 
 jobs:
   build:
+    # Nach dem Katalog-Bau nur, wenn der geklappt hat.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 340
     steps:
@@ -49,4 +52,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "Hashes: $(wc -l < pipeline/dist/hashes.ndjson)"
-          gh release upload catalog-latest pipeline/dist/hashes.ndjson --clobber
+          gzip -9 -k -f pipeline/dist/hashes.ndjson
+          gh release upload catalog-latest pipeline/dist/hashes.ndjson pipeline/dist/hashes.ndjson.gz --clobber
