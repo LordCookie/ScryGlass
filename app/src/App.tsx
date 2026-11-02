@@ -8,6 +8,7 @@ import {
 import { invalidateNameIndex } from './data/matcher';
 import { invalidateSearchIndex } from './data/search';
 import { syncHashes, loadHashIndex } from './data/imageHash';
+import { checkForUpdates, currentUpdateStatus, pendingWhatsNew, dismissWhatsNew } from './data/updates';
 import { getCachedNextSet, refreshNextSet } from './data/nextSet';
 import { nextSetLabel, type UpcomingSet } from './domain/nextSet';
 import { initFeedbackPrefs } from './native/feedback';
@@ -19,6 +20,7 @@ import { DecksPanel } from './ui/DecksPanel';
 import { SearchPanel } from './ui/SearchPanel';
 import { PixelIcon, type PixelIconName } from './ui/PixelIcon';
 import { MorePanel } from './ui/MorePanel';
+import { ReleaseNotes } from './ui/UpdatePanel';
 
 type Tab = 'scan' | 'sammlung' | 'decks' | 'suche' | 'mehr';
 type Gate = 'checking' | 'importing' | 'ready' | 'offline';
@@ -50,6 +52,17 @@ export default function App() {
   const [applying, setApplying] = useState(false);
 
   const inboxCount = useLiveQuery(() => db.inbox.count(), []) ?? 0;
+  // Neues auf GitHub (App oder Katalog) → Punkt am „Mehr"-Tab (M15).
+  const updateStatus = useLiveQuery(() => currentUpdateStatus(), []);
+  const hasUpdate = !!(updateStatus?.app || updateStatus?.catalog);
+  // Nach einem App-Update einmal die Patch Notes zeigen.
+  const [whatsNew, setWhatsNew] = useState<{ version: string; notes: string } | null>(null);
+  useEffect(() => { void pendingWhatsNew().then(setWhatsNew); }, []);
+  const closeWhatsNew = () => {
+    setWhatsNew(null);
+    void dismissWhatsNew();
+  };
+  useBackHandler(!!whatsNew, closeWhatsNew);
 
   async function runSync() {
     const local = await getLocalCatalogVersion();
@@ -66,6 +79,9 @@ export default function App() {
     if (ready) {
       const ver = await getLocalCatalogVersion();
       void syncHashes(CATALOG_BASE_URL, ver).then(() => void loadHashIndex());
+      // Höchstens einmal am Tag bei GitHub nach Neuem sehen — etwas später, damit der
+      // Start nicht mit dem Bild-Index um Netz und Datenbank konkurriert.
+      window.setTimeout(() => void checkForUpdates().catch(() => {}), 5000);
     }
   }
 
@@ -154,15 +170,34 @@ export default function App() {
                 {active && <span className="absolute inset-x-0 top-0 h-[calc(var(--px)*1)] bg-paper" />}
                 <span className="flex h-6 items-center"><PixelIcon name={t.icon} unit="2px" /></span>
                 <span>{t.label}</span>
-                {/* Peer-Eingang liegt jetzt unter „Mehr" → Badge dort. */}
+                {/* Peer-Eingang liegt jetzt unter „Mehr" → Badge dort; sonst ein Punkt für Updates. */}
                 {t.key === 'mehr' && inboxCount > 0 && (
                   <span className="absolute right-1/5 top-1.5 bg-danger px-1.5 font-hud text-[8px] text-paper">{inboxCount}</span>
+                )}
+                {t.key === 'mehr' && inboxCount === 0 && hasUpdate && (
+                  <span aria-label="Update verfügbar" className="absolute right-1/4 top-2 h-2.5 w-2.5 bg-accent"
+                    style={{ boxShadow: '0 0 0 var(--px) rgb(var(--c-surface))' }} />
                 )}
               </button>
             );
           })}
         </div>
       </nav>
+
+      {whatsNew && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-bg/80 p-3 sm:items-center" onClick={closeWhatsNew}>
+          <div className="frame max-h-[85vh] w-full max-w-md overflow-y-auto bg-surface" onClick={(e) => e.stopPropagation()}>
+            <div className="titlebar sticky top-0">
+              <span className="min-w-0 flex-1 truncate text-text">Was ist neu in {whatsNew.version}</span>
+              <button onClick={closeWhatsNew} aria-label="Schließen" className="ml-1 px-2 text-paper hover:text-danger">✕</button>
+            </div>
+            <div className="space-y-4 p-4">
+              <ReleaseNotes md={whatsNew.notes} />
+              <button onClick={closeWhatsNew} className="w-full bg-accent px-3 py-2 font-mono text-sm text-on-accent">Los geht&apos;s</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

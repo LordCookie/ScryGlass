@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto';
+import { gzipSync } from 'node:zlib';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { db, getMeta } from '../db/db';
 import {
@@ -99,6 +100,31 @@ describe('importCatalog', () => {
     expect(new Set(phases)).toEqual(new Set(['cards', 'printings', 'names', 'trigrams']));
   });
 
+  it('liest gzip-komprimierte Dateien (*.ndjson.gz, Katalog von GitHub)', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      const key = Object.keys(FILES).find((f) => url.endsWith(`${f}.gz`));
+      if (!key) return new Response('not found', { status: 404 });
+      const gz = gzipSync(Buffer.from(FILES[key], 'utf-8'));
+      // in zwei Stücken liefern — die Zeilen dürfen auch über Chunk-Grenzen gehen
+      const cut = Math.floor(gz.length / 2);
+      return new Response(new ReadableStream({
+        start(c) {
+          c.enqueue(new Uint8Array(gz.subarray(0, cut)));
+          c.enqueue(new Uint8Array(gz.subarray(cut)));
+          c.close();
+        },
+      }), { status: 200 });
+    }));
+    await importCatalog(VERSION, 'https://example.org/catalog-latest', undefined, undefined, true);
+    expect(urls.every((u) => u.endsWith('.ndjson.gz'))).toBe(true);
+    expect(await db.cards.count()).toBe(2);
+    expect(await db.names.count()).toBe(3);
+    expect(await getLocalCatalogVersion()).toBe(VERSION.catalogVersion);
+  });
+
   it('ist abbruchsicher: bricht eine Phase ab, bleibt catalogVersion ungesetzt', async () => {
     vi.stubGlobal(
       'fetch',
@@ -126,6 +152,15 @@ describe('syncOnStartup (§ 4)', () => {
     expect(r.status).toBe('update-available');
     // owned/Katalog wurden NICHT automatisch verändert
     expect(await getMeta('catalogVersion')).toBe(VERSION.catalogVersion);
+  });
+
+  it('eingebauter Katalog ÄLTER als der lokale (von GitHub geladen) -> up-to-date, kein Rückschritt', async () => {
+    vi.stubGlobal('fetch', mockFetch());
+    const newer = { ...VERSION, catalogVersion: '20270101000000' };
+    await importCatalog(newer, '/catalog'); // lokal = neuer Stand
+    const r = await syncOnStartup({ base: '/catalog' }); // eingebaut = VERSION (älter)
+    expect(r.status).toBe('up-to-date');
+    expect(await getMeta('catalogVersion')).toBe(newer.catalogVersion);
   });
 
   it('kein Netz + lokaler Katalog -> up-to-date (App startet offline)', async () => {

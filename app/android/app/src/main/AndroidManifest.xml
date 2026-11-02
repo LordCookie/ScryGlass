@@ -44,6 +44,8 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- Scanner: Live-Kamera via getUserMedia im WebView (OCR, § 6). -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- App-Update aus der App (M15): heruntergeladene APK dem Installer übergeben. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Kamera ist optional (App läuft auch ohne, z. B. Tablet ohne Kamera). -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />

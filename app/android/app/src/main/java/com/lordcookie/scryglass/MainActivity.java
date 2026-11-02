@@ -11,6 +11,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(PeerServerPlugin.class);
         // Native Scanner-Kamera: CameraX + ML-Kit-Texterkennung auf dem Gerät.
         registerPlugin(ScryCameraPlugin.class);
+        // App-Update aus der App: APK prüfen (Prüfsumme, Signatur) und Installer öffnen.
+        registerPlugin(AppUpdaterPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

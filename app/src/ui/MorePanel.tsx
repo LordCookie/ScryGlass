@@ -2,24 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { db, replaceOwned, saveDeck, listScans, clearScans } from '../db/db';
+import { db, listScans, clearScans } from '../db/db';
 import { serializeCollection, parseCollection, CollectionImportError } from '../domain/collectionIo';
 import { toMoxfieldCsv, type CsvRow } from '../domain/collectionCsv';
 import { getCards } from '../data/cards';
-import { fetchRemoteVersion, applyUpdate, getLocalCatalogVersion, type CatalogVersion, type SyncProgress } from '../data/catalog';
-import { invalidateNameIndex } from '../data/matcher';
-import { invalidateSearchIndex } from '../data/search';
-import { loadTokenCatalog } from '../data/tokenCatalog';
+import { applyBackup, listAutoBackups, restoreAutoBackup, shareAutoBackup, type AutoBackup } from '../data/backups';
+import { AppUpdateSection, CatalogUpdateSection } from './UpdatePanel';
 import { initFeedbackPrefs, getVibration, setVibration, hapticTap } from '../native/feedback';
 import { PixelIcon } from './PixelIcon';
 import { THEMES, currentTheme, chooseTheme, type ThemeKey } from './themes';
 import { PeerPanel } from './PeerPanel';
 import { APP_VERSION } from '../version';
 import { getScanDiag, setScanDiag } from '../data/scanDiag';
-import { getTokenCount, setTokenCount } from '../data/tokens';
+import { getTokenCount } from '../data/tokens';
 import { PixelCheckbox } from './PixelCheckbox';
 
-/** „Mehr": Einstellungen, Backup/Export, Katalog-Update, Rechtliches (PLAN.md § 5, § 4, § 12). */
+/** „Mehr": Updates, Einstellungen, Backup/Export, Rechtliches (PLAN.md § 5, § 4, § 12, M15). */
 
 function downloadWeb(filename: string, content: string, type = 'application/json') {
   const blob = new Blob([content], { type });
@@ -85,11 +83,13 @@ async function copyToClipboard(text: string): Promise<boolean> {
 export function MorePanel() {
   return (
     <section className="space-y-3">
+      {/* Updates oben — dorthin zeigt der Punkt am „Mehr"-Tab (M15). */}
+      <AppUpdateSection />
+      <CatalogUpdateSection />
       <SettingsSection />
       {/* Gemeinsam scannen — früher eigener Tab, jetzt hier (Platz für die Suche). */}
       <PeerPanel />
       <BackupSection />
-      <CatalogSection />
       <ScanLogSection />
       <AboutSection />
     </section>
@@ -305,9 +305,7 @@ function BackupSection() {
   async function importJson(file: File) {
     try {
       const parsed = parseCollection(await file.text());
-      await replaceOwned(parsed.owned);
-      for (const d of parsed.decks) await saveDeck(d);
-      if (parsed.tokens != null) await setTokenCount(parsed.tokens);
+      await applyBackup(parsed);
       setMsg(
         `Wiederhergestellt: ${parsed.owned.length} Bestände, ${parsed.decks.length} Decks` +
           (parsed.tokens != null ? `, ${parsed.tokens} Tokens.` : '.'),
@@ -329,70 +327,51 @@ function BackupSection() {
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void importJson(f); e.target.value = ''; }} />
       </div>
       {msg && <p className="mt-2 font-mono text-xs text-muted">{msg}</p>}
+      <AutoBackups />
     </div>
   );
 }
 
-function CatalogSection() {
-  const [local, setLocal] = useState<string | undefined>();
-  const [check, setCheck] = useState<'idle' | 'loading' | 'done'>('idle');
-  const [remote, setRemote] = useState<CatalogVersion | null>(null);
-  const [progress, setProgress] = useState<SyncProgress | null>(null);
-  const [cardCount, setCardCount] = useState<number>(0);
-  const [tokenKinds, setTokenKinds] = useState<number>(0);
-  const countCatalog = async () => {
-    const [n, t] = await Promise.all([db.cards.count(), loadTokenCatalog()]);
-    setCardCount(n - t.oracleIds.size);
-    setTokenKinds(t.oracleIds.size);
-  };
+const backupTime = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-  useEffect(() => {
-    void getLocalCatalogVersion().then(setLocal);
-    void countCatalog();
-  }, []);
+/** Automatische Sicherungen vor App-Updates (data/backups, M15) — nur in der App. */
+function AutoBackups() {
+  const [list, setList] = useState<AutoBackup[] | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => { void listAutoBackups().then(setList); }, []);
+  if (!Capacitor.isNativePlatform()) return null;
 
-  async function doCheck() {
-    setCheck('loading');
-    setRemote(await fetchRemoteVersion());
-    setCheck('done');
+  async function restore(b: AutoBackup) {
+    if (!window.confirm(`Sammlung, Decks und Token-Zähler durch die Sicherung vom ${backupTime.format(b.at)} ersetzen? Der jetzige Stand wird vorher selbst gesichert.`)) return;
+    try {
+      const r = await restoreAutoBackup(b.name);
+      setMsg(`Wiederhergestellt: ${r.owned.length} Bestände, ${r.decks.length} Decks.`);
+      setList(await listAutoBackups());
+    } catch (e) {
+      setMsg(`Wiederherstellen fehlgeschlagen: ${(e as Error).message}`);
+    }
   }
-  async function doUpdate() {
-    if (!remote) return;
-    await applyUpdate(remote, { onProgress: setProgress });
-    invalidateNameIndex();
-    invalidateSearchIndex();
-    setLocal(remote.catalogVersion);
-    setRemote(null);
-    setCheck('idle');
-    setProgress(null);
-    await countCatalog();
-  }
-
-  const hasUpdate = check === 'done' && remote != null && remote.catalogVersion !== local;
 
   return (
-    <div className="rounded-lg bg-surface p-4">
-      <h2 className="mb-2 font-mono text-lg">Katalog</h2>
-      <p className="mb-2 font-mono text-xs text-muted">
-        Version: {local ?? '—'} · {cardCount} Karten{tokenKinds > 0 ? ` + ${tokenKinds} Tokens` : ''} lokal
-      </p>
-      {progress ? (
-        <p className="font-mono text-xs text-accent">Import {progress.phase}: {progress.overallDone}/{progress.overallTotal}</p>
+    <div className="mt-4 border-t-2 border-border pt-3">
+      <h3 className="mb-1 font-hud text-[9px] text-text">AUTOMATISCHE SICHERUNGEN</h3>
+      <p className="mb-2 text-[10px] text-muted">Vor jedem App-Update — die letzten drei, im App-Speicher (weg beim Deinstallieren: zur Sicherheit teilen).</p>
+      {list === null ? null : list.length === 0 ? (
+        <p className="font-mono text-xs text-muted">Noch keine.</p>
       ) : (
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => void doCheck()} className="rounded border border-border px-3 py-1.5 font-mono text-sm hover:border-accent">
-            Auf Update prüfen
-          </button>
-          {hasUpdate && (
-            <button onClick={() => void doUpdate()} className="rounded bg-accent px-3 py-1.5 font-mono text-sm text-on-accent">
-              Update laden ({remote?.catalogVersion})
-            </button>
-          )}
-        </div>
+        <ul className="space-y-1 font-mono text-xs">
+          {list.map((b) => (
+            <li key={b.name} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-muted">
+                {backupTime.format(b.at)} · {b.reason.replace(/^vor-/, 'vor ').replace(/-/g, ' ')}
+              </span>
+              <button onClick={() => void restore(b)} className="shrink-0 bg-bg px-2 py-1 text-accent hover:text-paper">Wiederherstellen</button>
+              <button onClick={() => void shareAutoBackup(b.name).catch(() => {})} className="shrink-0 bg-bg px-2 py-1 text-muted hover:text-paper">Teilen</button>
+            </li>
+          ))}
+        </ul>
       )}
-      {check === 'loading' && <p className="mt-2 font-mono text-xs text-muted">Prüfe…</p>}
-      {check === 'done' && remote == null && <p className="mt-2 font-mono text-xs text-muted">Kein Netz / kein Katalog erreichbar.</p>}
-      {check === 'done' && remote != null && !hasUpdate && <p className="mt-2 font-mono text-xs text-ok">Aktuell.</p>}
+      {msg && <p className="mt-2 font-mono text-xs text-muted">{msg}</p>}
     </div>
   );
 }

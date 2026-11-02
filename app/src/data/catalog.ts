@@ -1,6 +1,7 @@
 import type { Table } from 'dexie';
 import { db, getMeta, setMeta } from '../db/db';
 import { NdjsonBuffer } from './ndjson';
+import { isNewerCatalog } from '../domain/updates';
 
 /**
  * Katalog-Sync (PLAN.md § 4, M3). Beim App-Start:
@@ -11,6 +12,9 @@ import { NdjsonBuffer } from './ndjson';
  * Import: NDJSON zeilenweise streamen, `bulkPut` in 1500er-Chunks, zwischen Chunks
  * dem UI-Thread Luft geben. Abbruchsicher: `catalogVersion` wird ERST nach dem
  * letzten Chunk gesetzt — Abbruch mittendrin → nächster Start importiert neu.
+ *
+ * Quellen: der in die APK eingebaute Katalog (`/catalog`) und — seit M15 — der wöchentlich
+ * gebaute auf GitHub (`data/updates.ts`), dort gzip-komprimiert (110 → 45 MB).
  */
 
 /**
@@ -94,11 +98,12 @@ async function importFile<T>(
   phaseTotal: number,
   onChunk: (phaseDone: number) => void | Promise<void>,
   signal?: AbortSignal,
+  gzip = false,
 ): Promise<number> {
   const res = await fetch(url, signal ? { signal } : undefined);
   if (!res.ok || !res.body) throw new Error(`Katalog-Download fehlgeschlagen: ${url} (${res.status})`);
 
-  const reader = res.body.getReader();
+  const reader = (gzip ? res.body.pipeThrough(new DecompressionStream('gzip')) : res.body).getReader();
   const decoder = new TextDecoder();
   const buf = new NdjsonBuffer<T>();
   let pending: T[] = [];
@@ -130,13 +135,14 @@ async function importFile<T>(
 /**
  * Vollimport/Update. Reihenfolge cards → printings → names → trigrams. Setzt
  * `catalogVersion` erst nach dem letzten Chunk (abbruchsicher). `owned`/`decks`/
- * `inbox` werden nie angefasst (§ 4).
+ * `inbox` werden nie angefasst (§ 4). `gzip`: Dateien als `*.ndjson.gz` (GitHub).
  */
 export async function importCatalog(
   remote: CatalogVersion,
   base = CATALOG_BASE_URL,
   onProgress?: (p: SyncProgress) => void,
   signal?: AbortSignal,
+  gzip = false,
 ): Promise<void> {
   const phases: { phase: SyncPhase; table: Table<unknown, unknown>; total: number }[] = [
     { phase: 'cards', table: db.cards as unknown as Table<unknown, unknown>, total: remote.counts.cards },
@@ -150,7 +156,7 @@ export async function importCatalog(
   for (const { phase, table, total } of phases) {
     const before = overallBefore;
     await importFile(
-      `${base}/${phase}.ndjson`,
+      `${base}/${phase}.ndjson${gzip ? '.gz' : ''}`,
       table,
       total,
       (phaseDone) =>
@@ -162,6 +168,7 @@ export async function importCatalog(
           overallTotal,
         }),
       signal,
+      gzip,
     );
     overallBefore += total;
   }
@@ -174,7 +181,8 @@ export async function importCatalog(
  * Start-Sync (§ 4). Importiert bei fehlendem lokalem Katalog zwingend (mit
  * Fortschritt); bei neuerer Remote-Version wird NICHT erzwungen, sondern
  * `update-available` gemeldet (dezenter Hinweis in der UI). Ohne Netz und mit
- * lokalem Katalog: `up-to-date` (App startet offline).
+ * lokalem Katalog: `up-to-date` (App startet offline). Nur NEUER zählt — ein von
+ * GitHub geladener Katalog ist oft jünger als der in die APK eingebaute.
  */
 export async function syncOnStartup(opts?: {
   base?: string;
@@ -194,7 +202,7 @@ export async function syncOnStartup(opts?: {
     await importCatalog(remote, base, opts?.onProgress, opts?.signal);
     return { status: 'imported', local: remote.catalogVersion, remote };
   }
-  if (remote.catalogVersion !== local) {
+  if (isNewerCatalog(remote.catalogVersion, local)) {
     return { status: 'update-available', local, remote };
   }
   return { status: 'up-to-date', local, remote };
@@ -203,9 +211,9 @@ export async function syncOnStartup(opts?: {
 /** Vom Update-Hinweis ausgelöst: das Update wirklich einspielen. */
 export async function applyUpdate(
   remote: CatalogVersion,
-  opts?: { base?: string; onProgress?: (p: SyncProgress) => void; signal?: AbortSignal },
+  opts?: { base?: string; onProgress?: (p: SyncProgress) => void; signal?: AbortSignal; gzip?: boolean },
 ): Promise<SyncResult> {
-  await importCatalog(remote, opts?.base ?? CATALOG_BASE_URL, opts?.onProgress, opts?.signal);
+  await importCatalog(remote, opts?.base ?? CATALOG_BASE_URL, opts?.onProgress, opts?.signal, opts?.gzip);
   return { status: 'updated', local: remote.catalogVersion, remote };
 }
 

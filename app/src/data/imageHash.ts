@@ -200,15 +200,17 @@ interface RawHash {
   h: string;
 }
 
-/** Streamt `hashes.ndjson` (kompakte Keys {id,o,h}) in die `hashes`-Tabelle. */
+/** Streamt `hashes.ndjson` (kompakte Keys {id,o,h}) in die `hashes`-Tabelle;
+ *  `gzip`: als `hashes.ndjson.gz` (GitHub, M15). */
 export async function importHashes(
   base: string,
   onProgress?: (done: number) => void,
   signal?: AbortSignal,
+  gzip = false,
 ): Promise<number> {
-  const res = await fetch(`${base}/hashes.ndjson`, signal ? { signal } : undefined);
+  const res = await fetch(`${base}/hashes.ndjson${gzip ? '.gz' : ''}`, signal ? { signal } : undefined);
   if (!res.ok || !res.body) throw new Error(`hashes.ndjson nicht ladbar (${res.status})`);
-  const reader = res.body.getReader();
+  const reader = (gzip ? res.body.pipeThrough(new DecompressionStream('gzip')) : res.body).getReader();
   const decoder = new TextDecoder();
   const nb = new NdjsonBuffer<RawHash>();
   let pending: HashEntry[] = [];
@@ -244,13 +246,14 @@ export async function syncHashes(
   base: string,
   catalogVersion: string | undefined,
   onProgress?: (done: number) => void,
+  gzip = false,
 ): Promise<'imported' | 'skipped' | 'absent'> {
   if (catalogVersion) {
     const done = await getMeta<string>(HASHES_META);
     if (done === catalogVersion && (await db.hashes.count()) > 0) return 'skipped';
   }
   try {
-    await importHashes(base, onProgress);
+    await importHashes(base, onProgress, undefined, gzip);
   } catch {
     return 'absent';
   }
