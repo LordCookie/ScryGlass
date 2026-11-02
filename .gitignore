@@ -33,6 +33,7 @@ app/android/.gradle/
 app/android/local.properties
 app/android/app/release/
 *.apk
+*.apk.sha256
 *.aab
 *.keystore
 *.jks

@@ -10,8 +10,9 @@ selben WLAN gemeinsam mit anderen.
 > Eigentum von Wizards of the Coast. Kartendaten stammen von
 > [Scryfall](https://scryfall.com). Siehe [Rechtliches](#rechtliches).
 
-**Stand:** v0.2.5 (Tester-Version, Android). Die APK hängt am jeweils neuesten
-[GitHub-Release](https://github.com/LordCookie/ScryGlass/releases).
+**Stand:** v0.2.6 (Tester-Version, Android). Die APK hängt am jeweils neuesten
+[GitHub-Release](https://github.com/LordCookie/ScryGlass/releases) — ab 0.2.6 holt sich
+die App neue Versionen selbst (*Mehr → App-Update*).
 
 ---
 
@@ -39,6 +40,9 @@ selben WLAN gemeinsam mit anderen.
   Moxfield-Text-Im/Export.
 - **Gemeinsam scannen** (unter *Mehr*): mehrere Handys im selben WLAN, Pairing per
   QR-Code, ein Gerät sammelt ein und prüft vor der Übernahme.
+- **Updates aus der App** (unter *Mehr*): neue App-Version direkt von GitHub — vorher
+  automatische Sicherung der Sammlung, Prüfsumme und Signatur werden geprüft — und neue
+  Sets per Katalog-Update ohne neue APK. Höchstens einmal am Tag wird nachgesehen.
 - **Pixel-Art-Design** mit vier Farbschemata (Violett, Abendrot, Schwarz-Gold,
   Halloween), Countdown zum nächsten Set.
 
@@ -77,15 +81,15 @@ app/                 Vite + React + TS + Tailwind + Capacitor (die App)
                      Deck-Validierung, Preise, IO …)
     data/            Katalog-Sync, Namens-/Such-/Hash-Index, Preise, Bild-URLs
     db/              Dexie/IndexedDB-Schema
-    native/          Brücken zu nativen Funktionen (Scanner-Kamera, Feedback)
+    native/          Brücken zu nativen Funktionen (Scanner-Kamera, Feedback, Updates)
     peer/            Gemeinsam scannen: Protokoll, Client, Server-Bridge
     ui/              React-Komponenten (Scanner, Suche, Sammlung, Decks, Mehr)
-  android/           Capacitor-Android-Projekt (Kotlin-Plugins ScryCamera + PeerServer)
+  android/           Capacitor-Android-Projekt (Kotlin-Plugins ScryCamera, PeerServer, AppUpdater)
 design/
   make_icons.py      Pixel-App-Icon + Startbildschirm aus einem 32×32-Sprite
 .github/workflows/
   catalog.yml        Baut den Katalog wöchentlich (Mo), Release catalog-latest
-  hashes.yml         Ergänzt die Bild-Hashes monatlich (fortsetzbar)
+  hashes.yml         Ergänzt die Bild-Hashes nach jedem Katalog-Bau (fortsetzbar)
 ```
 
 ---
@@ -129,6 +133,10 @@ Die APK liegt danach unter `app/android/app/build/outputs/apk/debug/`. Die nativ
 Kamera (ScryCamera) gibt es nur in der APK — im Browser nutzt der Scanner die
 Web-Kamera mit Tesseract.
 
+Releases baut `./gradlew assembleRelease` mit dem eigenen Signaturschlüssel
+(`android/keystore.properties`, nur lokal, nicht im Repo). Nur APKs mit demselben
+Schlüssel lassen sich über eine installierte Version updaten.
+
 ---
 
 ## Katalog
@@ -141,9 +149,9 @@ APK wandert. Zum lokalen Befüllen:
 cd pipeline && python fetch_scryfall.py --out ../app/public/catalog --sample tests/sample_bulk.jsonl
 ```
 
-`app/public/catalog/` ist gitignored. Katalog-Updates ohne neue APK (per
-`VITE_CATALOG_BASE_URL` auf das Release `catalog-latest`) gehen erst, wenn die Assets
-ohne Anmeldung erreichbar sind (öffentliches Repo oder eigenes Hosting).
+`app/public/catalog/` ist gitignored. Neuere Kataloge lädt die App unter
+*Mehr → Katalog* direkt aus dem Release `catalog-latest` (gzip-komprimiert, ~45 MB);
+der eingebaute Katalog überschreibt nie einen jüngeren, schon geladenen.
 
 ---
 
@@ -151,8 +159,10 @@ ohne Anmeldung erreichbar sind (öffentliches Repo oder eigenes Hosting).
 
 - **0.x.y**: `0.1.x` = Fixes/Kleinkram, `0.2.x` = neue Funktionen, `1.0.0` = öffentlich.
   `versionCode` in `app/android/app/build.gradle` zählt einfach hoch.
-- Jedes Release ist ein Tag `vX.Y.Z` mit deutschen Release-Notes. **Nur das neueste
-  Release trägt die APK**; ältere APK-Assets werden gelöscht. Die Releases
+- Jedes Release ist ein Tag `vX.Y.Z` mit deutschen Release-Notes (die App zeigt sie
+  als „Was ist neu"). Es trägt `ScryGlass-X.Y.Z.apk` **und** `ScryGlass-X.Y.Z.apk.sha256`
+  — ohne Prüfsumme installiert die App das Update nicht. **Nur das neueste Release
+  trägt die APK**; ältere APK-Assets werden gelöscht. Die Releases
   `catalog-*` enthalten die CI-Katalogdaten und werden dabei nie angefasst.
 
 ---
