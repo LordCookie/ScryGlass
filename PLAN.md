@@ -1,6 +1,6 @@
 # PLAN.md — ScryGlass (MTG Sammlungs- & Deckbau-App)
 
-> **ScryGlass** — Stand **v0.2.6** (2026-11-02), Tester-Version für Android.
+> **ScryGlass** — Stand **v0.2.7** (2026-11-02), Tester-Version für Android.
 > Local-first, offline-fähig, nicht-kommerziell. Basiert auf dem wiederverwendbaren
 > Kern von [engram](https://github.com/LordCookie/Engram) (Scanner, Sammlung, Dexie,
 > Offline-Bilder, Capacitor), aber mit komplett neuer Datenschicht.
@@ -933,3 +933,4 @@ Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zä
 | 0.2.4 | 2026-10-25 | Tokens erkennen statt falsche Karte zuordnen, Token-Zähler (Statistik, Sammlung, Backup) |
 | 0.2.5 | 2026-10-26 | Großes Token-Update: Tokens je Artwork (Katalog 25.10. inkl. Tokens, Scanner, Sammlung Karten/Tokens), schnellere Sammlung und Set-Fortschritt |
 | 0.2.6 | 2026-11-02 | Updates aus der App (App-Version mit Prüfsumme + Signaturprüfung, Katalog von GitHub), automatische Sicherungen, „Was ist neu", Release-Signatur mit eigenem Passwort |
+| 0.2.7 | 2026-11-02 | Katalog- und App-Update im Hintergrund (Tab-Wechsel bricht nichts ab), Katalog-Update ~5× schneller und 27 statt 45 MB, Bildschirm bleibt beim Laden an; erstes Update aus der App heraus |

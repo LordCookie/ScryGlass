@@ -10,7 +10,7 @@ selben WLAN gemeinsam mit anderen.
 > Eigentum von Wizards of the Coast. Kartendaten stammen von
 > [Scryfall](https://scryfall.com). Siehe [Rechtliches](#rechtliches).
 
-**Stand:** v0.2.6 (Tester-Version, Android). Die APK hängt am jeweils neuesten
+**Stand:** v0.2.7 (Tester-Version, Android). Die APK hängt am jeweils neuesten
 [GitHub-Release](https://github.com/LordCookie/ScryGlass/releases) — ab 0.2.6 holt sich
 die App neue Versionen selbst (*Mehr → App-Update*).
 
@@ -150,8 +150,10 @@ cd pipeline && python fetch_scryfall.py --out ../app/public/catalog --sample tes
 ```
 
 `app/public/catalog/` ist gitignored. Neuere Kataloge lädt die App unter
-*Mehr → Katalog* direkt aus dem Release `catalog-latest` (gzip-komprimiert, ~45 MB);
-der eingebaute Katalog überschreibt nie einen jüngeren, schon geladenen.
+*Mehr → Katalog* direkt aus dem Release `catalog-latest` (gzip-komprimiert, ~27 MB) und
+schreibt dabei nur, was sich geändert hat; der eingebaute Katalog überschreibt nie einen
+jüngeren, schon geladenen. `trigrams.ndjson` braucht die App seit 0.2.7 nicht mehr (der
+Namensindex baut die Trigramme selbst) — nicht nach `app/public/catalog/` legen.
 
 ---
 
