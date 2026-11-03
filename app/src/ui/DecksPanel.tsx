@@ -479,10 +479,14 @@ function DeckStatsView({ deck, cards, owned, chosen }: {
       <DeckValueBox deck={deck} cards={cards} owned={owned} chosen={chosen} />
       <div className="rounded-lg bg-surface p-3 font-mono text-xs">
         <h3 className="mb-2 text-sm">Manakurve (ohne Länder)</h3>
-        <div className="flex items-end gap-1" style={{ height: 90 }}>
+        {/* Feste Höhe nur für die Balken — die Beschriftung darunter darf nicht in die
+            Überschrift ragen (vorher 90 px für alles: hohe Balken überdeckten den Titel). */}
+        <div className="flex gap-1">
           {Array.from({ length: CURVE_BUCKETS }, (_, i) => (
-            <div key={i} className="flex flex-1 flex-col items-center justify-end">
-              <div className="w-full rounded-t bg-accent" style={{ height: `${(stats.manaCurve[i] / maxCurve) * 70}px` }} />
+            <div key={i} className="flex flex-1 flex-col items-center">
+              <div className="flex w-full items-end" style={{ height: 70 }}>
+                <div className="w-full rounded-t bg-accent" style={{ height: `${(stats.manaCurve[i] / maxCurve) * 70}px` }} />
+              </div>
               <span className="mt-1 text-muted">{i === CURVE_BUCKETS - 1 ? '7+' : i}</span>
               <span className="text-[10px] text-muted">{stats.manaCurve[i] || ''}</span>
             </div>
