@@ -859,7 +859,13 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
       wenn man aus Mehr rausgeht, sehr langsam"): Hintergrund-Aufgabe statt Bildschirm-
       Zustand, nur Neues/Geändertes schreiben, Trigramme im RAM (Download 45 → 27 MB),
       keine gedrosselten Timer, Bildschirm bleibt an. Das App-Update läuft genauso.
-- [ ] Erst-Test am Handy: 0.2.6 von Hand, dann das nächste Release aus der App heraus.
+- [x] **Erst-Test 0.2.6 → 0.2.7 gescheitert** („Download abgebrochen"): Auf Android
+      legt `Filesystem.downloadFile` den Zielordner `cache/update/` nicht an (`recursive`
+      wird in @capacitor/filesystem 6.0.4 ignoriert), die App löscht ihn aber vorher —
+      jeder Download lief in ENOENT. Fix: Ordner per `mkdir` anlegen; Fehlermeldung nennt
+      den nativen Grund, dazu ein Link zur Release-Seite. 0.2.6/0.2.7 können sich deshalb
+      nicht selbst aktualisieren — einmal von Hand auf die Version mit Fix.
+- [ ] Erst-Test am Handy: Version mit Fix von Hand, dann das nächste Release aus der App.
 - [ ] Optional: Releases von GitHub Actions bauen lassen (Schlüssel als Secret).
 
 ---

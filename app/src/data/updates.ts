@@ -175,6 +175,9 @@ export async function downloadAndInstall(rel: AppRelease, onStep: (s: InstallSte
   if (!sha256) throw new UpdateError('Prüfsumme nicht lesbar — bitte später nochmal.', 'PRUEFSUMME');
 
   await Filesystem.rmdir({ path: UPDATE_DIR, directory: Directory.Cache, recursive: true }).catch(() => {});
+  // downloadFile legt auf Android den Ordner NICHT an (`recursive` wird in
+  // @capacitor/filesystem 6.0.4 ignoriert) — ohne das scheitert jeder Download (0.2.6/0.2.7).
+  await Filesystem.mkdir({ path: UPDATE_DIR, directory: Directory.Cache, recursive: true }).catch(() => {});
   onStep({ phase: 'download', done: 0, total: rel.apk.size });
   const listener = await Filesystem.addListener('progress', (p) =>
     onStep({ phase: 'download', done: p.bytes, total: p.contentLength || rel.apk.size }),
@@ -188,8 +191,10 @@ export async function downloadAndInstall(rel: AppRelease, onStep: (s: InstallSte
       recursive: true,
       progress: true,
     })).path;
-  } catch {
-    throw new UpdateError('Download abgebrochen — Internet prüfen und nochmal.', 'FEHLER');
+  } catch (e) {
+    // Den nativen Grund mit anzeigen — „Internet prüfen" allein hat den Ordner-Fehler verdeckt.
+    const detail = (e as Error)?.message?.replace(/^Error downloading file:\s*/, '');
+    throw new UpdateError(`Download abgebrochen — Internet prüfen und nochmal.${detail ? ` (${detail})` : ''}`, 'DOWNLOAD');
   } finally {
     await listener.remove();
   }

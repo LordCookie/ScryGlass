@@ -166,6 +166,12 @@ export function AppUpdateSection() {
         </button>
       )}
       {shown && <p className="mt-2 font-mono text-xs text-muted">{shown}</p>}
+      {app && native && jobMsg && (
+        <a href={app.pageUrl ?? RELEASES_PAGE} target="_blank" rel="noreferrer"
+          className="mt-1 inline-block font-mono text-xs text-accent underline">
+          Oder von Hand laden (Release-Seite)
+        </a>
+      )}
     </div>
   );
 }
