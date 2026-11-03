@@ -1,185 +1,165 @@
 # ScryGlass
 
-**Local-first Sammlungs- & Deckbau-App für Magic: The Gathering.** Offline-fähig,
-nicht-kommerziell, ohne Cloud oder Accounts. Scanne Karten mit der Handykamera in
-deine Sammlung, durchsuche den kompletten Katalog, baue Decks daraus und scanne im
-selben WLAN gemeinsam mit anderen.
+**Scan, organize and build decks with your Magic: The Gathering cards, right on your
+phone, even without internet.**
 
-> Unofficial fan project. **Nicht** affiliiert mit oder unterstützt von Wizards of
-> the Coast oder Scryfall. Magic: The Gathering und alle zugehörigen Marken sind
-> Eigentum von Wizards of the Coast. Kartendaten stammen von
-> [Scryfall](https://scryfall.com). Siehe [Rechtliches](#rechtliches).
+ScryGlass is a free, fan-made Android app. Point your camera at a card and it lands in
+your collection. Browse what you own, look up any card ever printed, see what your
+collection is worth and build decks from it. Everything stays on your phone: no
+account, no cloud, no ads.
 
-**Stand:** v0.2.8 (Tester-Version, Android). Die APK hängt am jeweils neuesten
-[GitHub-Release](https://github.com/LordCookie/ScryGlass/releases) — ab 0.2.8 holt sich
-die App neue Versionen selbst (*Mehr → App-Update*; 0.2.6 und 0.2.7 einmal von Hand auf
-0.2.8 aktualisieren — dort scheiterte der Download).
+<p align="center">
+  <img src="docs/screenshots/collection.jpg" width="260" alt="Your collection as a card grid">
+  <img src="docs/screenshots/detail.png" width="260" alt="Card details with artwork, prices and legality">
+  <img src="docs/screenshots/deck.png" width="260" alt="Building a Commander deck">
+</p>
 
----
-
-## Was es kann
-
-- **Kompletter Kartenkatalog lokal** (Deutsch + Englisch, ~34.000 Karten plus ~1.000
-  Tokens/Embleme, ~160.000 Druckausgaben) — steckt in der APK, funktioniert ab dem ersten
-  Start ohne Netz.
-- **Scanner** mit nativer Kamera (CameraX) und Texterkennung auf dem Gerät (ML Kit,
-  offline), parallel dazu **Bilderkennung** per Perceptual Hash — die Karte wird dafür
-  im Bild eingerastet, auch wenn sie kleiner, versetzt oder auf einem Stapel liegt.
-  Beide Signale bestätigen sich gegenseitig. Dazu: Set-Modus, **Auto-Korb** für Stapel („Karte für
-  Karte hinlegen"), **Tokens** mit Artwork erkennen, Ton + Vibration, Tap-to-Focus, Licht, Querformat, Scan-Verlauf
-  mit Rückgängig. Im Browser läuft ein Fallback mit Tesseract.
-- **Suche** über den ganzen Katalog: Name, Typ oder Regeltext (DE/EN), mehrere Farben
-  (enthält / genau / höchstens), Kartentyp, Manawert, Format, Regeltext- und
-  Kreaturentyp-Filter, „nur im Bestand".
-- **Sammlung**: Bild-Raster oder Liste, Filter, Sortierung (Name, Manawert, Anzahl,
-  Wert), Statistik mit **Set-Fortschritt**, Artwork-Wahl je Karte, **Richtpreise**
-  (Cardmarket-Euro über Scryfall) und Sammlungswert. **Tokens** getrennt von den Karten,
-  je Artwork gezählt. JSON-Backup + CSV-Export (ManaBox/Moxfield-kompatibel).
-- **Deckbau** aus der eigenen Sammlung: Standard, Pioneer, Modern, Legacy, Vintage,
-  Commander, Pauper, Brawl. Live-Validierung, Commander mit verfügbaren Farben,
-  Manakurve, Farbverteilung, **Deck-Wert** und „Fehlt mir"-Liste mit Kosten,
-  Moxfield-Text-Im/Export.
-- **Gemeinsam scannen** (unter *Mehr*): mehrere Handys im selben WLAN, Pairing per
-  QR-Code, ein Gerät sammelt ein und prüft vor der Übernahme.
-- **Updates aus der App** (unter *Mehr*): neue App-Version direkt von GitHub — vorher
-  automatische Sicherung der Sammlung, Prüfsumme und Signatur werden geprüft — und neue
-  Sets per Katalog-Update ohne neue APK. Höchstens einmal am Tag wird nachgesehen.
-- **Pixel-Art-Design** mit vier Farbschemata (Violett, Abendrot, Schwarz-Gold,
-  Halloween), Countdown zum nächsten Set.
-
-**Explizit nicht:** Cloud, Accounts, Login, Server-Backend, Handel, Monetarisierung
-jeder Art. Preise sind reine Richtwerte zur Orientierung.
+> **Download:** grab `ScryGlass-x.y.z.apk` from the
+> [latest release](https://github.com/LordCookie/ScryGlass/releases/latest) (see
+> [Installation](#installation)). The app's interface is in **German**; card search
+> understands German and English card names.
 
 ---
 
-## Architektur in fünf Sätzen
+## How it works
 
-1. **Der Katalog wird vorverarbeitet** (Python-Pipeline in der CI) und als schlanke
-   NDJSON-Files ausgeliefert, nicht als roher Scryfall-Bulk (~2 GB).
-2. **NDJSON statt JSON-Array**, damit die App zeilenweise streamen und in Batches in
-   IndexedDB (Dexie) schreiben kann.
-3. **Namen und Bild-Hashes im RAM, Karten in IndexedDB** — pro Kamera-Bild gibt es
-   keine DB-Zugriffe, die DB wird erst bei einem Treffer angefasst.
-4. **Scanner nativ, Entscheidung in TypeScript** — das Kotlin-Plugin liefert Text-
-   zeilen, Schärfe und einen Kartenausschnitt; Abgleich, Fusion und Korb sind reine,
-   getestete Logik in `domain/`.
-5. **Gemeinsam scannen ohne Cloud** — der Empfänger startet einen nativen
-   HTTP-Server, die Helfer pairen per QR-Code und schicken ihre Körbe per HTTP POST.
+### 1. Scan your cards
 
-Details in [PLAN.md](PLAN.md), Gestaltung in [DESIGN.md](DESIGN.md).
+Open the **Scanner** tab and hold a card in front of the camera. ScryGlass recognizes it
+in two ways at once: it **reads the card name** and **compares the artwork** against
+every printing. When both agree, the card is added right away; if it is unsure, it
+asks you to pick.
 
----
+- **Pile mode** (*Auto-Korb*): put down one card after another, and each new card is
+  recognized and counted on its own.
+- **Set mode:** opening boosters or sorting one set? Limit the search to that set for
+  faster, more reliable matches.
+- Works with showcase and borderless frames, tokens and emblems.
+- Sound and vibration on every hit, flashlight, tap to focus, landscape mode, and an
+  undo history for mistakes.
+- Recognition runs entirely on the phone, so no photo ever leaves your device.
 
-## Projektstruktur
+### 2. Your collection
 
-```
-pipeline/            Python-Datenpipeline
-  fetch_scryfall.py    Scryfall-Bulk → Slim-Katalog (NDJSON)
-  hash_images.py       pHash je Druckausgabe → hashes.ndjson (Bilderkennung)
-app/                 Vite + React + TS + Tailwind + Capacitor (die App)
-  src/
-    domain/          Framework-freie Logik + Tests (Matcher, Scan-Fusion, Filter,
-                     Deck-Validierung, Preise, IO …)
-    data/            Katalog-Sync, Namens-/Such-/Hash-Index, Preise, Bild-URLs
-    db/              Dexie/IndexedDB-Schema
-    native/          Brücken zu nativen Funktionen (Scanner-Kamera, Feedback, Updates)
-    peer/            Gemeinsam scannen: Protokoll, Client, Server-Bridge
-    ui/              React-Komponenten (Scanner, Suche, Sammlung, Decks, Mehr)
-  android/           Capacitor-Android-Projekt (Kotlin-Plugins ScryCamera, PeerServer, AppUpdater)
-design/
-  make_icons.py      Pixel-App-Icon + Startbildschirm aus einem 32×32-Sprite
-.github/workflows/
-  catalog.yml        Baut den Katalog wöchentlich (Mo), Release catalog-latest
-  hashes.yml         Ergänzt die Bild-Hashes nach jedem Katalog-Bau (fortsetzbar)
-```
+The **Sammlung** (collection) tab shows everything you own as a card grid or a list.
+Filter by color, card type, mana value, set or finish, and sort by name, mana value,
+quantity or value. Tokens get their own tab and are counted per artwork.
 
----
+Tap a card to see its rules text, the formats it is legal in and its current price.
+Browse all printings to choose the artwork you actually own, and count normal, foil
+and etched copies separately (see the screenshots at the top).
 
-## Entwicklung
+<p align="center">
+  <img src="docs/screenshots/stats.png" width="260" alt="Collection statistics and value">
+</p>
 
-### Pipeline (Katalog bauen)
+The **Σ** view sums it all up: total cards, foils, lands, the **collection value**
+(Cardmarket prices via Scryfall) with your most valuable cards, color and type
+breakdowns, mana curve and how far along you are with each set.
 
-```bash
-cd pipeline
-python -m pip install -r requirements.txt
-python fetch_scryfall.py --out dist                                   # echter Scryfall-Bulk (~2 GB Stream)
-python fetch_scryfall.py --out dist --sample tests/sample_bulk.jsonl  # aus einer lokalen Datei
-python hash_images.py --printings dist/printings.ndjson --out dist/hashes.ndjson   # Bild-Hashes (fortsetzbar)
-python -m pytest                                                      # Unit-Tests (kein Netz nötig)
-```
+### 3. Search every card
 
-Output in `pipeline/dist/`: `version.json`, `cards.ndjson`, `printings.ndjson`,
-`names.ndjson`, `trigrams.ndjson`, `hashes.ndjson`.
+The **Suche** (search) tab covers the complete catalog of about 34,000 cards and
+1,000 tokens, stored on your phone. Search by name, type or rules text in German or
+English. *Drache* finds dragons just like *dragon* does. Filter by colors (contains,
+exactly, at most), card type, mana value and format, or show only cards you own.
 
-### App
+<p align="center">
+  <img src="docs/screenshots/search.jpg" width="260" alt="Searching for red dragons">
+</p>
 
-```bash
-cd app
-npm install
-npm run dev                # http://localhost:5174 (Desktop-Preview)
-LAN=1 npm run dev          # https://<LAN-IP>:5174 — fürs Handy (Kamera braucht HTTPS)
-npm test                   # Vitest — muss grün sein vor Build/Commit
-npm run build              # tsc + Produktions-Build nach app/dist
-```
+### 4. Build decks
 
-### Android-APK
+The **Decks** tab builds decks from your collection for Standard, Pioneer, Modern,
+Legacy, Vintage, Commander, Pauper and Brawl.
 
-```bash
-cd app
-npm run cap:sync                          # Build + Capacitor sync
-cd android && ./gradlew assembleDebug     # JDK 17!
-```
+- Live rule checks: deck size, copy limits, format legality and, for Commander, your
+  commander's color identity.
+- Every card shows how many you own against how many the deck needs.
+- Statistics: mana curve, color distribution, card types, land ratio.
+- **Deck value**, plus a **"Fehlt mir"** (missing) list that says what you still need
+  and roughly what it costs.
+- Import and export as text (Moxfield format).
 
-Die APK liegt danach unter `app/android/app/build/outputs/apk/debug/`. Die native
-Kamera (ScryCamera) gibt es nur in der APK — im Browser nutzt der Scanner die
-Web-Kamera mit Tesseract.
+<p align="center">
+  <img src="docs/screenshots/deck.png" width="260" alt="Commander deck with color identity check">
+  <img src="docs/screenshots/deckstats.png" width="260" alt="Deck value, mana curve and color distribution">
+</p>
 
-Releases baut `./gradlew assembleRelease` mit dem eigenen Signaturschlüssel
-(`android/keystore.properties`, nur lokal, nicht im Repo). Nur APKs mit demselben
-Schlüssel lassen sich über eine installierte Version updaten.
+### 5. Scan together
+
+Sorting a big box? Several phones on the same Wi-Fi can scan at once. Helpers pair with
+your phone by QR code and send their scans over. You review everything before it goes
+into your collection. No internet or server needed.
+
+### 6. Pick your look
+
+A pixel-art design with four color schemes: violet, sunset, black & gold and
+Halloween. The header counts down the days to the next Magic set.
+
+<p align="center">
+  <img src="docs/screenshots/themes.jpg" width="820" alt="The four color schemes">
+</p>
 
 ---
 
-## Katalog
+## Installation
 
-Die App lädt den Katalog von `CATALOG_BASE_URL` (`app/src/data/catalog.ts`). Default
-ist `/catalog` — also der Katalog, der beim Build aus `app/public/catalog/` mit in die
-APK wandert. Zum lokalen Befüllen:
+ScryGlass is not in the Play Store; you install it directly from GitHub.
 
-```bash
-cd pipeline && python fetch_scryfall.py --out ../app/public/catalog --sample tests/sample_bulk.jsonl
-```
+1. On your phone, open the
+   [latest release](https://github.com/LordCookie/ScryGlass/releases/latest) and
+   download `ScryGlass-x.y.z.apk`.
+2. Open the downloaded file. Android asks whether your browser may install apps:
+   allow it once, then tap **Install**.
+3. On first start the card catalog is set up once, which takes about a minute. After
+   that everything works offline.
 
-`app/public/catalog/` ist gitignored. Neuere Kataloge lädt die App unter
-*Mehr → Katalog* direkt aus dem Release `catalog-latest` (gzip-komprimiert, ~27 MB) und
-schreibt dabei nur, was sich geändert hat; der eingebaute Katalog überschreibt nie einen
-jüngeren, schon geladenen. `trigrams.ndjson` braucht die App seit 0.2.7 nicht mehr (der
-Namensindex baut die Trigramme selbst) — nicht nach `app/public/catalog/` legen.
+**Updates come through the app:** under **Mehr → App-Update** (more → app update)
+ScryGlass checks GitHub for a new version. Before installing, it backs up your
+collection and verifies the download's checksum and signature. New sets arrive as a
+weekly **catalog update** (**Mehr → Katalog**), no new app needed.
 
----
+*Requirements:* Android 5.1 or newer (updates from inside the app need Android 7), and a
+camera for scanning.
 
-## Versionen & Releases
-
-- **0.x.y**: `0.1.x` = Fixes/Kleinkram, `0.2.x` = neue Funktionen, `1.0.0` = öffentlich.
-  `versionCode` in `app/android/app/build.gradle` zählt einfach hoch.
-- Jedes Release ist ein Tag `vX.Y.Z` mit deutschen Release-Notes (die App zeigt sie
-  als „Was ist neu"). Es trägt `ScryGlass-X.Y.Z.apk` **und** `ScryGlass-X.Y.Z.apk.sha256`
-  — ohne Prüfsumme installiert die App das Update nicht. **Nur das neueste Release
-  trägt die APK**; ältere APK-Assets werden gelöscht. Die Releases
-  `catalog-*` enthalten die CI-Katalogdaten und werden dabei nie angefasst.
+> Updating from **0.2.6 or 0.2.7**? Those versions can't update themselves. Install
+> 0.2.8 or newer once by hand as described above. Your collection is kept.
 
 ---
 
-## Rechtliches
+## Your data
 
-- **Scryfall:** Kartendaten aus den [Scryfall-Bulk-Data](https://scryfall.com/docs/api/bulk-data),
-  Preise und Set-Termine live über die Scryfall-API. Attribution in der App,
-  `User-Agent` gesetzt, Rate-Limit eingehalten.
-- **WotC Fan Content Policy:** Dieses Projekt ist nicht-kommerziell. **Keine
-  Monetarisierung** — keine Ads, kein In-App-Kauf, kein Spendenbutton, kein Verkauf.
-- **Keine Kartenbilder redistribuiert.** Bilder werden erst beim Anzeigen direkt vom
-  Scryfall-CDN geladen und nur lokal gecacht; nichts wird vorab geladen. Der
-  Bild-Hash-Index enthält nur 256-Bit-Fingerabdrücke, keine Bilder.
-- **Generierte Kartendaten** liegen nicht im Repo (gitignored). Der Katalog entsteht
-  in der CI und lebt im Release.
-- Quellcode unter [MIT-Lizenz](LICENSE).
+- Your collection, decks and settings live **only on your phone**. There is no account
+  and no tracking.
+- Make backups under **Mehr → Backup & Export**: a JSON backup to restore later, and a
+  CSV export that ManaBox and Moxfield can read. ScryGlass also backs up automatically
+  before every update.
+- The internet is used only for card images and prices (from Scryfall), the
+  next-set countdown and updates (from GitHub). Without a connection everything else
+  keeps working.
+
+---
+
+## For developers
+
+The app is built with React, TypeScript and Capacitor, plus native Android plugins for
+the camera and on-device text recognition. The card catalog comes from a Python
+pipeline that runs weekly on GitHub Actions. Architecture, project structure and build
+steps are in [DEVELOPMENT.md](DEVELOPMENT.md); the full plan is in [PLAN.md](PLAN.md)
+and the design system in [DESIGN.md](DESIGN.md). These documents are in German.
+
+---
+
+## Legal
+
+- **Unofficial fan project.** ScryGlass is unofficial Fan Content permitted under the
+  [Wizards of the Coast Fan Content Policy](https://company.wizards.com/en/legal/fancontentpolicy).
+  It is not approved or endorsed by Wizards of the Coast or Scryfall. Portions of the
+  materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
+- **Free, forever.** No ads, no in-app purchases, no donations, no sales.
+- **Card data and images** come from [Scryfall](https://scryfall.com). The app ships no
+  card images; it loads them from Scryfall when they are shown and caches them on the
+  phone. The card images in the screenshots above are © Wizards of the Coast. Prices
+  are rough guidance only.
+- Source code under the [MIT License](LICENSE).
