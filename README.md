@@ -10,9 +10,10 @@ selben WLAN gemeinsam mit anderen.
 > Eigentum von Wizards of the Coast. Kartendaten stammen von
 > [Scryfall](https://scryfall.com). Siehe [Rechtliches](#rechtliches).
 
-**Stand:** v0.2.7 (Tester-Version, Android). Die APK hängt am jeweils neuesten
-[GitHub-Release](https://github.com/LordCookie/ScryGlass/releases) — ab 0.2.6 holt sich
-die App neue Versionen selbst (*Mehr → App-Update*).
+**Stand:** v0.2.8 (Tester-Version, Android). Die APK hängt am jeweils neuesten
+[GitHub-Release](https://github.com/LordCookie/ScryGlass/releases) — ab 0.2.8 holt sich
+die App neue Versionen selbst (*Mehr → App-Update*; 0.2.6 und 0.2.7 einmal von Hand auf
+0.2.8 aktualisieren — dort scheiterte der Download).
 
 ---
 
