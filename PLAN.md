@@ -891,13 +891,34 @@ eine Zahl ohne Begründung hilft niemandem). `domain/deckCheck.ts`, Reiter „De
       4 vs. 5 hängen von der Absicht ab — sagt die Oberfläche auch so.
 - [x] Game Changer aus Scryfall (`game_changer` → Katalog-Feld `gameChanger`). Alte Kataloge
       haben es nicht; die App merkt das und sagt es, statt still „1–2" zu melden.
-- [ ] Erster Katalog mit `gameChanger` (nach dem Push der Pipeline, nächster CI-Lauf).
-- [x] Kombos: Auswahl von 41 bekannten Zwei-Karten-Paaren (alle Namen gegen den Katalog geprüft).
-- [ ] Vollständige Kombo-Daten aus Commander Spellbook — erst Lizenz der Daten klären.
+- [ ] Erster Katalog mit `gameChanger`, `roles` und `combos.ndjson` (nach dem Push der
+      Pipeline, nächster CI-Lauf).
+- [x] Kombos: Auswahl von 41 bekannten Zwei-Karten-Paaren — bleibt als Ersatz für alte Kataloge.
+- [x] **Alle Kombos aus Commander Spellbook** (`pipeline/fetch_combos.py`): deren Datei ist zum
+      lokalen Lesen veröffentlicht, Bitte: Nennung mit Link (Mehr → Über, Suche, Deck-Check).
+      104.854 Kombos ohne Platzhalter, ≤ 4 Karten; kompakt (Kopf mit 7.210 Karten + 509
+      Ergebnissen, Zeilen per Index) 7 MB / 1,8 MB gz. In der App EIN Datensatz in `meta`
+      (Typed Arrays, `domain/combos`), geladen erst bei Bedarf (~2 s am Rechner).
+- [x] **Eigene Sterne** statt Spellbooks Bracket-Tags: ★★★★ gewinnt allein, 2 Karten, ≤ 4 Mana ·
+      ★★★ gewinnt allein, 2 Karten oder 3 mit ≤ 6 Mana · ★★ gewinnt mit mehr Aufwand · ★ braucht
+      noch etwas. Als Pixel-Sterne (PixelIcon `star`/`starEmpty`). Bracket: ★★★★ → 4, ★★★ → 3.
+- [x] Kombos sind ein Zusatz, kein Hauptmerkmal: Suche (Zeile „Karten | Kombos" unter dem
+      Suchfeld; ohne Suchtext „aus deiner Sammlung" / „1 Karte fehlt"), Σ-Statistik (Kachel
+      am Ende), Deck-Check (im Deck + „fehlt nur X — du besitzt sie"). Nicht im Kartendetail.
 - [x] Manabasis: Länderzahl nach Frank Karsten (Ø Manawert, günstige Rampe/Kartenziehen),
       Farbquellen gegen den Anteil der Farbsymbole.
-- [x] Rollen (Commander): Rampe, Kartenziehen, gezieltes Removal, Board-Wipes am Regeltext,
-      Richtwerte 10/10/8/2.
+- [x] Rollen (Commander): **aus den Scryfall-Tags** (Bulk `oracle_tags`, Katalogfeld `roles`):
+      Rampe ohne Rituale, Kartenvorteil ohne Looten, Removal inkl. Counterspells, Sweeper,
+      Massen-Landzerstörung, Zusatzzüge, Tutoren — wie Commander Spellbook. Alte Kataloge:
+      grob am Regeltext. Richtwerte 10/10/8/2.
+
+### M18 — Big-Screen-Modus (Idee für 0.3.x, noch offen)
+Die App im Browser am großen Bildschirm, das Handy bleibt der Server:
+- [ ] Unter Mehr einschalten, Passwort festlegen; das Handy zeigt seine IP (+ QR) an.
+- [ ] Im Browser IP öffnen, Passwort eingeben → volle App (Sammlung, Decks, Suche) im Browser.
+- [ ] Offen: Port offen halten (Foreground-Service wie beim Peer-Server, § 8), mehrere Tabs
+      gleichzeitig, Daten bleiben auf dem Handy (Browser fragt per API, kein zweites IndexedDB),
+      Handy-App inkl. Scanner läuft normal weiter. Sicherheit: nur im WLAN, Passwort, Sitzung.
 
 ---
 

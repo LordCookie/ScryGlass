@@ -79,6 +79,9 @@ Legacy, Vintage, Commander, Pauper and Brawl.
 - Statistics: mana curve, color distribution, card types, land ratio.
 - **Deck value**, plus a **"Fehlt mir"** (missing) list that says what you still need
   and roughly what it costs.
+- **Deck check:** an estimate of the Commander bracket with the cards that cause it, land
+  count and color sources, ramp/card advantage/removal/board wipes, and combos in the deck,
+  including the ones you are one card away from that are already in your collection.
 - Import and export as text (Moxfield format).
 
 <p align="center">
@@ -167,4 +170,7 @@ and the design system in [DESIGN.md](DESIGN.md). These documents are in German.
   card images; it loads them from Scryfall when they are shown and caches them on the
   phone. The card images in the screenshots above are © Wizards of the Coast. Prices
   are rough guidance only.
+- **Combo data** comes from [Commander Spellbook](https://commanderspellbook.com), card
+  roles from the community tags of [Scryfall Tagger](https://tagger.scryfall.com). The
+  star ratings for combos are ScryGlass's own.
 - Source code under the [MIT License](LICENSE).
