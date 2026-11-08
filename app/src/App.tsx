@@ -11,6 +11,8 @@ import { syncHashes, loadHashIndex } from './data/imageHash';
 import { checkForUpdates, currentUpdateStatus, pendingWhatsNew, dismissWhatsNew, startCatalogUpdate } from './data/updates';
 import { getCachedNextSet, refreshNextSet } from './data/nextSet';
 import { backupReminder } from './data/backups';
+import { syncCombos } from './data/combos';
+import { OPEN_COMBOS_EVENT } from './ui/comboNav';
 import { nextSetLabel, type UpcomingSet } from './domain/nextSet';
 import { initFeedbackPrefs } from './native/feedback';
 import { initBackButton } from './native/backButton';
@@ -82,7 +84,11 @@ export default function App() {
     // Bild-Hash-Index (Scanner v2) best-effort im Hintergrund nachladen.
     if (ready) {
       const ver = await getLocalCatalogVersion();
-      void syncHashes(CATALOG_BASE_URL, ver).then(() => void loadHashIndex());
+      // Danach die Kombo-Daten (M17) — nacheinander, damit sie nicht um die Datenbank rangeln.
+      void syncHashes(CATALOG_BASE_URL, ver)
+        .then(() => void loadHashIndex())
+        .then(() => syncCombos(CATALOG_BASE_URL, ver))
+        .catch(() => {});
       // Höchstens einmal am Tag bei GitHub nach Neuem sehen — etwas später, damit der
       // Start nicht mit dem Bild-Index um Netz und Datenbank konkurriert.
       window.setTimeout(() => void checkForUpdates().catch(() => {}), 5000);
@@ -90,6 +96,12 @@ export default function App() {
   }
 
   useEffect(() => { void runSync(); }, []);
+  // Sprung zu den Kombos (aus der Σ-Statistik) — die Suche holt den Wunsch beim Öffnen ab.
+  useEffect(() => {
+    const open = () => setTab('suche');
+    window.addEventListener(OPEN_COMBOS_EVENT, open);
+    return () => window.removeEventListener(OPEN_COMBOS_EVENT, open);
+  }, []);
   // Vibrations-Einstellung (unter „Mehr") gleich beim Start laden — gilt app-weit.
   useEffect(() => { void initFeedbackPrefs(); }, []);
   // Android-Zurück: offene Ebenen zuerst (Scanner, Detail, Deck), dann zur Sammlung, dann minimieren.

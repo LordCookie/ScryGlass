@@ -2,10 +2,13 @@
  * Deck-Check (PLAN.md M17): regelbasiert und erklärbar — jede Aussage nennt die Karten,
  * die sie auslösen. Bewusst kein trainiertes Modell (keine freien Trainingsdaten, und eine
  * Zahl ohne Begründung hilft niemandem). Grenzen, die die Oberfläche auch so sagt:
- * Brackets hängen zusätzlich von der Absicht ab, Rollen (Rampe, Kartenziehen …) werden
- * nur grob am Regeltext erkannt, Kombos stammen aus einer Auswahl bekannter Paare.
+ * Brackets hängen zusätzlich von der Absicht ab.
+ *
+ * Daten: Rollen, Massen-Landzerstörung und Zusatzzüge aus den Scryfall-Tags (Katalogfeld
+ * `roles`), Kombos aus Commander Spellbook (data/combos) — beides wie bei Spellbook selbst.
+ * Ältere Kataloge ohne diese Daten: Rollen grob am Regeltext, Kombos aus einer Auswahl.
  */
-import type { Card, Deck } from './types';
+import { ROLE, type Card, type Deck } from './types';
 import { validateDeck, type CardLookup } from './deckValidate';
 import { isLand } from './deckStats';
 
@@ -18,6 +21,37 @@ export interface CheckItem {
   detail?: string;
   /** Karten, die den Punkt auslösen (Namen, sortiert). */
   cards?: string[];
+  /** Kombo: eigene Sterne (1–4) und Spellbook-ID für den Link */
+  stars?: number;
+  link?: string;
+}
+
+/** Eine Kombo im bzw. fast im Deck — vom Aufrufer aus den Spellbook-Daten gesucht. */
+export interface DeckCombo {
+  id: string;
+  names: string[];
+  stars: number;
+  /** nötiges Mana (Manawert), -1 = unbekannt */
+  mv: number;
+  /** Ergebnisse, schon übersetzt */
+  results: string[];
+  /** nur bei „eine Karte fehlt": deren Name, und ob sie in der Sammlung ist */
+  missing?: string;
+  owned?: boolean;
+}
+
+export interface DeckCombos {
+  included: DeckCombo[];
+  almost: DeckCombo[];
+}
+
+export interface CheckOptions {
+  /** Katalog kennt die Game-Changer-Markierung */
+  gameChangerData: boolean;
+  /** Katalog hat Rollen aus den Scryfall-Tags */
+  roleData?: boolean;
+  /** Kombos aus Commander Spellbook — fehlt: kleine Auswahl als Ersatz */
+  combos?: DeckCombos;
 }
 
 export interface CheckSection {
@@ -104,9 +138,16 @@ const ROLE_PATTERNS: Record<Role, RegExp[]> = {
 /** Gegner ziehen lassen ist kein Kartenvorteil. */
 const OPPONENT_DRAWS = /\b(?:opponent|its controller) draws?\b/;
 
-export function cardRoles(card: Card): Set<Role> {
+const ROLE_BIT: Record<Role, number> = { ramp: ROLE.ramp, draw: ROLE.draw, removal: ROLE.removal, wipe: ROLE.sweeper };
+
+/** Rollen einer Karte: aus den Scryfall-Tags (`tags`, Katalog ab M17), sonst grob am Regeltext. */
+export function cardRoles(card: Card, tags = false): Set<Role> {
   const out = new Set<Role>();
   if (isLand(card)) return out;
+  if (tags) {
+    for (const role of Object.keys(ROLE_BIT) as Role[]) if ((card.roles ?? 0) & ROLE_BIT[role]) out.add(role);
+    return out;
+  }
   for (const s of sentences(card)) {
     for (const role of Object.keys(ROLE_PATTERNS) as Role[]) {
       if (!ROLE_PATTERNS[role].some((re) => re.test(s))) continue;
@@ -209,7 +250,7 @@ export function findCombos(names: ReadonlySet<string>): { pair: [string, string]
 /** Richtwerte für Commander (verbreitete Faustregel, z. B. „The Command Zone"). */
 export const ROLE_TARGETS: Record<Role, number> = { ramp: 10, draw: 10, removal: 8, wipe: 2 };
 const ROLE_LABELS: Record<Role, string> = {
-  ramp: 'Rampe', draw: 'Kartenziehen', removal: 'Gezieltes Removal', wipe: 'Board-Wipes',
+  ramp: 'Rampe', draw: 'Kartenvorteil', removal: 'Gezieltes Removal', wipe: 'Board-Wipes',
 };
 
 /** Empfohlene Länderzahl nach Frank Karsten (2022): Durchschnitts-Manawert der Nichtländer,
@@ -223,7 +264,8 @@ export function recommendedLands(format: 'commander' | 'sixty', avgMv: number, c
 const sortNames = (cards: Iterable<Card>) => [...new Set([...cards].map((c) => c.name))].sort((a, b) => a.localeCompare(b));
 const fmt1 = (n: number) => n.toLocaleString('de-DE', { maximumFractionDigits: 1 });
 
-export function checkDeck(deck: Deck, cards: CardLookup, opts: { gameChangerData: boolean }): DeckCheckResult {
+export function checkDeck(deck: Deck, cards: CardLookup, opts: CheckOptions): DeckCheckResult {
+  const tags = opts.roleData === true;
   const commander = deck.format === 'commander';
   // Mainboard + Commander, je Exemplar.
   const entries: { card: Card; qty: number }[] = [];
@@ -256,7 +298,7 @@ export function checkDeck(deck: Deck, cards: CardLookup, opts: { gameChangerData
   const lands = entries.filter((e) => isLand(e.card));
   const landCount = lands.reduce((n, e) => n + e.qty, 0);
   const nonlandCount = nonland.reduce((n, e) => n + e.qty, 0);
-  const roles = new Map(all.map((c) => [c.oracleId, cardRoles(c)]));
+  const roles = new Map(all.map((c) => [c.oracleId, cardRoles(c, tags)]));
   const sized = commander ? 'commander' : total >= 58 ? 'sixty' : null;
   if (sized && nonlandCount > 0) {
     const avgMv = nonland.reduce((n, e) => n + e.card.cmc * e.qty, 0) / nonlandCount;
@@ -301,7 +343,7 @@ export function checkDeck(deck: Deck, cards: CardLookup, opts: { gameChangerData
   // Rollen (Commander): Rampe, Kartenziehen, Removal, Wipes.
   if (commander) {
     sections.push({
-      title: 'Rollen (grob am Regeltext erkannt)',
+      title: tags ? 'Rollen (Scryfall-Tags)' : 'Rollen (grob am Regeltext erkannt)',
       items: (Object.keys(ROLE_TARGETS) as Role[]).map((role) => {
         const hits = all.filter((c) => roles.get(c.oracleId)!.has(role));
         const n = hits.length;
@@ -316,15 +358,9 @@ export function checkDeck(deck: Deck, cards: CardLookup, opts: { gameChangerData
     });
   }
 
-  // Kombos (alle Formate)
-  const names = new Set(all.map((c) => c.name));
-  const combos = findCombos(names);
-  sections.push({
-    title: 'Kombos',
-    items: combos.length === 0
-      ? [{ key: 'combo-none', level: 'ok', title: `Keine der ${KNOWN_COMBOS.length} bekannten Zwei-Karten-Kombos im Deck (Auswahl).` }]
-      : combos.map((k) => ({ key: `combo-${k.pair.join('+')}`, level: 'info', title: `${k.pair[0]} + ${k.pair[1]}`, detail: k.note })),
-  });
+  // Kombos (alle Formate): aus Commander Spellbook, sonst aus der kleinen Auswahl.
+  const fallback = opts.combos ? [] : findCombos(new Set(all.map((c) => c.name)));
+  sections.push({ title: 'Kombos', items: opts.combos ? spellbookComboItems(opts.combos) : fallbackComboItems(fallback) });
 
   if (!commander) return { sections };
 
@@ -340,24 +376,77 @@ export function checkDeck(deck: Deck, cards: CardLookup, opts: { gameChangerData
     raise(3);
     reasons.push({ text: `${gc.length} Game Changer — erst ab Bracket 3.`, cards: sortNames(gc) });
   }
-  const mld = all.filter(isMassLandDenial);
+  const tagged = (bit: number) => (c: Card) => ((c.roles ?? 0) & bit) !== 0;
+  const mld = all.filter(tags ? tagged(ROLE.mld) : isMassLandDenial);
   if (mld.length > 0) {
     raise(4);
     reasons.push({ text: 'Massen-Landzerstörung — erst ab Bracket 4.', cards: sortNames(mld) });
   }
-  const turns = all.filter(isExtraTurn);
+  const turns = all.filter(tags ? tagged(ROLE.extraTurn) : isExtraTurn);
   if (turns.length >= 2) {
     raise(4);
     reasons.push({ text: 'Mehrere Zusatzzüge — Ketten erst ab Bracket 4.', cards: sortNames(turns) });
   } else if (turns.length === 1) {
     reasons.push({ text: 'Ein Zusatzzug — in Ordnung, solange er nicht wiederholt wird.', cards: sortNames(turns) });
   }
-  if (combos.length > 0) {
+  if (opts.combos) {
+    // Eigene Sterne: ★★★★ = gewinnt allein, 2 Karten, ≤ 4 Mana — schnell und kaum aufzuhalten.
+    const fast = opts.combos.included.filter((k) => k.stars >= 4);
+    const strong = opts.combos.included.filter((k) => k.stars === 3);
+    if (fast.length > 0) {
+      raise(4);
+      reasons.push({ text: 'Schnelle Kombo aus zwei Karten, die allein gewinnt — erst ab Bracket 4.', cards: comboNames(fast) });
+    }
+    if (strong.length > 0) {
+      raise(3);
+      reasons.push({ text: 'Kombo, die allein gewinnt — in Bracket 3 nur, wenn sie nicht früh im Spiel kommt.', cards: comboNames(strong) });
+    }
+  } else if (fallback.length > 0) {
     raise(3);
     reasons.push({
       text: 'Zwei-Karten-Kombo — in Bracket 3 nur, wenn sie nicht früh im Spiel kommt; sonst Bracket 4.',
-      cards: [...new Set(combos.flatMap((k) => k.pair))].sort((a, b) => a.localeCompare(b)),
+      cards: [...new Set(fallback.flatMap((k) => k.pair))].sort((a, b) => a.localeCompare(b)),
     });
   }
   return { bracket: { floor, reasons, missingGameChangers: !opts.gameChangerData }, sections };
+}
+
+const comboNames = (list: DeckCombo[]) => [...new Set(list.flatMap((k) => k.names))].sort((a, b) => a.localeCompare(b));
+
+/** So viele Kombos je Abschnitt zeigen — der Rest steht als Zahl da (Kombos sind ein Zusatz). */
+const SHOW_COMBOS = 8;
+
+function spellbookComboItems(c: DeckCombos): CheckItem[] {
+  const items: CheckItem[] = [];
+  const item = (k: DeckCombo, extra: Partial<CheckItem> = {}): CheckItem => ({
+    key: `combo-${k.id}`,
+    level: 'info',
+    title: k.names.join(' + '),
+    detail: [k.results.join(' · '), k.mv > 0 ? `Auslösen: ${k.mv} Mana` : k.mv === 0 ? 'Auslösen ohne Mana' : '']
+      .filter(Boolean).join(' — '),
+    stars: k.stars,
+    link: k.id,
+    ...extra,
+  });
+  if (c.included.length === 0) items.push({ key: 'combo-none', level: 'ok', title: 'Keine Kombo im Deck.' });
+  for (const k of c.included.slice(0, SHOW_COMBOS)) items.push(item(k));
+  if (c.included.length > SHOW_COMBOS) {
+    items.push({ key: 'combo-more', level: 'ok', title: `… und ${c.included.length - SHOW_COMBOS} weitere im Deck.` });
+  }
+  // Eine Karte fehlt — und du hast sie: das kann nur eine App, die deine Sammlung kennt.
+  const owned = c.almost.filter((k) => k.owned);
+  for (const k of owned.slice(0, SHOW_COMBOS)) {
+    items.push(item(k, { key: `almost-${k.id}`, title: `Fehlt nur ${k.missing} — du besitzt sie`, detail: `${k.names.join(' + ')} · ${k.results.join(' · ')}` }));
+  }
+  const others = c.almost.length - Math.min(owned.length, SHOW_COMBOS);
+  if (others > 0) {
+    items.push({ key: 'almost-more', level: 'ok', title: `Bei ${others} weiteren Kombos fehlt dem Deck je eine Karte.` });
+  }
+  return items;
+}
+
+function fallbackComboItems(found: { pair: [string, string]; note: string }[]): CheckItem[] {
+  return found.length === 0
+    ? [{ key: 'combo-none', level: 'ok', title: `Keine der ${KNOWN_COMBOS.length} bekannten Zwei-Karten-Kombos im Deck (Auswahl).` }]
+    : found.map((k) => ({ key: `combo-${k.pair.join('+')}`, level: 'info', title: `${k.pair[0]} + ${k.pair[1]}`, detail: k.note }));
 }

@@ -11,6 +11,7 @@ import {
   type CatalogVersion, type SyncProgress,
 } from './catalog';
 import { syncHashes, loadHashIndex } from './imageHash';
+import { syncCombos } from './combos';
 import { invalidateNameIndex } from './matcher';
 import { invalidateSearchIndex } from './search';
 import { AppUpdater, hasAppUpdater, withScreenOn } from '../native/appUpdater';
@@ -265,7 +266,8 @@ export async function dismissWhatsNew(): Promise<void> {
 export type CatalogStep =
   | { phase: 'katalog'; progress: SyncProgress }
   /** `total` geschätzt: ein Bild-Hash je Druckausgabe */
-  | { phase: 'bilder'; done: number; total: number };
+  | { phase: 'bilder'; done: number; total: number }
+  | { phase: 'kombos'; done: number; total: number };
 
 /** Woher: der wöchentliche von GitHub oder der in die APK eingebaute (nach einem App-Update
  *  mit neuerem Katalog; im Browser beim Entwickeln der einzige). */
@@ -292,6 +294,8 @@ async function applyCatalog(source: CatalogSource, onStep: (s: CatalogStep) => v
   const total = version.counts.printings;
   await syncHashes(base, version.catalogVersion, (done) => onStep({ phase: 'bilder', done, total }), gzip);
   void loadHashIndex();
+  const combos = version.counts.combos ?? 100_000;
+  await syncCombos(base, version.catalogVersion, (done) => onStep({ phase: 'kombos', done, total: combos }), gzip);
   return version.catalogVersion;
 }
 

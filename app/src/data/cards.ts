@@ -79,13 +79,25 @@ export async function ownedPrintingByOracle(): Promise<Map<string, string>> {
   return map;
 }
 
-/** Kennt der Katalog schon die Game-Changer-Markierung (Pipeline ab M17)? Ein Durchlauf über
- *  die Karten, danach je Katalogstand gemerkt. */
-let gameChangerCache: { version?: string; has: boolean } | null = null;
-export async function catalogKnowsGameChangers(): Promise<boolean> {
+export interface CatalogFeatures {
+  /** Game-Changer-Markierung (Pipeline ab M17) */
+  gameChanger: boolean;
+  /** Rollen aus den Scryfall-Tags (Pipeline ab M17) */
+  roles: boolean;
+}
+
+/** Was kennt der Katalog schon? Ein Durchlauf über die Karten, danach je Katalogstand gemerkt. */
+let featureCache: { version?: string; features: CatalogFeatures } | null = null;
+export async function catalogFeatures(): Promise<CatalogFeatures> {
   const version = await getMeta<string>('catalogVersion');
-  if (gameChangerCache && gameChangerCache.version === version) return gameChangerCache.has;
-  const has = (await db.cards.filter((c) => c.gameChanger === true).first()) != null;
-  gameChangerCache = { version, has };
-  return has;
+  if (featureCache && featureCache.version === version) return featureCache.features;
+  const features: CatalogFeatures = { gameChanger: false, roles: false };
+  await db.cards.toCollection()
+    .until(() => features.gameChanger && features.roles)
+    .each((c) => {
+      if (c.gameChanger) features.gameChanger = true;
+      if (c.roles) features.roles = true;
+    });
+  featureCache = { version, features };
+  return features;
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import type { Card, Deck } from './types';
+import { ROLE, type Card, type Deck } from './types';
 import {
-  isExtraTurn, isMassLandDenial, cardRoles, landColors, pips, findCombos, recommendedLands, checkDeck, KNOWN_COMBOS,
+  isExtraTurn, isMassLandDenial, cardRoles, landColors, pips, findCombos, recommendedLands, checkDeck, KNOWN_COMBOS, type DeckCombo,
 } from './deckCheck';
 
 let n = 0;
@@ -136,5 +136,59 @@ describe('Deck-Check gesamt', () => {
     const warn = r.sections.find((s) => s.title === 'Manabasis')!.items.find((i) => i.key === 'color-U');
     expect(warn?.level).toBe('warn');
     expect(warn?.detail).toContain('nur 2 von 20 Ländern');
+  });
+});
+
+describe('Deck-Check mit Scryfall-Tags und Spellbook-Kombos', () => {
+  const cmd = card('Krenko, Mob Boss', '', { typeLine: 'Legendary Creature — Goblin', manaCost: '{2}{R}{R}', cmc: 4, colorIdentity: ['R'] });
+  const mountain = land('Mountain', 'Basic Land — Mountain', '({T}: Add {R}.)');
+  // Regeltext ohne Treffer, aber getaggt — die Tags gewinnen.
+  const rock = card('Mind Stone', 'Something', { typeLine: 'Artifact', manaCost: '{2}', cmc: 2, roles: ROLE.ramp | ROLE.draw });
+  const orb = card('Winter Orb', 'Nothing matching', { typeLine: 'Artifact', manaCost: '{2}', cmc: 2, roles: ROLE.mld });
+  const lookup = (cs: Card[]) => new Map(cs.map((c) => [c.oracleId, c]));
+  const deck = (cs: Card[]): Deck => ({
+    name: 'T', format: 'commander', commanderId: cmd.oracleId,
+    cards: [...cs.map((c) => ({ oracleId: c.oracleId, qty: 1 })), { oracleId: mountain.oracleId, qty: 30 }], sideboard: [], updatedAt: 0,
+  });
+  const combo = (stars: number, extra: Partial<DeckCombo> = {}): DeckCombo => ({
+    id: `k${stars}`, names: ['A', 'B'], stars, mv: 3, results: ['Gewinnt das Spiel'], ...extra,
+  });
+
+  it('Rollen und Landzerstörung aus den Tags', () => {
+    const r = checkDeck(deck([rock, orb]), lookup([cmd, mountain, rock, orb]), { gameChangerData: true, roleData: true });
+    const roles = r.sections.find((s) => s.title.startsWith('Rollen'))!;
+    expect(roles.title).toBe('Rollen (Scryfall-Tags)');
+    expect(roles.items.find((i) => i.key === 'role-ramp')?.cards).toEqual(['Mind Stone']);
+    expect(roles.items.find((i) => i.key === 'role-draw')?.cards).toEqual(['Mind Stone']);
+    expect(r.bracket?.floor).toBe(4);
+    expect(r.bracket?.reasons[0].cards).toEqual(['Winter Orb']);
+  });
+
+  it('Spellbook-Kombos: ★★★★ → Bracket 4, ★★★ → 3, mit Sternen und Link', () => {
+    const base = { gameChangerData: true, roleData: true };
+    const four = checkDeck(deck([]), lookup([cmd, mountain]), { ...base, combos: { included: [combo(4)], almost: [] } });
+    expect(four.bracket?.floor).toBe(4);
+    const three = checkDeck(deck([]), lookup([cmd, mountain]), { ...base, combos: { included: [combo(3)], almost: [] } });
+    expect(three.bracket?.floor).toBe(3);
+    const two = checkDeck(deck([]), lookup([cmd, mountain]), { ...base, combos: { included: [combo(2)], almost: [] } });
+    expect(two.bracket?.floor).toBe(2); // braucht mehr Aufwand — hebt das Bracket nicht
+    const items = four.sections.find((s) => s.title === 'Kombos')!.items;
+    expect(items[0]).toMatchObject({ title: 'A + B', stars: 4, link: 'k4', detail: 'Gewinnt das Spiel — Auslösen: 3 Mana' });
+  });
+
+  it('eine Karte fehlt: die aus der Sammlung zuerst, Rest als Zahl', () => {
+    const r = checkDeck(deck([]), lookup([cmd, mountain]), {
+      gameChangerData: true,
+      combos: {
+        included: [],
+        almost: [combo(3, { id: 'x', missing: 'B', owned: true }), combo(2, { id: 'y', missing: 'C', owned: false })],
+      },
+    });
+    const items = r.sections.find((s) => s.title === 'Kombos')!.items;
+    expect(items.map((i) => i.title)).toEqual([
+      'Keine Kombo im Deck.',
+      'Fehlt nur B — du besitzt sie',
+      'Bei 1 weiteren Kombos fehlt dem Deck je eine Karte.',
+    ]);
   });
 });

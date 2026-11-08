@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, saveDeck, deleteDeck, listDecks } from '../db/db';
-import { getCards, ownedByOracle, ownedPrintingByOracle, previewImageIds, previewPrinting, catalogKnowsGameChangers } from '../data/cards';
+import { getCards, ownedByOracle, ownedPrintingByOracle, previewImageIds, previewPrinting, catalogFeatures } from '../data/cards';
+import { deckCombos } from '../data/combos';
+import { spellbookUrl } from '../domain/combos';
+import { Stars } from './Stars';
 import { searchCards } from '../data/search';
 import { normalizeName } from '../domain/nameMatch';
 import { isTokenCard } from '../domain/tokens';
 import { validateDeck, availableColors } from '../domain/deckValidate';
 import { computeStats, isBasicLand, CURVE_BUCKETS, COLOR_KEYS } from '../domain/deckStats';
 import { computeMissing } from '../domain/deckMissing';
-import { checkDeck, type CheckLevel } from '../domain/deckCheck';
+import { checkDeck, type CheckLevel, type DeckCombos } from '../domain/deckCheck';
 import { TYPE_LABEL } from '../domain/collectionFilter';
 import { parseDeckText, serializeDeckText } from '../domain/deckText';
 import { LEGALITY_FORMATS, FORMAT_LABELS, type Card, type Deck, type DeckCard, type FormatId } from '../domain/types';
@@ -19,6 +22,9 @@ import { feedbackAdded, hapticTap } from '../native/feedback';
 import { useBackHandler } from './backStack';
 import { ensureRowPrices } from '../data/prices';
 import { deckValueRows, missingValueRows, collectionValue, formatEur, priceKey, type PriceEntry, type ValueRow } from '../domain/prices';
+
+/** Stabile leere Map — sonst rechnet der Deck-Check bei jedem Rendern neu. */
+const EMPTY_OWNED = new Map<string, number>();
 
 const COLOR_NAME: Record<string, string> = {
   W: 'Weiß', U: 'Blau', B: 'Schwarz', R: 'Rot', G: 'Grün', C: 'Farblos',
@@ -198,7 +204,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
           onAdjust={adjust} allowSideboard={!rules} onOpenDetail={setDetailId} />
       )}
       {tab === 'stats' && <DeckStatsView deck={deck} cards={cards} owned={owned ?? new Map()} chosen={ownedPrint} />}
-      {tab === 'check' && <DeckCheckView deck={deck} cards={cards} />}
+      {tab === 'check' && <DeckCheckView deck={deck} cards={cards} owned={owned ?? EMPTY_OWNED} />}
       {tab === 'fehlt' && <MissingView deck={deck} cards={cards} owned={owned ?? new Map()} />}
       {tab === 'text' && <DeckTextView deck={deck} cards={cards} onImport={(patch) => void update(patch)} />}
 
@@ -484,11 +490,21 @@ const LEVEL_TAG: Record<CheckLevel, { text: string; cls: string }> = {
 };
 
 /** Deck-Check (M17): Bracket-Schätzung, Manabasis, Rollen, Kombos — jeweils mit Begründung. */
-function DeckCheckView({ deck, cards }: { deck: Deck; cards: Map<string, Card> }) {
-  const gcData = useLiveQuery(() => catalogKnowsGameChangers(), []);
+function DeckCheckView({ deck, cards, owned }: { deck: Deck; cards: Map<string, Card>; owned: Map<string, number> }) {
+  const features = useLiveQuery(() => catalogFeatures(), []);
+  // Kombos aus Commander Spellbook — `null` = lädt noch, `undefined` = keine Daten (älterer Katalog).
+  const [combos, setCombos] = useState<DeckCombos | undefined | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void deckCombos(deck, cards, new Set(owned.keys()))
+      .catch(() => undefined)
+      .then((c) => { if (alive) setCombos(c); });
+    return () => { alive = false; };
+  }, [deck, cards, owned]);
   const result = useMemo(
-    () => (gcData == null ? null : checkDeck(deck, cards, { gameChangerData: gcData })),
-    [deck, cards, gcData],
+    () => (features == null || combos === null ? null
+      : checkDeck(deck, cards, { gameChangerData: features.gameChanger, roleData: features.roles, combos })),
+    [deck, cards, features, combos],
   );
   if (!result) return <p className="px-1 font-mono text-sm text-muted">Prüfe…</p>;
   const b = result.bracket;
@@ -522,10 +538,18 @@ function DeckCheckView({ deck, cards }: { deck: Deck; cards: Map<string, Card> }
           <ul className="space-y-2">
             {sec.items.map((it) => (
               <li key={it.key} className="flex gap-2">
-                <span className={`h-fit shrink-0 px-1 py-0.5 font-hud text-[7px] ${LEVEL_TAG[it.level].cls}`}>{LEVEL_TAG[it.level].text}</span>
+                {/* Kombos zeigen ihre Sterne statt OK/TIPP. */}
+                {it.stars ? <Stars n={it.stars} className="mt-0.5" /> : (
+                  <span className={`h-fit shrink-0 px-1 py-0.5 font-hud text-[7px] ${LEVEL_TAG[it.level].cls}`}>{LEVEL_TAG[it.level].text}</span>
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="text-text">{it.title}</p>
                   {it.detail && <p className="text-muted">{it.detail}</p>}
+                  {it.link && (
+                    <a href={spellbookUrl(it.link)} target="_blank" rel="noreferrer" className="text-accent underline">
+                      Ablauf bei Commander Spellbook
+                    </a>
+                  )}
                   {it.cards && it.cards.length > 0 && (
                     <details className="text-muted">
                       <summary className="cursor-pointer">Karten zeigen</summary>
@@ -540,7 +564,9 @@ function DeckCheckView({ deck, cards }: { deck: Deck; cards: Map<string, Card> }
       ))}
       <p className="px-1 text-[10px] text-muted">
         Regelbasiert: Brackets nach den offiziellen Commander-Regeln, Länderzahl nach Frank Karsten,
-        Rollen grob am Regeltext erkannt, Kombos aus einer Auswahl bekannter Paare. Ein Hinweis, kein Urteil.
+        {features?.roles ? ' Rollen aus den Scryfall-Tags,' : ' Rollen grob am Regeltext erkannt,'}
+        {combos ? ' Kombos von Commander Spellbook (Sterne: eigene Einstufung).' : ' Kombos aus einer Auswahl bekannter Paare.'}
+        {' '}Ein Hinweis, kein Urteil.
       </p>
     </div>
   );

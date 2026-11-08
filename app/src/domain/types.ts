@@ -23,7 +23,12 @@ export interface Card {
   maxCopies: number; // 4 | 99
   /** Auf der Game-Changer-Liste der Commander-Brackets (M17). Fehlt = nein bzw. alter Katalog. */
   gameChanger?: boolean;
+  /** Rollen aus den Scryfall-Tags als Bitmaske (ROLE). Fehlt = keine bzw. alter Katalog. */
+  roles?: number;
 }
+
+/** Rollen-Bits — müssen zu `ROLE_BITS` in pipeline/fetch_scryfall.py passen. */
+export const ROLE = { ramp: 1, draw: 2, removal: 4, sweeper: 8, mld: 16, extraTurn: 32, tutor: 64 } as const;
 
 /** Konkrete Druckausgabe (eine je Scryfall-Karte). */
 export interface Printing {

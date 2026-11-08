@@ -31,7 +31,7 @@ export interface CatalogVersion {
   catalogVersion: string;
   builtAt: string;
   scryfallBulkDate: string;
-  counts: { cards: number; printings: number; names: number; trigrams: number };
+  counts: { cards: number; printings: number; names: number; trigrams: number; combos?: number };
 }
 
 export type SyncPhase = 'cards' | 'printings' | 'names';
