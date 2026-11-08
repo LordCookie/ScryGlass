@@ -261,8 +261,8 @@ neuen Sprites — alles aus den vier Primitiven und dem Kartenrahmen:
 - **Das Tempo folgt dem echten Fortschritt**: eine fliegende Karte je ~1.000 importierte
   Zeilen, höchstens 8 fps. Hängt das WLAN, bleiben die Karten liegen — keine Bewegung,
   die etwas vorgaukelt.
-- **Fünf Manasymbole als Phasen**, wie A1: Karten, Druckausgaben, Namen, Kombos, Sammlung &
-  Decks. Jede fertige Phase füllt ein Pip.
+- **Fünf Manasymbole als Phasen**, wie A1: Karten, Druckausgaben, Namen, Kombos &
+  Fertigdecks, Sammlung & Decks. Jede fertige Phase füllt ein Pip.
 - **Fortschrittsbalken** wie A1, darüber ab und zu ein *Foil-Sweep*. Echte Zahlen:
   `12.480 / 35.539 Karten · 6,1 / 16 MB`.
 - Bei 100 %: alle fünf Pips leuchten einmal auf, der Stapel setzt sich, *Foil-Sweep*

@@ -952,7 +952,7 @@ Entscheidungen und Gründe:
   APK-Assets aus, Browser und Handy haben also immer dieselbe Version. Die App erkennt den
   Modus an `/bigscreen.json` und schaltet auf „Fernbetrieb".
 - **Lesen lokal, Schreiben übers Handy.** Der Browser hält eine Kopie von `owned`,
-  `decks` und Token-Zähler in seiner eigenen IndexedDB. Alle Ansichten lesen weiter mit
+  `decks`, Token-Zähler und `ownedPrecons` (M19) in seiner eigenen IndexedDB. Alle Ansichten lesen weiter mit
   `useLiveQuery`, ohne Umbau. Geschrieben wird nur über die Funktionen in `db.ts`
   (`addOwned`, `addOwnedBatch`, `setOwnedPrinting`, `replaceOwned`, `saveDeck`,
   `deleteDeck`, Import, Token-Zähler). Im Fernbetrieb schicken sie einen POST ans Handy.
@@ -971,7 +971,7 @@ Entscheidungen und Gründe:
   0,3 s, erscheint ein kleiner Stapel-Sprite als „speichert…". Scheitert es, bleibt die
   Ansicht beim alten Stand und eine Meldung sagt warum; nichts geht still verloren.
 - **Änderungen per Dexie-Middleware statt von Hand.** Am Handy fängt eine DBCore-Middleware
-  jede Änderung an den drei Tabellen ab, auch aus Scanner, Backup und Import, und schickt
+  jede Änderung an diesen Nutzertabellen ab, auch aus Scanner, Backup und Import, und schickt
   sie mit fortlaufender Nummer. Verpasst ein Tab eine Nummer (Funkloch, Schlaf), holt er
   sich einen frischen Schnappschuss (`GET /api/snapshot`, ~100–700 KB).
 - **Der Katalog kommt vom Handy, nicht aus dem Internet (local first).** Der Browser bekommt
@@ -983,7 +983,8 @@ Entscheidungen und Gründe:
   - Deshalb **hebt das Handy die Katalog-Dateien auf**: Beim Katalog-Update werden die
     geladenen `.ndjson.gz` erst unter `files/katalog/<version>/` gespeichert und dann von
     dort eingespielt. Der vorige Stand wird gelöscht. Gebraucht werden cards, printings,
-    names und combos, zusammen ≈ 16 MB. Die Bild-Hashes braucht nur der Scanner am Handy.
+    names, combos und precons (M19), zusammen ≈ 18 MB. Die Bild-Hashes braucht nur der
+    Scanner am Handy.
   - Hat das Handy noch nie ein Katalog-Update geladen, liefert der Server den eingebauten
     Katalog aus den APK-Assets.
   - Der Server gibt die Dateien direkt aus, ohne JS-Brücke und mit Größenangabe für den
@@ -1012,6 +1013,7 @@ Entscheidungen und Gründe:
   Sideboard, Commander, Format. Text-Import/-Export für Decks.
 - **CSV-Import vom PC** (ManaBox/Moxfield), mit der gleichen Vorschau wie am Handy. Vor dem
   Ersetzen legt das Handy wie gewohnt eine automatische Sicherung an.
+- **Fertigdecks (M19)** suchen und in die Sammlung übernehmen, wie am Handy.
 - **Unten rechts, immer sichtbar: neue Scans vom Handy** (Animation: DESIGN.md A11).
   - Jede Karte, die am Handy gescannt wird, erscheint dort einige Sekunden: Pixel-Vorschau,
     Name, Anzahl, Foil. Kommen mehrere schnell hintereinander, stapeln sie sich.
@@ -1098,7 +1100,7 @@ Entscheidungen und Gründe:
 - Kartenbilder und Preise kommen im Browser wie am Handy von Scryfall. Ohne Internet am
   PC fehlen also Bilder und Preise; alles andere geht. Später möglich: Das Handy reicht
   Bilder aus seinem eigenen Cache durch.
-- Am Handy kostet das Aufheben der Katalog-Dateien ≈ 16 MB Speicher.
+- Am Handy kostet das Aufheben der Katalog-Dateien ≈ 18 MB Speicher.
 
 **Umsetzung in Schritten** (jeder Schritt einzeln testbar)
 - [ ] 1. Server + Auslieferung: BigScreenServer (Assets, SPA-Fallback, `/bigscreen.json`),
@@ -1113,8 +1115,8 @@ Entscheidungen und Gründe:
 - [ ] 4. Schreiben: Schreib-Gateway in `db.ts` (lokal oder POST), Deck-Schritte
       (`applyDeckOp` in `domain/` mit Tests, Handy nutzt sie auch), Fehler sichtbar
       machen, CSV-Import vom PC.
-- [ ] 5. Breites Layout: Navigation links, Kartenraster mit mehr Spalten, Deck-Editor
-      zweispaltig (Liste | Statistik/Check), Kartendetail als Seitenleiste.
+- [ ] 5. Breites Layout (siehe unten): Navigation links, Raster mit mehr Spalten, Liste
+      als Tabelle, Kartendetail als Seitenleiste, Deck-Editor in Spalten, Tastatur.
 - [ ] 6. Test am Gerät: zwei Browser + drei Tabs, gleichzeitig am Handy scannen, dasselbe
       Deck am Handy und im Browser bearbeiten, IP-Wechsel, Ruhebild, App in den
       Hintergrund und zurück, Trennen mit offenen Tabs.
@@ -1125,9 +1127,110 @@ Entscheidungen und Gründe:
 - Lesen **und** Schreiben schon in 0.3.15, inklusive Decks anlegen und bauen.
 - Die App muss am Handy offen bleiben; dafür Wachmodus mit Ruhebild. Im Browser gibt es
   „Verbindung trennen".
+- Das breite Layout kommt gleich mit in 0.3.15.
+
+**Breites Layout** (ab 1024 px Breite)
+- Es hängt an der Fensterbreite, nicht am Big Screen: Ein Android-Tablet mit der App
+  bekommt es genauso. Darunter bleibt alles wie am Handy.
+- **Navigation links** als schmale Leiste mit Pixel-Icons und Beschriftung (Sammlung,
+  Suche, Decks, Mehr). Unten in der Leiste die Verbindungsanzeige. Neue Scans bleiben
+  unten rechts.
+- **Sammlung**: Filter als Spalte links neben dem Raster statt darüber. Das Raster füllt
+  die Breite (6–10 Spalten am PC). Die Listenansicht wird eine Tabelle mit sortierbaren
+  Spalten: Name, Set, Anzahl, Foil, Manawert, Preis.
+- **Kartendetail als Seitenleiste rechts** statt bildschirmfüllend. Das Raster bleibt
+  sichtbar, Pfeiltasten blättern zur nächsten Karte.
+- **Deck-Editor in Spalten**: links die Deckliste nach Typ, rechts Statistik / Deck-Check
+  / Kombos als Reiter. Ab 1440 px drei Spalten: Suche | Deck | Check. So fügt man Karten
+  hinzu, ohne die Liste zu verlassen.
+- **Maus und Tastatur**: Fährt die Maus über einen Kartennamen in Listen, erscheint das
+  Kartenbild daneben (reine Vorschau, kein Effekt). `/` springt in die Suche, `Esc`
+  schließt das Detail, `+`/`−` ändern im Detail die Anzahl.
+- Später, nicht in 0.3.15: Karten per Ziehen ins Deck legen.
+
+### M19 — Fertigdecks (Precons) in die Sammlung (Konzept — noch nichts gebaut)
+
+Wer ein Commander- oder Einsteiger-Deck kauft, soll nicht 100 Karten scannen müssen.
+Unter Sammlung kommt neben „Karten" und „Tokens" ein dritter Reiter **„Fertigdecks"**:
+Deck suchen, Liste ansehen, mit einem Tipp in die Sammlung.
+
+**Woher die Listen kommen**
+- **MTGJSON** (`AllDeckFiles`, MIT-Lizenz). Rund 2.400 Decks seit 1993, MTGJSON baut
+  täglich neu (Stand 2026-11-08: 5.3.0+20261108). Je Karte stehen die genaue Druckausgabe
+  (`identifiers.scryfallId`), die Anzahl und Foil ja/nein. Der Commander steht extra, seit
+  v5.2.2 auch die beiliegenden Tokens. Scryfall selbst hat keine Decklisten.
+- Nennung unter Mehr → Über, wie Scryfall und Commander Spellbook.
+- **Nur Decks, die man als Produkt kaufen kann**: Commander, Einsteiger (Starter Kit,
+  Welcome Deck, Planeswalker Deck, Intro Pack, Theme Deck), Challenger, Duel Decks, Brawl,
+  Event Deck, Game Night, Jumpstart-Themen. Nicht dabei sind MTGO- und Arena-Decks,
+  Länderpacks aus Bundles und Beispieldecks. Die Liste der Typen steht in der Pipeline und
+  ist getestet.
+
+**Pipeline** (`pipeline/fetch_precons.py`, läuft in der wöchentlichen Katalog-CI mit, wie
+die Kombos mit `continue-on-error`)
+- Lädt `AllDeckFiles.tar.gz`, nur in der CI und nie am Handy. Dann filtert sie und ordnet
+  jede Karte über die scryfallId unserem Katalog zu.
+- Die Ausgabe `precons.ndjson` kommt ins Katalog-Release und ist kompakt gebaut wie
+  `combos.ndjson`:
+  - Kopfzeile mit Meta und einer Druck-Tabelle.
+  - Dann eine Zeile je Deck: `[key, name, set, datum, typ, commander, main, side, tokens]`.
+  - Jede Karte als `[druckIdx, anzahl, foil]`.
+  - Geschätzt 1–2 MB gepackt.
+- Karten, die unser Katalog nicht kennt (z. B. reine Online-Karten), werden gezählt und im
+  Log gemeldet. Das Deck kommt trotzdem mit und zeigt dann „3 Karten unbekannt".
+- `version.json` bekommt `counts.precons`. Neue Decks kommen mit dem nächsten
+  Katalog-Update in die App, meist um den Erscheinungstag.
+
+**In der App**
+- **Daten** (Dexie v7):
+  - `precons` sind Katalogdaten. Sie werden bei jedem Katalog-Update ersetzt, wie die
+    Kombos, mit eigener Import-Phase „Fertigdecks".
+  - `ownedPrecons` sind Nutzerdaten: welches Fertigdeck wann und wie oft hinzugefügt
+    wurde, mit der ID des angelegten Decks. Sie kommen mit ins Backup.
+- **Reiter „Fertigdecks"** (Sammlung → Karten | Tokens | Fertigdecks):
+  - Oben stehen „Deine Fertigdecks": was schon hinzugefügt wurde, mit Datum und
+    Commander-Bild.
+  - Darunter eine Suche nach Name, Set oder Commander (auch deutsch) und die Filter
+    Commander · Einsteiger · Duel Decks · Andere. Neueste zuerst. Ohne Suchtext zeigt der
+    Reiter die Commander-Decks der letzten zwei Jahre.
+  - Antippen öffnet die Vorschau: Commander-Bild, Set, Erscheinungsdatum, die Liste nach
+    Typ gruppiert, Foils markiert und „Davon besitzt du schon 23 Karten".
+- **„Zur Sammlung hinzufügen"** mit drei Einstellungen:
+  - [x] **Auch als Deck anlegen**: Name, Format Commander, Commander gesetzt. Dann läuft
+    gleich der Deck-Check.
+  - [x] **Tokens mit dazu** (je Artwork, wie M14).
+  - Anzahl 1× oder 2×, für alle, die ein Deck doppelt kaufen.
+- **Gebucht wird über `addOwnedBatch`**:
+  - Foil zählt da, wo das Produkt Foil hat.
+  - Der Druck aus dem Deck wird übernommen, wenn für die Karte noch keiner gewählt ist.
+  - Neue Quelle `'precon'`.
+  - Vorher eine automatische Sicherung, wie beim CSV-Import.
+  - Danach *Stapeln*-Animation und „100 Karten hinzugefügt · Deck angelegt".
+- **„Wieder entfernen"**, wenn das Deck verkauft oder getauscht wurde:
+  - Zieht genau diese Karten wieder ab, nie unter 0.
+  - Die Vorschau sagt vorher, wie viele davon gar nicht mehr da sind.
+  - Das angelegte Deck bleibt auf Wunsch stehen.
+- **Zwei Commander** (Partner, Hintergrund): Unser `Deck` kennt nur einen Commander. Der
+  zweite kommt vorerst ins Hauptdeck, mit Hinweis — bis Decks zwei Commander können.
+- **Logik in `domain/precons.ts`** (rein, mit Tests): Liste → Buchungen, Rechnung fürs
+  Entfernen, Filter. Für die Pipeline-Tests gibt es eine kleine Beispiel-Deckdatei.
+
+**Mit Big Screen (M18)**
+- `precons.ndjson` gehört zu den Katalog-Dateien, die das Handy aufhebt und ausliefert.
+- Hinzufügen geht im Browser über das Schreib-Gateway, und `ownedPrecons` wird mit
+  repliziert.
+- Im breiten Layout steht die Liste links und die Vorschau rechts.
+
+**Umsetzung in Schritten**
+- [ ] 1. Pipeline `fetch_precons.py` mit Tests, CI-Schritt, Nennung von MTGJSON.
+- [ ] 2. App: Import (Phase „Fertigdecks"), Tabellen, `domain/precons.ts` mit Tests.
+- [ ] 3. Reiter „Fertigdecks": Suche, Vorschau, Hinzufügen, Deck anlegen, Entfernen.
+- [ ] 4. Test mit echten Decks: aktuelles Commander-Deck mit Foil-Commander, altes Duel
+      Deck, ein Jumpstart-Thema.
 
 **Offen (Entscheidung User)**
-- Breites Layout gleich mit in 0.3.15 oder als eigener Schritt danach?
+- Kommt M19 mit 0.3.15 oder vorher als eigenes Update? Es hängt nicht am Big Screen und
+  ist deutlich kleiner.
 
 ---
 
@@ -1158,6 +1261,7 @@ Entscheidungen und Gründe:
   256-Bit-Fingerabdrücke, keine Bilder.
 - **Preise & Set-Termine** live über die Scryfall-API (Rate-Limit, `User-Agent`),
   als Richtwerte ohne Kauf-Links (E7).
+- **Fertigdeck-Listen (M19)** von MTGJSON, MIT-Lizenz: Nennung unter Mehr → Über.
 - **Generierte Kartendaten nicht ins Repo** (gitignored, wie bei engram). Der
   Katalog entsteht in der CI und lebt im Release.
 - Source-Code MIT. Disclaimer im README: unofficial fan project, nicht affiliiert
