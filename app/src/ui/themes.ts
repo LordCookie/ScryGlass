@@ -1,4 +1,4 @@
-import { getMeta, setMeta } from '../db/db';
+import { getMeta, setMeta, writeGateway } from '../db/db';
 
 /**
  * Farbschemata (Mehr → Einstellungen). Die Farben selbst stehen als Token-Sätze in
@@ -32,6 +32,7 @@ function isTheme(v: unknown): v is ThemeKey {
 
 /** Schema auf die Seite anwenden (Violett = Standard ohne Attribut). */
 export function applyTheme(key: ThemeKey): void {
+  if (typeof document === 'undefined') return; // Big-Screen-Simulator (Node)
   const root = document.documentElement;
   if (key === 'violett') delete root.dataset.theme;
   else root.dataset.theme = key;
@@ -40,6 +41,7 @@ export function applyTheme(key: ThemeKey): void {
 }
 
 export function currentTheme(): ThemeKey {
+  if (typeof document === 'undefined') return 'violett';
   const t = document.documentElement.dataset.theme;
   return isTheme(t) ? t : 'violett';
 }
@@ -53,9 +55,23 @@ export async function restoreTheme(): Promise<void> {
   if (!userChose && isTheme(v)) applyTheme(v);
 }
 
-/** Schema wählen: sofort anwenden und merken. */
+/** Schema wählen: sofort anwenden und merken. Im Big Screen (M18) gilt es fürs Handy —
+ *  das Handy übernimmt es und meldet es an alle Browser zurück. */
 export function chooseTheme(key: ThemeKey): void {
   userChose = true;
   applyTheme(key);
+  const gw = writeGateway();
+  if (gw) void gw('setTheme', [key]).catch(() => {});
+  else void setMeta(THEME_KEY, key);
+}
+
+/** Big Screen im Browser: das Schema des Handys übernehmen (und für den nächsten Start merken). */
+export function followTheme(key: string | undefined): void {
+  if (!isTheme(key) || key === currentTheme()) return;
+  applyTheme(key);
   void setMeta(THEME_KEY, key);
+}
+
+export function isThemeKey(v: unknown): v is ThemeKey {
+  return isTheme(v);
 }

@@ -129,6 +129,19 @@ describe('Lesen und Schreiben', () => {
   });
 });
 
+describe('Farbschema', () => {
+  it('ohne Anmeldung abrufbar; Änderung am Handy geht als Status an alle', async () => {
+    expect(body(await req('GET', '/api/hello'))).toEqual({ device: 'Pixel 8', theme: 'violett' });
+    const cookie = await login();
+    sent = [];
+    await req('POST', '/api/write', { cookie, body: { op: 'setTheme', args: ['gold'] } });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sent.find((s) => s.msg.t === 'status')?.msg).toMatchObject({ t: 'status', status: { theme: 'gold' } });
+    expect(body(await req('GET', '/api/hello')).theme).toBe('gold');
+    expect((await req('POST', '/api/write', { cookie, body: { op: 'setTheme', args: ['pink'] } })).status).toBe(400);
+  });
+});
+
 describe('Reihenfolge im Browser', () => {
   it('Lücke → neu holen; Altes überspringen; reset → neu holen', () => {
     const t = new SeqTracker();

@@ -96,8 +96,8 @@ export class BigScreenHost {
   }
 
   private async status(): Promise<PhoneStatus> {
-    const battery = await this.deps.battery?.().catch(() => undefined);
-    return { device: this.deps.deviceName, idleMs: this.idleMs, ...(battery ? { battery } : {}) };
+    const [battery, theme] = await Promise.all([this.deps.battery?.().catch(() => undefined), getMeta<string>('theme')]);
+    return { device: this.deps.deviceName, idleMs: this.idleMs, ...(theme ? { theme } : {}), ...(battery ? { battery } : {}) };
   }
 
   private session(req: HostRequest): Session | null {
@@ -108,6 +108,10 @@ export class BigScreenHost {
     const path = req.path.split('?')[0].replace(/\/+$/, '');
     const method = req.method.toUpperCase();
     try {
+      // Ohne Anmeldung: Gerätename und Farbschema, damit schon die Anmeldeseite passt.
+      if (method === 'GET' && path === '/api/hello') {
+        return json(200, { device: this.deps.deviceName, theme: (await getMeta<string>('theme')) ?? 'violett' });
+      }
       if (method === 'GET' && path === '/api/login/challenge') {
         return json(200, { salt: this.auth.salt, iterations: this.auth.iterations, nonce: this.book.challenge(this.deps.now()) });
       }
@@ -197,8 +201,11 @@ export class BigScreenHost {
         continue;
       }
       if (c.table === 'meta') {
-        const count = await getMeta<number>(TOKEN_KEY);
-        this.deps.send({ t: 'tokens', seq: ++this.seq, count: typeof count === 'number' ? count : 0 });
+        if (c.keys?.includes('theme')) this.deps.send({ t: 'status', status: await this.status() });
+        if (c.keys?.includes(TOKEN_KEY)) {
+          const count = await getMeta<number>(TOKEN_KEY);
+          this.deps.send({ t: 'tokens', seq: ++this.seq, count: typeof count === 'number' ? count : 0 });
+        }
         continue;
       }
       const table = c.table as ReplicaTable;

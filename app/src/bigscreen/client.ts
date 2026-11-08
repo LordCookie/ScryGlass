@@ -6,6 +6,7 @@ import type {
   BigScreenInfo, ChallengeResponse, PhoneStatus, ScanNotice, SeqMsg, ServerMsg, Snapshot, WriteResponse,
 } from './protocol';
 import type { Owned } from '../domain/types';
+import { followTheme } from '../ui/themes';
 
 /**
  * Big Screen im Browser (PLAN.md M18): Anmelden, Kopie von Sammlung & Decks aktuell halten,
@@ -101,12 +102,15 @@ class RemoteClient {
   };
 
   private set(patch: Partial<RemoteState>) {
+    if (patch.status?.theme) followTheme(patch.status.theme);
     this.st = { ...this.st, ...patch };
     for (const l of this.listeners) l();
   }
 
   /** Beim Laden der Seite: schon angemeldet (Cookie)? */
   async check(): Promise<boolean> {
+    // Farbschema des Handys schon für die Anmeldeseite.
+    void api<{ theme?: string }>('GET', '/api/hello').then((h) => followTheme(h.data.theme)).catch(() => {});
     const r = await api<{ ok?: boolean; session?: string; status?: PhoneStatus }>('GET', '/api/session').catch(() => null);
     if (r?.status === 200 && r.data.ok) {
       this.set({ sessionId: r.data.session, status: r.data.status, phase: 'laden', loggedInAt: Date.now() });

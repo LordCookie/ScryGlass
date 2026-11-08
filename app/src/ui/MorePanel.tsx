@@ -157,9 +157,9 @@ function SettingsSection({ remote = false }: { remote?: boolean }) {
         </button>
       </div>}
 
-      {/* Farbschema: Vorschau-Kacheln, Auswahl wirkt sofort und wird gemerkt (im Big Screen je Browser). */}
+      {/* Farbschema: Vorschau-Kacheln, Auswahl wirkt sofort und wird gemerkt (im Big Screen fürs Handy und alle Browser). */}
       <div className={remote ? '' : 'mt-5'}>
-        <div className="mb-2 font-mono text-sm">Farbschema</div>
+        <div className="mb-2 font-mono text-sm">Farbschema{remote && <span className="ml-2 text-xs text-muted">gilt auch fürs Handy</span>}</div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {THEMES.map((t) => (
             <button

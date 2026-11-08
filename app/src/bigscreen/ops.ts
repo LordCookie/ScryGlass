@@ -5,6 +5,7 @@ import { addTokens, setTokenCount } from '../data/tokens';
 import { addPreconToCollection, removePreconFromCollection } from '../data/precons';
 import { applyCsvImport } from '../data/collectionImport';
 import { isDeckOp } from '../domain/deckOps';
+import { chooseTheme, isThemeKey } from '../ui/themes';
 import { LEGALITY_FORMATS, type DeckCard, type Finish, type FormatId, type OwnedBooking, type OwnedSource } from '../domain/types';
 
 /**
@@ -103,6 +104,12 @@ export const WRITE_OPS: Record<string, (args: unknown[]) => Promise<unknown>> = 
     const op = await db.ownedPrecons.get(num(id, 'Fertigdeck'));
     if (!op) throw new OpError('Dieses Fertigdeck ist schon aus der Sammlung.');
     return removePreconFromCollection(op, { deleteDeck: obj(opts).deleteDeck === true });
+  },
+  /** Farbschema im Browser gewählt → gilt fürs Handy und damit für alle Browser. */
+  setTheme: async ([key]) => {
+    if (!isThemeKey(key)) throw new OpError('unbekanntes Farbschema');
+    chooseTheme(key);
+    return null;
   },
   csvImport: ([items, mode]) => {
     if (mode !== 'add' && mode !== 'replace') throw new OpError('unbekannte Art');

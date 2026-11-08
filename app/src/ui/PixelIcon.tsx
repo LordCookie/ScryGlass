@@ -83,6 +83,21 @@ const ICONS = {
     '............',
   ],
   // Lupe (Suche) — dasselbe Motiv wie im App-Icon
+  // Kombos (nur breit, Leiste links): Unendlich-Schleife — die meisten Kombos laufen endlos
+  combos: [
+    '............',
+    '............',
+    '..##....##..',
+    '.#..#..#..#.',
+    '#....##....#',
+    '#....##....#',
+    '#....##....#',
+    '.#..#..#..#.',
+    '..##....##..',
+    '............',
+    '............',
+    '............',
+  ],
   search: [
     '...####.....',
     '..#....#....',

@@ -43,6 +43,8 @@ export interface ScanNotice {
 
 export interface PhoneStatus {
   device: string;
+  /** Farbschema des Handys — der Browser übernimmt es */
+  theme?: string;
   battery?: { level: number; charging: boolean };
   idleMs: number;
 }

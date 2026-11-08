@@ -6,9 +6,9 @@ import type { DBCore, DBCoreMutateRequest, DBCoreMutateResponse, Middleware } fr
  * und meldet nach dem Commit, welche Schlüssel betroffen sind. Ohne Zuhörer kostet sie nichts.
  */
 
-/** Tabellen, deren Änderungen gemeldet werden. `meta` nur für den Token-Zähler. */
+/** Tabellen, deren Änderungen gemeldet werden. `meta` nur für Token-Zähler und Farbschema. */
 const WATCHED = new Set(['owned', 'decks', 'ownedPrecons', 'meta', 'scans']);
-const META_KEYS = new Set(['tokenCount']);
+const META_KEYS = new Set(['tokenCount', 'theme']);
 
 export interface TableChange {
   table: string;

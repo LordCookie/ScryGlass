@@ -24,6 +24,7 @@ import { ScannerPanel } from './ui/ScannerPanel';
 import { CollectionView } from './ui/CollectionView';
 import { DecksPanel } from './ui/DecksPanel';
 import { SearchPanel } from './ui/SearchPanel';
+import { CombosPanel } from './ui/CombosPanel';
 import { PixelIcon, type PixelIconName } from './ui/PixelIcon';
 import { MorePanel } from './ui/MorePanel';
 import { ReleaseNotes, UpdateProgressStrip } from './ui/UpdatePanel';
@@ -32,7 +33,7 @@ import { Ruhebild } from './ui/bigscreen/Ruhebild';
 import { setScannerActive } from './bigscreen/phone';
 import { HoverPreviewHost, useSearchHotkey } from './ui/wide';
 
-type Tab = 'scan' | 'sammlung' | 'decks' | 'suche' | 'mehr';
+type Tab = 'scan' | 'sammlung' | 'decks' | 'suche' | 'kombos' | 'mehr';
 type Gate = 'checking' | 'importing' | 'ready' | 'offline';
 
 // Import-Phasen als Pips (DESIGN.md § 5 A1). Reihenfolge = Pipeline-Reihenfolge.
@@ -45,11 +46,13 @@ const PHASE_LABEL: Record<SyncProgress['phase'], string> = {
 const nfDe = new Intl.NumberFormat('de-DE');
 
 // Navigation im Pixel-Look: 12×12-Bitmaps aus ui/PixelIcon, 2 px je Icon-Pixel (24 px).
-const TABS: { key: Tab; label: string; icon: PixelIconName }[] = [
+// `wideOnly`: nur in der Leiste links (breites Layout) — am Handy bleiben es fünf Reiter.
+const TABS: { key: Tab; label: string; icon: PixelIconName; wideOnly?: boolean }[] = [
   { key: 'sammlung', label: 'Sammlung', icon: 'collection' },
   { key: 'scan', label: 'Scanner', icon: 'scan' },
   { key: 'decks', label: 'Decks', icon: 'decks' },
   { key: 'suche', label: 'Suche', icon: 'search' },
+  { key: 'kombos', label: 'Kombos', icon: 'combos', wideOnly: true },
   { key: 'mehr', label: 'Mehr', icon: 'more' },
 ];
 
@@ -178,6 +181,7 @@ export default function App({ remote = false }: { remote?: boolean } = {}) {
         {tab === 'sammlung' && <CollectionView />}
         {tab === 'decks' && <DecksPanel />}
         {tab === 'suche' && <SearchPanel />}
+        {tab === 'kombos' && <CombosPanel />}
         {tab === 'mehr' && <MorePanel remote={remote} />}
       </main>
 
@@ -192,7 +196,7 @@ export default function App({ remote = false }: { remote?: boolean } = {}) {
                 key={t.key}
                 onClick={() => setTab(t.key)}
                 aria-current={active ? 'page' : undefined}
-                className={`relative flex flex-1 flex-col items-center gap-1 py-3 font-mono text-xs lg:flex-none lg:flex-row lg:gap-3 lg:px-5 lg:py-3 lg:text-sm ${
+                className={`relative flex-1 flex-col items-center gap-1 py-3 font-mono text-xs lg:flex-none lg:flex-row lg:gap-3 lg:px-5 lg:py-3 lg:text-sm ${t.wideOnly ? 'hidden lg:flex' : 'flex'} ${
                   active ? 'bg-titlebar text-paper' : 'text-muted hover:text-text'
                 }`}
               >
