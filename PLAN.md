@@ -913,13 +913,126 @@ eine Zahl ohne Begründung hilft niemandem). `domain/deckCheck.ts`, Reiter „De
       Massen-Landzerstörung, Zusatzzüge, Tutoren — wie Commander Spellbook. Alte Kataloge:
       grob am Regeltext. Richtwerte 10/10/8/2.
 
-### M18 — Big-Screen-Modus (Idee für 0.3.x, noch offen)
-Die App im Browser am großen Bildschirm, das Handy bleibt der Server:
-- [ ] Unter Mehr einschalten, Passwort festlegen; das Handy zeigt seine IP (+ QR) an.
-- [ ] Im Browser IP öffnen, Passwort eingeben → volle App (Sammlung, Decks, Suche) im Browser.
-- [ ] Offen: Port offen halten (Foreground-Service wie beim Peer-Server, § 8), mehrere Tabs
-      gleichzeitig, Daten bleiben auf dem Handy (Browser fragt per API, kein zweites IndexedDB),
-      Handy-App inkl. Scanner läuft normal weiter. Sicherheit: nur im WLAN, Passwort, Sitzung.
+### M18 — Big-Screen-Modus (Konzept, Ziel 0.3.15 — noch nichts gebaut)
+
+Die App im Browser am PC/Tablet, das Handy bleibt Server und **einzige Wahrheit** für
+Sammlung und Decks. Am Handy läuft alles normal weiter, auch der Scanner — was dort
+gescannt wird, erscheint sofort im Browser.
+
+**Ablauf für den Nutzer**
+1. *Mehr → Big Screen*: einmal ein Passwort festlegen, dann „Einschalten".
+2. Das Handy zeigt `http://192.168.178.23:8780` (+ QR für Tablets) und die verbundenen
+   Browser. Solange Big Screen läuft, bleibt der Bildschirm an (Ladekabel empfohlen).
+3. Im Browser die Adresse öffnen → Anmeldeseite → Passwort → die App, nur breiter.
+4. „Ausschalten" am Handy (oder nach 30 min ohne Zugriff) beendet Server und Sitzungen.
+
+**Aufbau**
+
+```
+ Browser (PC, mehrere Tabs)                Handy (eine App)
+ ─────────────────────────                ─────────────────────────────────────────
+ gleiche Web-App (vom Handy geladen) ──►   Kotlin: BigScreenServer (NanoHTTPD, Port 8780)
+   Katalog: eigene IndexedDB (Cache)         • /            → App-Dateien aus den APK-Assets
+   Sammlung/Decks: Kopie (Replik)            • /catalog/*   → eingebetteter Katalog
+                                             • /api/*       → an JS weitergereicht (Brücke)
+   liest lokal (useLiveQuery wie gehabt)     • /api/events  → WebSocket: Änderungen live
+   schreibt per POST /api/write ─────────►  JS (WebView): src/bigscreen/server.ts
+   ◄──── WebSocket: {seq, table, puts,       • führt dieselben db.ts-Funktionen aus
+         deletes} für jede Änderung          • Dexie-Middleware meldet jede Änderung an
+                                               owned/decks/Token-Zähler → alle Browser
+```
+
+Entscheidungen und Gründe:
+- **Gleiche Web-App, kein zweiter Build.** Das Handy liefert die App-Dateien aus den
+  APK-Assets aus, Browser und Handy haben also immer dieselbe Version. Die App erkennt den
+  Modus an `/bigscreen.json` und schaltet auf „Fernbetrieb".
+- **Lesen lokal, Schreiben übers Handy.** Der Browser hält eine Kopie von `owned`,
+  `decks` und Token-Zähler in seiner eigenen IndexedDB. Alle Ansichten lesen weiter mit
+  `useLiveQuery`, ohne Umbau. Geschrieben wird nur über die Funktionen in `db.ts`
+  (`addOwned`, `addOwnedBatch`, `setOwnedPrinting`, `replaceOwned`, `saveDeck`,
+  `deleteDeck`, Import, Token-Zähler). Im Fernbetrieb schicken sie einen POST ans Handy.
+  Das Handy führt dieselbe Funktion aus und meldet die Änderung an alle zurück — auch an
+  den Tab, der sie ausgelöst hat. Eine Schreibquelle, keine Konflikte.
+- **Änderungen per Dexie-Middleware statt von Hand.** Am Handy fängt eine DBCore-Middleware
+  jede Änderung an den drei Tabellen ab, auch aus Scanner, Backup und Import, und schickt
+  sie mit fortlaufender Nummer. Verpasst ein Tab eine Nummer (Funkloch, Schlaf), holt er
+  sich einen frischen Schnappschuss (`GET /api/snapshot`, ~100–700 KB).
+- **Katalog im Browser selbst.** Er ist groß (≈ 80 MB) und ändert sich nur wöchentlich. Der
+  Browser lädt ihn einmal und hält ihn in seiner IndexedDB. Quelle: GitHub
+  (`catalog-latest`, gleicher Stand wie am Handy), ohne Internet der eingebettete Katalog
+  vom Handy. Erstes Laden 1–2 min, danach sofort.
+- **Kotlin ↔ JS-Brücke für die API.** Die Daten liegen in der IndexedDB der WebView, die
+  Kotlin nicht lesen kann. Der Server reicht `/api/*` als Ereignis an JS
+  (`notifyListeners("request", {id, …})`), JS antwortet mit `respond({id, status, body})`.
+  Wartet Kotlin länger als 15 s, kommt 503 „Handy antwortet nicht".
+- **WebSocket statt Server-Sent Events.** Browser erlauben nur 6 HTTP-Verbindungen je
+  Adresse. Mit SSE wäre bei 6 Tabs alles blockiert, WebSockets zählen da nicht mit
+  (`org.nanohttpd:nanohttpd-websocket`, gleiche Bibliothek wie der Peer-Server).
+- **Mehrere Tabs.** Jeder Tab hat seinen eigenen WebSocket. Änderungen werden über die
+  ID eingespielt, doppeltes Einspielen schadet also nicht. Höchstens 8 Sitzungen gleichzeitig.
+- **Eigener Port 8780** (Peer-Server 8765). Fest, damit Lesezeichen funktionieren; ist er
+  belegt, 8781–8785. Beide Server können gleichzeitig laufen.
+
+**Was im Browser geht**
+- Sammlung (Raster/Liste/Σ), Kartendetail (Anzahl, Artwork), Suche inkl. Kombos, Decks
+  bauen inkl. Deck-Check, Text-Import/-Export, **CSV-Import vom PC**, Exporte als Download.
+- Neu und nur im Browser: „Zuletzt gescannt" — eine Liste, die live mitläuft, während am
+  Handy gescannt wird.
+- Nur am Handy (im Browser ausgeblendet): Scanner, App-/Katalog-Update, Sicherungen und
+  Wiederherstellen, Gemeinsam scannen, Big-Screen-Einstellungen. Das Farbschema gilt je Browser.
+
+**Sicherheit** (nur fürs eigene WLAN gedacht — Hinweis beim Einschalten)
+- Passwort ≥ 6 Zeichen. Gespeichert wird nur ein abgeleiteter Schlüssel (PBKDF2-SHA256,
+  Salt, ~200.000 Runden), nie das Passwort.
+- Anmeldung mit Challenge-Response: Das Handy schickt Salt und Einmalwert, der Browser
+  antwortet mit HMAC(Schlüssel, Einmalwert). Das Passwort geht nie im Klartext durchs WLAN,
+  und eine mitgeschnittene Anmeldung lässt sich nicht wiederholen.
+- **Falle:** Über `http://192.168…` ist `crypto.subtle` gesperrt (gibt es nur bei HTTPS oder
+  localhost). PBKDF2/HMAC deshalb als kleine JS-Bibliothek (z. B. `@noble/hashes`, MIT).
+  `crypto.getRandomValues` geht. Ebenfalls gesperrt: Kamera (kein Browser-Scanner),
+  Service Worker (PWA-Registrierung im Fernbetrieb abschalten), `navigator.clipboard`
+  (Fallback gibt es schon).
+- Sitzung: zufälliges 256-Bit-Token als Cookie (`HttpOnly`, `SameSite=Strict`), nur im
+  Speicher des Handys. Ablauf nach 2 h ohne Zugriff, „Angemeldet bleiben" 30 Tage. Am Handy
+  sichtbar, einzeln oder alle abmeldbar.
+- Bremse gegen Raten: nach 5 Fehlversuchen 1 min Sperre, danach doppelt so lang.
+- Bleibt ehrlich: Ohne HTTPS kann jemand im selben WLAN das Sitzungs-Cookie mitlesen. Ein
+  selbst signiertes Zertifikat würde jeden Browser warnen lassen, deshalb kein HTTPS in v1.
+
+**Handy bleibt benutzbar**
+- Der Server läuft nativ in eigenen Threads. Die Kamera ist eine Ansicht hinter der
+  WebView in derselben Activity (ScryCameraPlugin), die JS-Brücke antwortet also auch
+  während des Scannens.
+- Big Screen läuft, solange die App im Vordergrund ist (Bildschirm bleibt an, wie beim
+  Update). Geht die App in den Hintergrund, drosselt Android die WebView, und Anfragen
+  laufen ins 503. Der Browser zeigt dann „Handy schläft — App öffnen" und verbindet sich
+  von selbst neu. Ein Hintergrund-Dienst (Foreground Service + WLAN-Lock) ist eine
+  spätere Option, falls das stört.
+
+**Bekannte Haken**
+- Ändert sich die IP des Handys (DHCP), ist es für den Browser eine neue Adresse mit leerer
+  IndexedDB, und der Katalog wird neu geladen. Gegenmittel später: `scryglass.local` per
+  mDNS (Android NSD); Windows und macOS lösen `.local` meist auf.
+- Der Browser lädt Kartenbilder und Preise direkt von Scryfall — dafür braucht der PC Internet.
+
+**Umsetzung in Schritten** (jeder Schritt einzeln testbar)
+- [ ] 1. Server + Auslieferung: BigScreenServer (Assets, SPA-Fallback, `/bigscreen.json`),
+      Schalter unter Mehr, IP/QR, Bildschirm an, Auto-Aus nach 30 min.
+- [ ] 2. Anmeldung: Passwort festlegen, Challenge-Response, Sitzungen, Sperre — Logik in
+      `domain/` mit Tests.
+- [ ] 3. Lesen: Katalog im Browser, Schnappschuss + WebSocket-Änderungen, Fernbetrieb-Flag
+      (Scanner/Updates ausblenden), „Zuletzt gescannt".
+- [ ] 4. Schreiben: Schreib-Gateway in `db.ts` (lokal oder POST), Fehler sichtbar machen,
+      CSV-Import vom PC.
+- [ ] 5. Breites Layout: Navigation links, Kartenraster mit mehr Spalten, Deck-Editor
+      zweispaltig (Liste | Statistik/Check), Kartendetail als Seitenleiste.
+- [ ] 6. Test am Gerät: zwei Browser + drei Tabs, gleichzeitig am Handy scannen, IP-Wechsel,
+      App in den Hintergrund und zurück.
+
+**Offen (Entscheidung User)**
+- Schreiben im Browser schon in 0.3.15 oder erst nur Lesen?
+- Breites Layout gleich mit oder als eigener Schritt danach?
+- Ist „App muss offen bleiben" in Ordnung, oder soll es auch mit gesperrtem Handy gehen?
 
 ---
 
