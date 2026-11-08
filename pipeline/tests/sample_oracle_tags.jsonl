@@ -1,0 +1,16 @@
+{"object":"tag","id":"t-removal","slug":"removal","aliases":[],"parent_ids":[],"child_ids":["t-spot","t-sweeper"],"taggings":[]}
+{"object":"tag","id":"t-spot","slug":"spot-removal","aliases":[],"parent_ids":["t-removal"],"child_ids":[],"taggings":[{"oracle_id":"ob-bolt","weight":"median"}]}
+{"object":"tag","id":"t-sweeper","slug":"sweeper","aliases":["wipe"],"parent_ids":["t-removal"],"child_ids":[],"taggings":[{"oracle_id":"o-wrath","weight":"median"}]}
+{"object":"tag","id":"t-counter","slug":"counterspell","aliases":["counter"],"parent_ids":[],"child_ids":[],"taggings":[{"oracle_id":"o-counter","weight":"median"}]}
+{"object":"tag","id":"t-ramp","slug":"ramp","aliases":[],"parent_ids":[],"child_ids":["t-ritual","t-rock"],"taggings":[]}
+{"object":"tag","id":"t-ritual","slug":"ritual","aliases":[],"parent_ids":["t-ramp"],"child_ids":[],"taggings":[{"oracle_id":"o-ritual","weight":"median"}]}
+{"object":"tag","id":"t-rock","slug":"mana-rock","aliases":[],"parent_ids":["t-ramp"],"child_ids":[],"taggings":[{"oracle_id":"o-solring","weight":"median"}]}
+{"object":"tag","id":"t-ca","slug":"card-advantage","aliases":[],"parent_ids":[],"child_ids":["t-draw"],"taggings":[]}
+{"object":"tag","id":"t-draw","slug":"draw","aliases":[],"parent_ids":["t-ca"],"child_ids":["t-loot","t-pure"],"taggings":[]}
+{"object":"tag","id":"t-loot","slug":"loot","aliases":[],"parent_ids":["t-draw"],"child_ids":[],"taggings":[{"oracle_id":"o-looting","weight":"median"}]}
+{"object":"tag","id":"t-pure","slug":"pure-draw","aliases":[],"parent_ids":["t-draw"],"child_ids":[],"taggings":[{"oracle_id":"o-harmonize","weight":"median"},{"oracle_id":"ob-jace","weight":"median"}]}
+{"object":"tag","id":"t-mld","slug":"mass-land-denial","aliases":[],"parent_ids":[],"child_ids":[],"taggings":[{"oracle_id":"o-armageddon","weight":"median"}]}
+{"object":"tag","id":"t-turn","slug":"extra-turn","aliases":[],"parent_ids":[],"child_ids":[],"taggings":[{"oracle_id":"o-timewarp","weight":"median"}]}
+{"object":"tag","id":"t-tutor","slug":"tutor","aliases":[],"parent_ids":[],"child_ids":["t-tutor-land","t-tutor-card"],"taggings":[]}
+{"object":"tag","id":"t-tutor-land","slug":"tutor-land","aliases":[],"parent_ids":["t-tutor"],"child_ids":[],"taggings":[{"oracle_id":"o-cultivate","weight":"median"}]}
+{"object":"tag","id":"t-tutor-card","slug":"tutor-card","aliases":[],"parent_ids":["t-tutor"],"child_ids":[],"taggings":[{"oracle_id":"o-demonic","weight":"median"}]}

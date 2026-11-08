@@ -27,7 +27,7 @@ import json
 import os
 import sys
 import unicodedata
-from typing import Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 BULK_INDEX_URL = "https://api.scryfall.com/bulk-data"
 USER_AGENT = "ScryGlass/1.0 (unofficial MTG fan tool; +https://github.com/LordCookie/ScryGlass)"
@@ -295,6 +295,16 @@ class Catalog:
     def printing_rows(self) -> Iterator[Dict]:
         return iter(sorted(self.printings, key=lambda p: p["scryfallId"]))
 
+    def apply_roles(self, bits: Dict[str, int]) -> int:
+        """Rollen-Bitmaske (`roles`) an die Karten hängen — nur wenn gesetzt, spart Platz.
+        Gibt die Zahl der Karten mit Rolle zurück."""
+        n = 0
+        for oid, card in self.cards.items():
+            if bits.get(oid):
+                card["roles"] = bits[oid]
+                n += 1
+        return n
+
 
 def build_catalog(records: Iterable[Dict]) -> Catalog:
     """Verarbeitet einen Strom von Scryfall-Karten zu einem `Catalog`."""
@@ -303,6 +313,86 @@ def build_catalog(records: Iterable[Dict]) -> Catalog:
         if keep_card(card):
             cat.add(card)
     return cat
+
+
+# --- Rollen aus den Scryfall-Tags (Tagger, M17) --------------------------------
+# Die Community-Tags von Scryfall (Bulk `oracle_tags`) sagen, was eine Karte im Deck
+# tut — verlässlicher als Muster im Regeltext. Commander Spellbook liest dieselben
+# Tags für Massen-Landzerstörung, Zusatzzüge und Tutoren.
+
+ROLE_BITS = {
+    "ramp": 1,
+    "draw": 2,  # Kartenvorteil
+    "removal": 4,  # gezielt, inkl. Counterspells
+    "sweeper": 8,
+    "mld": 16,  # Massen-Landzerstörung
+    "extraTurn": 32,
+    "tutor": 64,
+}
+
+
+def expand_taggings(tags: List[Dict]) -> Dict[str, Set[str]]:
+    """Je Tag-Slug alle oracle_ids, die ihn oder einen Tag DARUNTER tragen. Ein Tag kann
+    selbst leer sein: „removal" besteht nur aus seinen 25 Unter-Tags."""
+    by_id = {t["id"]: t for t in tags}
+    memo: Dict[str, Set[str]] = {}
+
+    def members(tag_id: str, path: frozenset) -> Set[str]:
+        if tag_id in memo:
+            return memo[tag_id]
+        tag = by_id.get(tag_id)
+        if tag is None or tag_id in path:  # Zyklen im Baum abfangen
+            return set()
+        out = {t["oracle_id"] for t in tag.get("taggings", []) if t.get("oracle_id")}
+        for child in tag.get("child_ids", []):
+            out |= members(child, path | {tag_id})
+        memo[tag_id] = out
+        return out
+
+    result: Dict[str, Set[str]] = {}
+    for t in tags:
+        result[t["slug"]] = members(t["id"], frozenset())
+        for alias in t.get("aliases", []):
+            result.setdefault(alias, result[t["slug"]])
+    return result
+
+
+def role_bits(tags: List[Dict]) -> Dict[str, int]:
+    """oracle_id → Bitmaske aus ROLE_BITS. Fehlende Tags ergeben einfach leere Mengen."""
+    tagged = expand_taggings(tags)
+    get = lambda slug: tagged.get(slug, set())  # noqa: E731
+    filtering = set().union(*(get(s) for s in (
+        "loot", "rummage", "loot-to-library", "rummage-to-library", "loot-to-exile", "brainstorm",
+    )))
+    roles = {
+        "ramp": get("ramp") - get("ritual"),  # Rituale bringen Mana nur einmal
+        "draw": get("card-advantage") - filtering,  # Looten tauscht nur Karten
+        "removal": (get("removal") - get("sweeper")) | get("counterspell"),
+        "sweeper": get("sweeper"),
+        "mld": get("mass-land-denial"),
+        "extraTurn": get("extra-turn"),
+        "tutor": get("tutor") - get("tutor-land") - get("tutor-seek"),
+    }
+    bits: Dict[str, int] = {}
+    for role, oids in roles.items():
+        for oid in oids:
+            bits[oid] = bits.get(oid, 0) | ROLE_BITS[role]
+    return bits
+
+
+def download_oracle_tags() -> List[Dict]:
+    """Scryfall-Bulk `oracle_tags` (JSONL, gzip) — rund 6 MB."""
+    import requests  # lazy
+
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    meta = requests.get(f"{BULK_INDEX_URL}/oracle_tags", headers=headers, timeout=REQUEST_TIMEOUT)
+    meta.raise_for_status()
+    uri = meta.json().get("jsonl_download_uri")
+    if not uri:
+        raise RuntimeError("oracle_tags ohne jsonl_download_uri.")
+    r = requests.get(uri, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    return list(iter_jsonl(io.StringIO(gzip.decompress(r.content).decode("utf-8"))))
 
 
 # --- IO: Streaming-Reader ---------------------------------------------------
@@ -406,6 +496,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--keep-download",
         help="Pfad, unter dem der heruntergeladene Bulk aufgehoben wird (Default: temporär)",
     )
+    ap.add_argument(
+        "--tags",
+        help="Lokale oracle_tags-JSONL(.gz) statt Download; 'none' = ohne Rollen (bei --sample Default)",
+    )
     args = ap.parse_args(argv)
 
     if args.sample:
@@ -426,6 +520,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                 os.remove(path)
             except OSError:
                 pass
+
+    # Rollen aus den Scryfall-Tags — best effort: fehlen sie, zählt die App am Regeltext.
+    tags_src = args.tags or ("none" if args.sample else None)
+    if tags_src != "none":
+        try:
+            if tags_src:
+                with open_maybe_gzip(tags_src) as fp:
+                    tags = list(iter_jsonl(fp))
+            else:
+                print("[pipeline] Lade Scryfall-Tags (oracle_tags) …", file=sys.stderr)
+                tags = download_oracle_tags()
+            n = cat.apply_roles(role_bits(tags))
+            print(f"[pipeline] Rollen an {n} Karten ({len(tags)} Tags)", file=sys.stderr)
+        except Exception as e:  # noqa: BLE001 — Katalog nie an den Tags scheitern lassen
+            print(f"[pipeline] WARNUNG: keine Rollen ({e})", file=sys.stderr)
 
     version = write_catalog(cat, args.out, bulk_date)
     print(

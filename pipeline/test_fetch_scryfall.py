@@ -229,3 +229,53 @@ def test_write_catalog_roundtrip(tmp_path):
     assert v["counts"]["cards"] == 9
     assert v["scryfallBulkDate"] == "2026-09-01"
     assert v["catalogVersion"]
+
+
+# --- Rollen aus den Scryfall-Tags (M17) ----------------------------------------
+
+TAGS = os.path.join(HERE, "tests", "sample_oracle_tags.jsonl")
+
+
+def load_tags():
+    with open(TAGS, encoding="utf-8") as fp:
+        return list(fs.iter_jsonl(fp))
+
+
+def test_expand_taggings_rolls_up_children_and_aliases():
+    tagged = fs.expand_taggings(load_tags())
+    # „removal" hat selbst keine Karten, nur über seine Unter-Tags
+    assert tagged["removal"] == {"ob-bolt", "o-wrath"}
+    assert tagged["wipe"] == {"o-wrath"}  # Alias
+
+
+def test_role_bits():
+    bits = fs.role_bits(load_tags())
+    R = fs.ROLE_BITS
+    assert bits["ob-bolt"] == R["removal"]
+    assert bits["o-wrath"] == R["sweeper"]  # Wipes zählen nicht als gezieltes Removal
+    assert bits["o-counter"] == R["removal"]
+    assert bits["o-solring"] == R["ramp"]
+    assert "o-ritual" not in bits  # Rituale sind keine Rampe
+    assert bits["o-harmonize"] == R["draw"]
+    assert "o-looting" not in bits  # Looten tauscht nur Karten
+    assert bits["o-armageddon"] == R["mld"]
+    assert bits["o-timewarp"] == R["extraTurn"]
+    assert bits["o-demonic"] == R["tutor"]
+    assert "o-cultivate" not in bits  # Land-Tutoren sind Rampe, keine Tutoren
+
+
+def test_apply_roles_only_sets_nonzero():
+    cat = load_catalog()
+    n = cat.apply_roles(fs.role_bits(load_tags()))
+    by_id = {c["oracleId"]: c for c in cat.card_rows()}
+    assert n == 2  # Bolt und Jace stehen im Sample
+    assert by_id["ob-bolt"]["roles"] == fs.ROLE_BITS["removal"]
+    assert by_id["ob-jace"]["roles"] == fs.ROLE_BITS["draw"]
+    assert "roles" not in by_id["ob-forest"]
+
+
+def test_main_with_local_tags(tmp_path):
+    out = tmp_path / "dist"
+    assert fs.main(["--out", str(out), "--sample", SAMPLE, "--tags", TAGS]) == 0
+    cards = [json.loads(l) for l in (out / "cards.ndjson").read_text(encoding="utf-8").splitlines()]
+    assert next(c for c in cards if c["oracleId"] == "ob-bolt")["roles"] == fs.ROLE_BITS["removal"]
