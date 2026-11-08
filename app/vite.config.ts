@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import { readFileSync } from 'node:fs';
+import { bigscreenSim } from './dev/bigscreenSim';
 
 // App-Version einmal aus package.json — landet als __APP_VERSION__ im Bundle (Über-Seite).
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as { version: string };
@@ -14,13 +15,16 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 const lan = process.env.LAN === '1' || process.env.LAN === 'true';
 
 // https://vitejs.dev/config/
-export default defineConfig({
+// `npm run dev:bigscreen` (mode „bigscreen", Port 5180): der Dev-Server spielt das Handy
+// für den Big Screen (dev/bigscreenSim.ts) — ohne Service Worker, wie im echten Fernbetrieb.
+export default defineConfig(({ mode }) => ({
   server: lan ? { host: true, port: 5174 } : { port: 5174 },
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   plugins: [
     react(),
     ...(lan ? [basicSsl()] : []),
-    VitePWA({
+    ...(mode === 'bigscreen' ? [bigscreenSim()] : []),
+    ...(mode === 'bigscreen' ? [] : [VitePWA({
       registerType: 'autoUpdate',
       // Kartenbilder offline verfügbar machen (PLAN.md § 12: nichts im Repo/Bundle,
       // nur ein lokaler Cache auf dem Gerät). Bilder kommen vom Scryfall-CDN
@@ -57,10 +61,10 @@ export default defineConfig({
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
         ],
       },
-    }),
+    })]),
   ],
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
   },
-});
+}));
