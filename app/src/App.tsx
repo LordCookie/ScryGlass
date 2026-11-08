@@ -10,6 +10,7 @@ import { invalidateSearchIndex } from './data/search';
 import { syncHashes, loadHashIndex } from './data/imageHash';
 import { checkForUpdates, currentUpdateStatus, pendingWhatsNew, dismissWhatsNew, startCatalogUpdate } from './data/updates';
 import { getCachedNextSet, refreshNextSet } from './data/nextSet';
+import { backupReminder } from './data/backups';
 import { nextSetLabel, type UpcomingSet } from './domain/nextSet';
 import { initFeedbackPrefs } from './native/feedback';
 import { initBackButton } from './native/backButton';
@@ -54,6 +55,8 @@ export default function App() {
   // Neues auf GitHub (App oder Katalog) → Punkt am „Mehr"-Tab (M15).
   const updateStatus = useLiveQuery(() => currentUpdateStatus(), []);
   const hasUpdate = !!(updateStatus?.app || updateStatus?.catalog);
+  // Seit 30 Tagen nichts außerhalb der App gesichert → derselbe Punkt (0.2.9).
+  const backupDue = useLiveQuery(() => backupReminder(), []) ?? false;
   // Nach einem App-Update einmal die Patch Notes zeigen.
   const [whatsNew, setWhatsNew] = useState<{ version: string; notes: string } | null>(null);
   useEffect(() => { void pendingWhatsNew().then(setWhatsNew); }, []);
@@ -166,8 +169,8 @@ export default function App() {
                 {t.key === 'mehr' && inboxCount > 0 && (
                   <span className="absolute right-1/5 top-1.5 bg-danger px-1.5 font-hud text-[8px] text-paper">{inboxCount}</span>
                 )}
-                {t.key === 'mehr' && inboxCount === 0 && hasUpdate && (
-                  <span aria-label="Update verfügbar" className="absolute right-1/4 top-2 h-2.5 w-2.5 bg-accent"
+                {t.key === 'mehr' && inboxCount === 0 && (hasUpdate || backupDue) && (
+                  <span aria-label={hasUpdate ? 'Update verfügbar' : 'Sicherung fällig'} className="absolute right-1/4 top-2 h-2.5 w-2.5 bg-accent"
                     style={{ boxShadow: '0 0 0 var(--px) rgb(var(--c-surface))' }} />
                 )}
               </button>

@@ -141,3 +141,20 @@ export function parseBackupFileName(name: string): { name: string; at: number; r
   const m = /^auto-(\d+)-(.+)\.json$/.exec(name);
   return m ? { name, at: Number(m[1]), reason: m[2] } : null;
 }
+
+/** Sicherung zum Mitnehmen, lesbar benannt (Ortszeit): „scryglass-backup-2026-11-08-1430.json". */
+export function documentsBackupName(at: number): string {
+  const d = new Date(at);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `scryglass-backup-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
+}
+
+export const BACKUP_REMIND_MS = 30 * 24 * 3600_000;
+/** Erst ab so vielen Bestandszeilen erinnern — fünf gescannte Karten sind kein Verlust. */
+export const BACKUP_REMIND_MIN_ROWS = 30;
+
+/** Erinnern, die Sammlung außerhalb der App zu sichern (Dokumente-Ordner oder geteilt)? */
+export function backupReminderDue(lastSafeAt: number | undefined, ownedRows: number, now: number): boolean {
+  if (ownedRows < BACKUP_REMIND_MIN_ROWS) return false;
+  return lastSafeAt == null || now - lastSafeAt > BACKUP_REMIND_MS;
+}

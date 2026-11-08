@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseVersion, compareVersions, isNewerVersion, pickLatestAppRelease, parseSha256, isNewerCatalog,
   updateCheckDue, UPDATE_CHECK_INTERVAL_MS, noteLines, catalogDate, formatMb, backupFileName, parseBackupFileName,
+  documentsBackupName, backupReminderDue, BACKUP_REMIND_MS, BACKUP_REMIND_MIN_ROWS,
   type GhRelease,
 } from './updates';
 
@@ -106,5 +107,17 @@ describe('Anzeige und Sicherungs-Dateinamen', () => {
     expect(n).toBe('auto-1793000000000-vor-0.2.6-x.json');
     expect(parseBackupFileName(n)).toEqual({ name: n, at: 1793000000000, reason: 'vor-0.2.6-x' });
     expect(parseBackupFileName('irgendwas.json')).toBeNull();
+  });
+
+  it('Sicherung für den Dokumente-Ordner: lesbarer Name in Ortszeit', () => {
+    expect(documentsBackupName(new Date(2026, 10, 8, 9, 5).getTime())).toBe('scryglass-backup-2026-11-08-0905.json');
+  });
+
+  it('Erinnerung an die Sicherung: erst ab 30 Zeilen, nie gesichert oder älter als 30 Tage', () => {
+    const now = 1_800_000_000_000;
+    expect(backupReminderDue(undefined, BACKUP_REMIND_MIN_ROWS - 1, now)).toBe(false);
+    expect(backupReminderDue(undefined, BACKUP_REMIND_MIN_ROWS, now)).toBe(true);
+    expect(backupReminderDue(now - BACKUP_REMIND_MS + 1, 500, now)).toBe(false);
+    expect(backupReminderDue(now - BACKUP_REMIND_MS - 1, 500, now)).toBe(true);
   });
 });

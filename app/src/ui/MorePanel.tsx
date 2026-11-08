@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { db, listScans, clearScans } from '../db/db';
 import { serializeCollection, parseCollection, CollectionImportError } from '../domain/collectionIo';
-import { toMoxfieldCsv, type CsvRow } from '../domain/collectionCsv';
+import { toMoxfieldCsv, parseCollectionCsv, type CsvRow } from '../domain/collectionCsv';
+import { documentsBackupName } from '../domain/updates';
 import { getCards } from '../data/cards';
-import { applyBackup, listAutoBackups, restoreAutoBackup, shareAutoBackup, type AutoBackup } from '../data/backups';
+import {
+  applyBackup, listAutoBackups, restoreAutoBackup, shareAutoBackup, saveBackupToDocuments, markSafeBackup,
+  lastSafeBackup, backupReminder, type AutoBackup,
+} from '../data/backups';
+import { resolveCsvRows, applyCsvImport, type ResolvedCsv, type ImportItem } from '../data/collectionImport';
 import { AppUpdateSection, CatalogUpdateSection } from './UpdatePanel';
 import { initFeedbackPrefs, getVibration, setVibration, hapticTap } from '../native/feedback';
 import { PixelIcon } from './PixelIcon';
@@ -272,14 +278,45 @@ function ScanLogSection() {
   );
 }
 
+const nfDe = new Intl.NumberFormat('de-DE');
+const dayDe = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+/** „heute", „gestern", „vor 12 Tagen" (nach Kalendertagen). */
+function daysAgo(at: number): string {
+  const start = (t: number) => new Date(t).setHours(0, 0, 0, 0);
+  const d = Math.round((start(Date.now()) - start(at)) / 86_400_000);
+  return d <= 0 ? 'heute' : d === 1 ? 'gestern' : `vor ${d} Tagen`;
+}
+
+/** „1 Zeile", „1.234 Zeilen". */
+function plural(n: number, one: string, many: string): string {
+  return `${nfDe.format(n)} ${n === 1 ? one : many}`;
+}
+
 function BackupSection() {
+  const native = Capacitor.isNativePlatform();
   const [msg, setMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const lastSafe = useLiveQuery(() => lastSafeBackup(), []);
+  const due = useLiveQuery(() => backupReminder(), []) ?? false;
+  // Nach einem Import neu einlesen — dabei entsteht eine automatische Sicherung.
+  const [backupTick, setBackupTick] = useState(0);
+
+  async function toDocuments() {
+    try {
+      const r = await saveBackupToDocuments();
+      setMsg(`${r.owned} Bestände + ${r.decks} Decks gesichert: ${r.path}`);
+    } catch (e) {
+      setMsg(`Sichern fehlgeschlagen: ${(e as Error).message}`);
+    }
+  }
 
   async function exportJson() {
     const [owned, decks] = await Promise.all([db.owned.toArray(), db.decks.toArray()]);
-    await saveFile(`scryglass-backup-${new Date().toISOString().slice(0, 10)}.json`, serializeCollection(owned, decks, undefined, await getTokenCount()));
-    setMsg(`${owned.length} Bestände + ${decks.length} Decks exportiert.`);
+    const ok = await saveFile(documentsBackupName(Date.now()), serializeCollection(owned, decks, undefined, await getTokenCount()));
+    if (!ok) return;
+    await markSafeBackup();
+    setMsg(`${owned.length} Bestände + ${decks.length} Decks ${native ? 'geteilt' : 'exportiert'}.`);
   }
 
   async function exportCsv() {
@@ -318,16 +355,136 @@ function BackupSection() {
   return (
     <div className="rounded-lg bg-surface p-4">
       <h2 className="mb-2 font-mono text-lg">Backup & Export</h2>
-      <p className="mb-3 text-xs text-muted">IndexedDB kann ein Browser-Reset löschen — regelmäßig sichern.</p>
+      <p className="mb-2 text-xs text-muted">
+        {native
+          ? 'Die Sammlung liegt nur in der App. „In Dokumente sichern" legt eine Datei in Dokumente/ScryGlass ab — die bleibt auch beim Deinstallieren. Gegen Handy-Verlust: „Backup teilen", z. B. in Drive oder per Mail an dich selbst.'
+          : 'Die Sammlung liegt nur in diesem Browser — ein Browser-Reset löscht sie. Regelmäßig sichern.'}
+      </p>
+      <p className={`mb-3 font-mono text-xs ${due ? 'text-accent' : 'text-muted'}`}>
+        Letzte Sicherung außerhalb der App: {lastSafe ? `${dayDe.format(lastSafe)} (${daysAgo(lastSafe)})` : 'noch nie'}
+        {due ? ' — Zeit für eine neue.' : ''}
+      </p>
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => void exportJson()} className="rounded bg-accent px-3 py-1.5 font-mono text-sm text-on-accent">JSON-Backup</button>
+        {native && (
+          <button onClick={() => void toDocuments()} className="rounded bg-accent px-3 py-1.5 font-mono text-sm text-on-accent">In Dokumente sichern</button>
+        )}
+        <button onClick={() => void exportJson()}
+          className={native ? 'rounded border border-border px-3 py-1.5 font-mono text-sm hover:border-accent' : 'rounded bg-accent px-3 py-1.5 font-mono text-sm text-on-accent'}>
+          {native ? 'Backup teilen' : 'JSON-Backup'}
+        </button>
         <button onClick={() => void exportCsv()} className="rounded border border-border px-3 py-1.5 font-mono text-sm hover:border-accent">CSV-Export</button>
         <button onClick={() => fileRef.current?.click()} className="rounded border border-border px-3 py-1.5 font-mono text-sm hover:border-accent">JSON importieren</button>
         <input ref={fileRef} type="file" accept="application/json" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void importJson(f); e.target.value = ''; }} />
       </div>
       {msg && <p className="mt-2 font-mono text-xs text-muted">{msg}</p>}
-      <AutoBackups />
+      <CsvImportPanel onImported={() => setBackupTick((t) => t + 1)} />
+      <AutoBackups key={backupTick} />
+    </div>
+  );
+}
+
+interface CsvPlan {
+  source?: string;
+  resolved: ResolvedCsv;
+  skipped: number;
+}
+
+/** Umstieg von ManaBox, Moxfield & Co.: Sammlungs-CSV einlesen, Vorschau zeigen, dann übernehmen. */
+function CsvImportPanel({ onImported }: { onImported: () => void }) {
+  const native = Capacitor.isNativePlatform();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [plan, setPlan] = useState<CsvPlan | null>(null);
+  const [withDecks, setWithDecks] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function read(file: File) {
+    setPlan(null);
+    setBusy(true);
+    setMsg('Lese Datei …');
+    try {
+      const parsed = parseCollectionCsv(await file.text());
+      setPlan({ source: parsed.source, resolved: await resolveCsvRows(parsed.rows), skipped: parsed.skipped });
+      setWithDecks(false);
+      setMsg(null);
+    } catch (e) {
+      setMsg(e instanceof CollectionImportError ? `Import fehlgeschlagen: ${e.message}` : 'Die Datei ließ sich nicht lesen.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ManaBox-Decks und -Listen (oft Wunschlisten) nur auf Wunsch — sie sind nicht sicher Besitz.
+  const take = (kind: ImportItem['kind']) => kind === 'collection' || withDecks;
+  const items = plan?.resolved.items.filter((i) => take(i.kind)) ?? [];
+  const missing = plan?.resolved.unresolved.filter((u) => take(u.kind)) ?? [];
+  const cards = items.reduce((n, i) => n + i.qty, 0);
+  const extra = plan
+    ? [...plan.resolved.items, ...plan.resolved.unresolved].filter((i) => i.kind !== 'collection').reduce((n, i) => n + i.qty, 0)
+    : 0;
+
+  async function apply(mode: 'add' | 'replace') {
+    const backupNote = native ? ' Der jetzige Stand wird vorher gesichert.' : '';
+    if (mode === 'replace' && !window.confirm(`Die ganze Sammlung durch die Datei ersetzen? Decks und Token-Zähler bleiben.${backupNote}`)) return;
+    setBusy(true);
+    try {
+      await applyCsvImport(items, mode);
+      setMsg(`${plural(cards, 'Karte', 'Karten')} ${mode === 'replace' ? 'übernommen, die Sammlung ist ersetzt' : 'zur Sammlung hinzugefügt'}.` +
+        (native ? ' Der vorige Stand liegt unter „Automatische Sicherungen".' : ''));
+      setPlan(null);
+      onImported();
+    } catch (e) {
+      setMsg(`Übernehmen fehlgeschlagen: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 border-t-2 border-border pt-3">
+      <h3 className="mb-1 font-hud text-[9px] text-text">VON MANABOX UMSTEIGEN</h3>
+      <p className="mb-2 text-[10px] text-muted">
+        Sammlung als CSV aus ManaBox, Moxfield oder einer anderen App einlesen. Erkannt wird über
+        Scryfall-ID, Set + Nummer oder den Namen (Englisch oder Deutsch). Du siehst erst, was
+        erkannt wurde, und entscheidest dann.
+      </p>
+      <button disabled={busy} onClick={() => fileRef.current?.click()}
+        className="rounded border border-border px-3 py-1.5 font-mono text-sm hover:border-accent disabled:opacity-40">
+        CSV importieren
+      </button>
+      {/* Ohne accept: Android meldet CSVs mal als text/csv, mal als text/comma-separated-values. */}
+      <input ref={fileRef} type="file" className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) void read(f); e.target.value = ''; }} />
+      {plan && (
+        <div className="mt-3 bg-bg p-3 font-mono text-xs">
+          <p className="mb-1 text-text">
+            {plan.source ? `${plan.source}-Datei: ` : ''}{plural(cards, 'Karte', 'Karten')} in {plural(items.length, 'Zeile', 'Zeilen')} erkannt.
+          </p>
+          {missing.length > 0 && (
+            <details className="mb-1 text-muted">
+              <summary className="cursor-pointer">{plural(missing.length, 'Zeile', 'Zeilen')} nicht gefunden</summary>
+              <p className="mt-1">
+                {missing.slice(0, 60).map((m) => `${m.qty}× ${m.label}`).join(', ')}{missing.length > 60 ? ' …' : ''}
+              </p>
+            </details>
+          )}
+          {plan.skipped > 0 && <p className="mb-1 text-muted">{plural(plan.skipped, 'Zeile', 'Zeilen')} ohne Karte übersprungen.</p>}
+          {extra > 0 && (
+            <PixelCheckbox checked={withDecks} onChange={setWithDecks} className="my-2">
+              Auch {plural(extra, 'Karte', 'Karten')} aus ManaBox-Decks und -Listen übernehmen (Listen sind oft Wunschlisten)
+            </PixelCheckbox>
+          )}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button disabled={busy || items.length === 0} onClick={() => void apply('add')}
+              className="rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-40">Zur Sammlung hinzufügen</button>
+            <button disabled={busy || items.length === 0} onClick={() => void apply('replace')}
+              className="rounded border border-border px-3 py-1.5 text-sm hover:border-danger hover:text-danger disabled:opacity-40">Sammlung ersetzen</button>
+            <button disabled={busy} onClick={() => setPlan(null)} className="px-3 py-1.5 text-sm text-muted hover:text-text">Abbrechen</button>
+          </div>
+        </div>
+      )}
+      {msg && <p className="mt-2 font-mono text-xs text-muted">{msg}</p>}
     </div>
   );
 }
@@ -355,7 +512,10 @@ function AutoBackups() {
   return (
     <div className="mt-4 border-t-2 border-border pt-3">
       <h3 className="mb-1 font-hud text-[9px] text-text">AUTOMATISCHE SICHERUNGEN</h3>
-      <p className="mb-2 text-[10px] text-muted">Vor jedem App-Update — die letzten drei, im App-Speicher (weg beim Deinstallieren: zur Sicherheit teilen).</p>
+      <p className="mb-2 text-[10px] text-muted">
+        Vor jedem App-Update, Import und Wiederherstellen — die letzten drei. Ab Android 11 liegt
+        zusätzlich eine Kopie in Dokumente/ScryGlass/Automatisch; zurückholen über „JSON importieren".
+      </p>
       {list === null ? null : list.length === 0 ? (
         <p className="font-mono text-xs text-muted">Noch keine.</p>
       ) : (
