@@ -62,3 +62,10 @@ def test_main_writes_file_and_version_counts(tmp_path):
     version = json.loads((tmp_path / "version.json").read_text(encoding="utf-8"))
     assert version["counts"] == {"cards": 1, "combos": 3}
     assert version["combos"]["version"] == "7.3.6"
+
+
+def test_maybe_gunzip_handles_already_decoded_content():
+    import gzip
+    data = b'{"variants": []}'
+    assert fc.maybe_gunzip(gzip.compress(data)) == data
+    assert fc.maybe_gunzip(data) == data  # schon entpackt (Content-Encoding: gzip)

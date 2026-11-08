@@ -142,12 +142,18 @@ def write(combos: Dict, out_dir: str) -> int:
     return len(combos["rows"])
 
 
+def maybe_gunzip(raw: bytes) -> bytes:
+    """Entpacken, falls nötig: liefert der Server die .gz mit `Content-Encoding: gzip`,
+    hat `requests` sie schon entpackt (so in der CI am 2026-11-08 passiert)."""
+    return gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw
+
+
 def download() -> Dict:
     import requests  # lazy — Tests laufen offline
 
     r = requests.get(VARIANTS_URL, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
-    return json.loads(gzip.decompress(r.content))
+    return json.loads(maybe_gunzip(r.content))
 
 
 def main(argv: Optional[List[str]] = None) -> int:

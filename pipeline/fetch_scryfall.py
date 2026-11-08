@@ -392,7 +392,10 @@ def download_oracle_tags() -> List[Dict]:
         raise RuntimeError("oracle_tags ohne jsonl_download_uri.")
     r = requests.get(uri, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
-    return list(iter_jsonl(io.StringIO(gzip.decompress(r.content).decode("utf-8"))))
+    raw = r.content  # je nach Server schon von `requests` entpackt
+    if raw[:2] == b"\x1f\x8b":
+        raw = gzip.decompress(raw)
+    return list(iter_jsonl(io.StringIO(raw.decode("utf-8"))))
 
 
 # --- IO: Streaming-Reader ---------------------------------------------------
