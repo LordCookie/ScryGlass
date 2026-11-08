@@ -22,6 +22,7 @@ import { CardDetail } from './CardDetail';
 import { feedbackAdded, hapticTap } from '../native/feedback';
 import { useBackHandler } from './backStack';
 import { deckRequested, clearDeckRequest } from './deckNav';
+import { useWidth, hoverPreview } from './wide';
 import { ensureRowPrices } from '../data/prices';
 import { deckValueRows, missingValueRows, collectionValue, formatEur, priceKey, type PriceEntry, type ValueRow } from '../domain/prices';
 
@@ -115,6 +116,8 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
   const deck = useLiveQuery(() => db.decks.get(deckId), [deckId]);
   const owned = useLiveQuery(() => ownedByOracle(), []);
   const [tab, setTab] = useState<'liste' | 'stats' | 'check' | 'fehlt' | 'text'>('liste');
+  // Breites Layout (M18): Liste links, Statistik/Check/… rechts; ab 1440 px noch die Suche davor.
+  const width = useWidth();
   useBackHandler(true, onBack); // Android-Zurück = zur Deckliste
 
   // Karten-Lookup für alle im Deck referenzierten oracleIds.
@@ -157,8 +160,44 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
     change({ kind: 'adjust', list, oracleId, delta });
   }
 
+  const TABS = ['liste', 'stats', 'check', 'fehlt', 'text'] as const;
+  const sideTab = tab === 'liste' ? 'stats' : tab;
+  const tabBar = (list: readonly (typeof TABS)[number][]) => (
+    <div className="flex flex-wrap gap-1 font-mono text-xs">
+      {list.map((t) => {
+        const on = width === 'narrow' ? tab === t : sideTab === t;
+        return (
+          <button key={t} onClick={() => setTab(t)}
+            className={`whitespace-nowrap rounded px-3 py-1.5 ${on ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:text-text'}`}>
+            {t === 'liste' ? 'Liste' : t === 'stats' ? 'Statistik' : t === 'check' ? 'Deck-Check' : t === 'fehlt' ? 'Fehlt mir' : 'Text'}
+          </button>
+        );
+      })}
+    </div>
+  );
+  const tabContent = (t: (typeof TABS)[number]) => (
+    <>
+      {t === 'stats' && <DeckStatsView deck={deck} cards={cards} owned={owned ?? new Map()} chosen={ownedPrint} />}
+      {t === 'check' && <DeckCheckView deck={deck} cards={cards} owned={owned ?? EMPTY_OWNED} />}
+      {t === 'fehlt' && <MissingView deck={deck} cards={cards} owned={owned ?? new Map()} />}
+      {t === 'text' && <DeckTextView deck={deck} cards={cards} onImport={(lists) => change({ kind: 'replaceLists', ...lists })} />}
+    </>
+  );
+  const commanderEl = rules && (
+    <CommanderSection
+      commander={deck.commanderId ? cards.get(deck.commanderId) : undefined}
+      chosenScryfallId={deck.commanderId ? effectiveImgs.get(deck.commanderId) : undefined}
+      onSet={(id) => change({ kind: 'commander', oracleId: id ?? null })}
+    />
+  );
+  const addEl = <AddCardBox owned={owned ?? new Map()} onAdd={(id, list) => adjust(list, id, 1)} allowSideboard={!rules} />;
+  const listEl = (
+    <DeckList deck={deck} cards={cards} imgs={effectiveImgs} owned={owned ?? new Map()}
+      onAdjust={adjust} allowSideboard={!rules} onOpenDetail={setDetailId} />
+  );
+
   return (
-    <section className="space-y-3">
+    <section className={`space-y-3 ${detailId ? 'lg:pr-[30rem]' : ''}`}>
       <div className="rounded-lg bg-surface p-4">
         <div className="mb-2 flex items-center gap-2">
           <button onClick={onBack} className="rounded px-2 py-1 font-mono text-sm text-muted hover:text-accent">← Decks</button>
@@ -193,34 +232,28 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
         </div>
       </div>
 
-      {rules && (
-        <CommanderSection
-          commander={deck.commanderId ? cards.get(deck.commanderId) : undefined}
-          chosenScryfallId={deck.commanderId ? effectiveImgs.get(deck.commanderId) : undefined}
-          onSet={(id) => change({ kind: 'commander', oracleId: id ?? null })}
-        />
+      {width === 'narrow' ? (
+        <>
+          {commanderEl}
+          {addEl}
+          {/* Fünf Reiter passen am Handy nicht in eine Zeile — lieber umbrechen als Wörter trennen. */}
+          {tabBar(TABS)}
+          {tab === 'liste' && listEl}
+          {tab !== 'liste' && tabContent(tab)}
+        </>
+      ) : (
+        <div className={`grid items-start gap-4 ${width === 'xwide' ? 'grid-cols-[20rem_minmax(0,1fr)_minmax(0,1fr)]' : 'grid-cols-2'}`}>
+          {width === 'xwide' && <div className="sticky top-4 space-y-3">{commanderEl}{addEl}</div>}
+          <div className="min-w-0 space-y-3">
+            {width === 'wide' && <>{commanderEl}{addEl}</>}
+            {listEl}
+          </div>
+          <div className="min-w-0 space-y-3">
+            {tabBar(TABS.filter((t) => t !== 'liste'))}
+            {tabContent(sideTab)}
+          </div>
+        </div>
       )}
-
-      <AddCardBox owned={owned ?? new Map()} onAdd={(id, list) => adjust(list, id, 1)} allowSideboard={!rules} />
-
-      {/* Fünf Reiter passen am Handy nicht in eine Zeile — lieber umbrechen als Wörter trennen. */}
-      <div className="flex flex-wrap gap-1 font-mono text-xs">
-        {(['liste', 'stats', 'check', 'fehlt', 'text'] as const).map((t) => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`whitespace-nowrap rounded px-3 py-1.5 ${tab === t ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:text-text'}`}>
-            {t === 'liste' ? 'Liste' : t === 'stats' ? 'Statistik' : t === 'check' ? 'Deck-Check' : t === 'fehlt' ? 'Fehlt mir' : 'Text'}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'liste' && (
-        <DeckList deck={deck} cards={cards} imgs={effectiveImgs} owned={owned ?? new Map()}
-          onAdjust={adjust} allowSideboard={!rules} onOpenDetail={setDetailId} />
-      )}
-      {tab === 'stats' && <DeckStatsView deck={deck} cards={cards} owned={owned ?? new Map()} chosen={ownedPrint} />}
-      {tab === 'check' && <DeckCheckView deck={deck} cards={cards} owned={owned ?? EMPTY_OWNED} />}
-      {tab === 'fehlt' && <MissingView deck={deck} cards={cards} owned={owned ?? new Map()} />}
-      {tab === 'text' && <DeckTextView deck={deck} cards={cards} onImport={(lists) => change({ kind: 'replaceLists', ...lists })} />}
 
       {detailId && <CardDetail oracleId={detailId} onClose={() => setDetailId(null)} />}
     </section>
@@ -325,7 +358,7 @@ function AddCardBox({
   }, [q]);
   return (
     <div className="rounded-lg bg-surface p-3">
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Karte hinzufügen (Name)…"
+      <input value={q} onChange={(e) => setQ(e.target.value)} data-hotkey="search" placeholder="Karte hinzufügen (Name)…"
         className="w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" />
       {results.length > 0 && (
         <ul className="mt-2 divide-y divide-white/5 overflow-hidden rounded-md border border-border">
@@ -391,7 +424,7 @@ function DeckList({
                   <button onClick={() => onAdjust(list, e.oracleId, -1)} aria-label="weniger" className="px-2 py-0.5 text-muted hover:text-paper">−</button>
                   <span className="w-7 text-center font-hud text-[10px] text-text">{e.qty}×</span>
                   <button onClick={() => onAdjust(list, e.oracleId, 1)} aria-label="mehr" className="px-2 py-0.5 text-muted hover:text-paper">+</button>
-                  <button onClick={() => onOpenDetail(e.oracleId)} className="min-w-0 flex-1 truncate text-left hover:text-accent">{card?.name ?? e.oracleId}</button>
+                  <button onClick={() => onOpenDetail(e.oracleId)} {...hoverPreview(imgs.get(e.oracleId), card?.name)} className="min-w-0 flex-1 truncate text-left hover:text-accent">{card?.name ?? e.oracleId}</button>
                   <span className={`text-[10px] ${have >= e.qty ? 'text-ok' : 'text-danger'}`}>{have}/{e.qty}</span>
                 </li>
               );

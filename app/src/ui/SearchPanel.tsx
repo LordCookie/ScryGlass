@@ -92,7 +92,7 @@ export function SearchPanel() {
     <section className="space-y-3">
       <div className="rounded-lg bg-surface p-4">
         <h2 className="mb-2 font-hud text-sm text-text">SUCHE</h2>
-        <input
+        <input data-hotkey="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={mode === 'karten' ? 'Name, Typ oder Regeltext (DE/EN)…' : 'Karte in der Kombo (DE/EN)…'}

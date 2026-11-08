@@ -30,6 +30,7 @@ import { ReleaseNotes, UpdateProgressStrip } from './ui/UpdatePanel';
 import { ConnectionIndicator } from './ui/bigscreen/ConnectionIndicator';
 import { Ruhebild } from './ui/bigscreen/Ruhebild';
 import { setScannerActive } from './bigscreen/phone';
+import { HoverPreviewHost, useSearchHotkey } from './ui/wide';
 
 type Tab = 'scan' | 'sammlung' | 'decks' | 'suche' | 'mehr';
 type Gate = 'checking' | 'importing' | 'ready' | 'offline';
@@ -125,6 +126,8 @@ export default function App({ remote = false }: { remote?: boolean } = {}) {
   useBackHandler(tab !== 'sammlung', () => setTab('sammlung'));
   // Big Screen am Handy: im Scanner kein Ruhebild (M18).
   useEffect(() => { if (!remote) setScannerActive(tab === 'scan'); }, [tab, remote]);
+  // Breites Layout (M18): „/" springt in die Suche.
+  useSearchHotkey();
 
   // Eingebauter Katalog neuer als der lokale (nach einem App-Update): im Hintergrund
   // einspielen — den Fortschritt zeigen die Leiste unten bzw. „Mehr → Katalog".
@@ -151,13 +154,13 @@ export default function App({ remote = false }: { remote?: boolean } = {}) {
   }
 
   return (
-    <div className="mx-auto flex min-h-full max-w-2xl flex-col">
-      <header className="flex items-center gap-3 px-4 pb-3 pt-4">
+    <div className="mx-auto flex min-h-full max-w-2xl flex-col lg:max-w-none lg:pl-48">
+      <header className="flex items-center gap-3 px-4 pb-3 pt-4 lg:px-6">
         <h1 className="font-hud text-sm">
           <span className="text-muted">Scry</span><span className="text-paper">Glass</span>
         </h1>
         <NextSetBadge />
-        {remote && <span className="ml-auto"><ConnectionIndicator /></span>}
+        {remote && <span className="ml-auto lg:hidden"><ConnectionIndicator /></span>}
       </header>
 
       {update && (
@@ -170,7 +173,7 @@ export default function App({ remote = false }: { remote?: boolean } = {}) {
       {/* Läuft ein Update im Hintergrund weiter — in „Mehr" steht es ausführlich. */}
       {tab !== 'mehr' && !remote && <UpdateProgressStrip onOpen={() => setTab('mehr')} />}
 
-      <main className="flex-1 px-4 pb-28">
+      <main className="flex-1 px-4 pb-28 lg:px-6 lg:pb-10">
         {tab === 'scan' && <ScannerPanel />}
         {tab === 'sammlung' && <CollectionView />}
         {tab === 'decks' && <DecksPanel />}
@@ -178,9 +181,10 @@ export default function App({ remote = false }: { remote?: boolean } = {}) {
         {tab === 'mehr' && <MorePanel remote={remote} />}
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-10 border-t-2 border-fill bg-surface"
+      {/* Unten am Handy; ab 1024 px als Leiste links (breites Layout, M18). */}
+      <nav className="fixed inset-x-0 bottom-0 z-10 border-t-2 border-fill bg-surface lg:inset-y-0 lg:left-0 lg:right-auto lg:w-48 lg:border-r-2 lg:border-t-0"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-        <div className="mx-auto flex max-w-2xl">
+        <div className="mx-auto flex max-w-2xl lg:h-full lg:max-w-none lg:flex-col lg:pt-16">
           {TABS.filter((t) => !(remote && t.key === 'scan')).map((t) => {
             const active = tab === t.key;
             return (
@@ -188,12 +192,12 @@ export default function App({ remote = false }: { remote?: boolean } = {}) {
                 key={t.key}
                 onClick={() => setTab(t.key)}
                 aria-current={active ? 'page' : undefined}
-                className={`relative flex flex-1 flex-col items-center gap-1 py-3 font-mono text-xs ${
+                className={`relative flex flex-1 flex-col items-center gap-1 py-3 font-mono text-xs lg:flex-none lg:flex-row lg:gap-3 lg:px-5 lg:py-3 lg:text-sm ${
                   active ? 'bg-titlebar text-paper' : 'text-muted hover:text-text'
                 }`}
               >
-                {/* Aktiver Tab: heller Balken oben drauf (mehr Highlight). */}
-                {active && <span className="absolute inset-x-0 top-0 h-[calc(var(--px)*1)] bg-paper" />}
+                {/* Aktiver Tab: heller Balken oben drauf (breit: links). */}
+                {active && <span className="absolute inset-x-0 top-0 h-[calc(var(--px)*1)] bg-paper lg:inset-x-auto lg:bottom-0 lg:left-0 lg:h-auto lg:w-[calc(var(--px)*1)]" />}
                 <span className="flex h-6 items-center"><PixelIcon name={t.icon} unit="2px" /></span>
                 <span>{t.label}</span>
                 {/* Peer-Eingang liegt jetzt unter „Mehr" → Badge dort; sonst ein Punkt für Updates. */}
@@ -207,8 +211,11 @@ export default function App({ remote = false }: { remote?: boolean } = {}) {
               </button>
             );
           })}
+          {/* Breit: Verbindung zum Handy unten in der Leiste (Big Screen). */}
+          {remote && <div className="mt-auto hidden px-3 pb-4 lg:block"><ConnectionIndicator up /></div>}
         </div>
       </nav>
+      <HoverPreviewHost />
 
       {!remote && <Ruhebild />}
 

@@ -62,7 +62,7 @@ export function PreconsView() {
   return (
     <div className="space-y-3">
       <div className="rounded-lg bg-surface p-4">
-        <input
+        <input data-hotkey="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Fertigdeck suchen (Name, Set oder Commander)…"

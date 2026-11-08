@@ -19,13 +19,14 @@ function idleLabel(ms: number | undefined): string {
   return IDLE_OPTIONS.find((o) => o.ms === ms)?.label ?? `${Math.round(ms / 60_000)} min`;
 }
 
-export function ConnectionIndicator({ compact = false }: { compact?: boolean }) {
+/** `up`: Feld öffnet nach oben (unten in der Seitenleiste). */
+export function ConnectionIndicator({ compact = false, up = false }: { compact?: boolean; up?: boolean }) {
   const client = remoteClient();
   if (!client) return null;
-  return <Indicator client={client} compact={compact} />;
+  return <Indicator client={client} compact={compact} up={up} />;
 }
 
-function Indicator({ client, compact }: { client: RemoteClient; compact: boolean }) {
+function Indicator({ client, compact, up }: { client: RemoteClient; compact: boolean; up: boolean }) {
   const st = useRemoteState(client);
   const [open, setOpen] = useState(false);
   const [clearCatalog, setClearCatalog] = useState(false);
@@ -53,7 +54,7 @@ function Indicator({ client, compact }: { client: RemoteClient; compact: boolean
         {low && <span className="text-warn">Akku {Math.round(st.status!.battery!.level * 100)} %</span>}
       </button>
       {open && (
-        <div className="frame absolute right-0 top-full z-40 mt-2 w-72 bg-surface font-mono text-xs">
+        <div className={`frame absolute z-40 w-72 bg-surface font-mono text-xs ${up ? 'bottom-full left-0 mb-2' : 'right-0 top-full mt-2'}`}>
           <div className="titlebar"><span className="truncate text-text">{st.status?.device ?? st.info.deviceName}</span></div>
           <div className="space-y-1 p-3 text-muted">
             <p>{label}</p>

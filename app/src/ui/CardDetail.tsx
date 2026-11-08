@@ -10,6 +10,7 @@ import { fetchPrices, priceForPrinting } from '../data/prices';
 import { CardImage } from './CardImage';
 import { ManaCost, ColorPips } from './mana';
 import { useBackHandler } from './backStack';
+import { isTypingTarget } from './wide';
 
 /**
  * Kartendetail als Pixel-Sheet: großes Kartenbild, Regeltext/Effekte, Manakosten,
@@ -22,7 +23,18 @@ import { useBackHandler } from './backStack';
  * Tokens (M14) zählen je Artwork: der Bestand gilt für die GEZEIGTE Ausgabe, Blättern
  * wählt also, welches Artwork man hinzufügt. `printingId` = Startausgabe.
  */
-export function CardDetail({ oracleId, printingId, onClose }: { oracleId: string; printingId?: string; onClose: () => void }) {
+/**
+ * Breit (ab 1024 px, M18): Seitenleiste rechts statt bildschirmfüllend — das Raster bleibt
+ * sichtbar. ↑/↓ blättern zur vorigen/nächsten Karte (`onPrev`/`onNext`), ←/→ durch die
+ * Ausgaben, `+`/`−` ändern die Anzahl (normal), `Esc` schließt.
+ */
+export function CardDetail({ oracleId, printingId, onClose, onPrev, onNext }: {
+  oracleId: string;
+  printingId?: string;
+  onClose: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+}) {
   const [card, setCard] = useState<Card | null>(null);
   const [printings, setPrintings] = useState<Printing[]>([]);
   const [idx, setIdx] = useState(0);
@@ -68,14 +80,22 @@ export function CardDetail({ oracleId, printingId, onClose }: { oracleId: string
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === 'Escape') onClose();
       else if (e.key === 'ArrowRight') step(1);
       else if (e.key === 'ArrowLeft') step(-1);
+      else if (e.key === 'ArrowDown' && onNext) { e.preventDefault(); onNext(); }
+      else if (e.key === 'ArrowUp' && onPrev) { e.preventDefault(); onPrev(); }
+      else if (e.key === '+' || e.key === '-') {
+        const pid = token ? printings[idx]?.scryfallId : undefined;
+        if (token && !pid) return;
+        void addOwned(oracleId, 'nonfoil', e.key === '+' ? 1 : -1, { source: 'manual', printingId: pid });
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onClose, printings.length]);
+  }, [onClose, onPrev, onNext, printings.length, idx, oracleId]);
 
   function step(delta: number) {
     if (printings.length === 0) return;
@@ -138,8 +158,8 @@ export function CardDetail({ oracleId, printingId, onClose }: { oracleId: string
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-bg/80 p-3 sm:items-center" onClick={onClose}>
-      <div className="frame max-h-[92vh] w-full max-w-md overflow-y-auto bg-surface" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-bg/80 p-3 sm:items-center lg:inset-auto lg:bottom-0 lg:right-0 lg:top-0 lg:w-[30rem] lg:items-stretch lg:bg-transparent lg:p-0" onClick={onClose}>
+      <div className="frame max-h-[92vh] w-full max-w-md overflow-y-auto bg-surface lg:h-full lg:max-h-none lg:max-w-none" onClick={(e) => e.stopPropagation()}>
         <div className="titlebar sticky top-0 z-10">
           <span className="min-w-0 flex-1 truncate text-text">{card?.name ?? '…'}</span>
           {card && <ManaCost cost={card.manaCost} />}

@@ -17,6 +17,7 @@ import { CollectionStats } from './CollectionStats';
 import { addTokens, getTokenCount } from '../data/tokens';
 import { ManaCost, ColorPips } from './mana';
 import { PreconsView } from './PreconsView';
+import { hoverPreview } from './wide';
 
 /**
  * Sammlungsansicht (PLAN.md § 5, M5): Bestand, Suche, Filter, Sortierung.
@@ -163,8 +164,20 @@ function OwnedCollection({ kind, onKind }: { kind: Exclude<Kind, 'precons'>; onK
   const tokenTotal = (rows ?? []).reduce((s, r) => s + (r.token ? r.owned.qty : 0), 0) + withoutArt;
   const tokens = kind === 'tokens';
 
+  // Reihenfolge fürs Blättern im Detail (↑/↓, breites Layout): wie gerade angezeigt.
+  const order = view === 'grid'
+    ? gridItems.map((it) => ({ oracleId: it.card.oracleId, printingId: it.printingId }))
+    : filtered.map((r) => ({ oracleId: r.owned.oracleId, printingId: r.owned.printingId }));
+  const detailAt = detail ? order.findIndex((o) => o.oracleId === detail.oracleId && (!tokens || o.printingId === detail.printingId)) : -1;
+  const goto = (delta: number) => {
+    if (detailAt < 0 || order.length === 0) return;
+    setDetail(order[(detailAt + delta + order.length) % order.length]);
+  };
+
   return (
-    <section className="space-y-3">
+    // Breit (M18): Filter als Spalte links, Raster/Liste rechts; offenes Detail bekommt rechts Platz.
+    <section className={`space-y-3 lg:grid lg:grid-cols-[20rem_minmax(0,1fr)] lg:items-start lg:gap-4 lg:space-y-0 ${detail ? 'lg:pr-[30rem]' : ''}`}>
+      <div className="space-y-3 lg:sticky lg:top-4">
       <div className="rounded-lg bg-surface p-4">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="font-hud text-sm text-text">SAMMLUNG</h2>
@@ -174,6 +187,7 @@ function OwnedCollection({ kind, onKind }: { kind: Exclude<Kind, 'precons'>; onK
         <input
           value={filter.query}
           onChange={(e) => patch({ query: e.target.value })}
+          data-hotkey="search"
           placeholder={tokens ? 'Tokens suchen (Name oder Typ)…' : 'Suchen (Name, Typ oder Regeltext)…'}
           className="mb-2 w-full border-2 border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-paper"
         />
@@ -271,6 +285,9 @@ function OwnedCollection({ kind, onKind }: { kind: Exclude<Kind, 'precons'>; onK
       </div>
 
       <ManualAddBox tokens={tokens} onPickToken={(card) => setDetail({ oracleId: card.oracleId })} />
+      </div>
+
+      <div className="min-w-0 space-y-3">
 
       {/* Ohne Artwork gezählte Tokens (Katalog kannte sie nicht, oder von vor dem Update). */}
       {tokens && withoutArt > 0 && (
@@ -296,7 +313,7 @@ function OwnedCollection({ kind, onKind }: { kind: Exclude<Kind, 'precons'>; onK
         <CollectionStats rows={filtered} tokens={tokens} />
       ) : view === 'grid' ? (
         // Bild-Raster mit Anzahl-Badge oben rechts.
-        <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+        <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5 min-[1600px]:grid-cols-7 min-[2000px]:grid-cols-9">
           {gridItems.map((it) => (
             <li key={it.key}>
               <button onClick={() => setDetail({ oracleId: it.card.oracleId, printingId: it.printingId })}
@@ -311,7 +328,11 @@ function OwnedCollection({ kind, onKind }: { kind: Exclude<Kind, 'precons'>; onK
           ))}
         </ul>
       ) : (
-        <ul className="space-y-2">
+        <>
+        {/* Breit: Tabelle mit sortierbaren Spalten (M18). */}
+        <CollectionTable rows={filtered} prices={prices} tokens={tokens} sort={sort} onSort={setSort}
+          onOpen={(r) => setDetail({ oracleId: r.owned.oracleId, printingId: r.owned.printingId })} />
+        <ul className="space-y-2 lg:hidden">
           {filtered.map((r) => (
             // Jede Zeile = Mini-Kartenrahmen (DESIGN § 1/§ 6): Titelbalken Name/Mana, Meta-Zeile.
             <li key={`${r.owned.oracleId}-${r.owned.finish}-${r.owned.printingId ?? ''}`} className="frame font-mono">
@@ -338,9 +359,14 @@ function OwnedCollection({ kind, onKind }: { kind: Exclude<Kind, 'precons'>; onK
             </li>
           ))}
         </ul>
+        </>
       )}
+      </div>
 
-      {detail && <CardDetail oracleId={detail.oracleId} printingId={detail.printingId} onClose={() => setDetail(null)} />}
+      {detail && (
+        <CardDetail oracleId={detail.oracleId} printingId={detail.printingId} onClose={() => setDetail(null)}
+          onPrev={order.length > 1 ? () => goto(-1) : undefined} onNext={order.length > 1 ? () => goto(1) : undefined} />
+      )}
     </section>
   );
 }
@@ -430,5 +456,73 @@ function ManualAddBox({ tokens, onPickToken }: { tokens: boolean; onPickToken: (
         <p className="mt-2 font-mono text-[10px] text-muted">Kein Token gefunden — der Katalog braucht den Stand mit Tokens.</p>
       )}
     </div>
+  );
+}
+
+/**
+ * Listenansicht im breiten Layout (M18): Tabelle mit sortierbaren Spalten. Name, Manawert,
+ * Anzahl und Preis sortieren über dieselbe Einstellung wie oben; Maus über dem Namen zeigt
+ * das Kartenbild.
+ */
+function CollectionTable({ rows, prices, tokens, sort, onSort, onOpen }: {
+  rows: KnownRow[];
+  prices: Awaited<ReturnType<typeof getPrices>> | undefined;
+  tokens: boolean;
+  sort: SortKey;
+  onSort: (s: SortKey) => void;
+  onOpen: (r: KnownRow) => void;
+}) {
+  const head = (label: string, key?: SortKey, right = false, cls = '') => (
+    <th className={`px-2 py-1.5 font-normal ${right ? 'text-right' : 'text-left'} ${cls}`}>
+      {key ? (
+        <button onClick={() => onSort(key)} className={sort === key ? 'text-paper' : 'text-muted hover:text-text'}>
+          {label}{sort === key ? ' ▾' : ''}
+        </button>
+      ) : <span className="text-muted">{label}</span>}
+    </th>
+  );
+  return (
+    <table className="hidden w-full border-collapse bg-surface font-mono text-sm lg:table">
+      <thead className="sticky top-0 bg-titlebar text-xs">
+        <tr>
+          {head('Name', 'name', false, 'w-[38%]')}
+          {head('Typ')}
+          {head('Set')}
+          {head('Ausführung')}
+          {head('Manawert', 'cmc', true)}
+          {head('Preis', 'value', true)}
+          {head('Anzahl', 'qty', true)}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => {
+          const unit = prices ? ownedUnitPrice(r.owned, prices) : undefined;
+          return (
+            <tr key={`${r.owned.oracleId}-${r.owned.finish}-${r.owned.printingId ?? ''}`} className="border-t border-border hover:bg-elevated">
+              <td className="max-w-0 px-2 py-1">
+                <button onClick={() => onOpen(r)} {...hoverPreview(r.scryfallId, r.card.name)}
+                  className="flex w-full min-w-0 items-center gap-2 text-left text-text hover:text-accent">
+                  <ColorPips colors={r.card.colorIdentity} />
+                  <span className="truncate">{r.card.name}</span>
+                  <span className="ml-auto shrink-0"><ManaCost cost={r.card.manaCost} /></span>
+                </button>
+              </td>
+              <td className="max-w-[14rem] truncate px-2 py-1 text-xs text-muted">{r.card.typeLine}</td>
+              <td className="px-2 py-1 text-xs text-muted">{r.set?.toUpperCase() ?? (tokens ? '?' : '–')}</td>
+              <td className="px-2 py-1 text-xs">{r.owned.finish !== 'nonfoil' ? <span className="text-accent">✦ {r.owned.finish}</span> : <span className="text-muted">normal</span>}</td>
+              <td className="px-2 py-1 text-right text-xs text-muted">{r.card.cmc}</td>
+              <td className="px-2 py-1 text-right text-xs text-text">{unit != null ? formatEur(unit) : ''}</td>
+              <td className="whitespace-nowrap px-2 py-1 text-right">
+                <button onClick={() => void addOwned(r.owned.oracleId, r.owned.finish, -1, { printingId: r.owned.printingId })}
+                  aria-label="weniger" className="px-1.5 text-muted hover:text-paper">−</button>
+                <span className="inline-block w-9 text-center font-hud text-[10px] text-text">{r.owned.qty}×</span>
+                <button onClick={() => void addOwned(r.owned.oracleId, r.owned.finish, 1, { source: 'manual', printingId: r.owned.printingId })}
+                  aria-label="mehr" className="px-1.5 text-muted hover:text-paper">+</button>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
