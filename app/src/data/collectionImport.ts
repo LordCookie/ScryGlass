@@ -1,4 +1,4 @@
-import { db, addOwnedBatch, whereAnyOf } from '../db/db';
+import { db, addOwnedBatch, whereAnyOf, writeGateway } from '../db/db';
 import type { Finish } from '../domain/types';
 import type { CsvImportRow } from '../domain/collectionCsv';
 import { normalizeName } from '../domain/nameMatch';
@@ -81,6 +81,12 @@ export async function resolveCsvRows(rows: readonly CsvImportRow[]): Promise<Res
  * Token-Zähler bleiben. Gleiche Karten werden wie beim Scannen zusammengezählt.
  */
 export async function applyCsvImport(items: readonly ImportItem[], mode: 'add' | 'replace'): Promise<void> {
+  const gw = writeGateway();
+  if (gw) {
+    // Big Screen (M18): der PC schickt nur die erkannten Zeilen, das Handy sichert und bucht.
+    await gw('csvImport', [items.map(({ oracleId, finish, qty, printingId }) => ({ oracleId, finish, qty, printingId })), mode]);
+    return;
+  }
   await autoBackup(mode === 'replace' ? 'vor-csv-ersetzen' : 'vor-csv-import');
   await db.transaction('rw', db.owned, db.cards, async () => {
     if (mode === 'replace') await db.owned.clear();

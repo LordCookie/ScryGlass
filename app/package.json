@@ -22,6 +22,7 @@
     "@capacitor/filesystem": "^6.0.4",
     "@capacitor/haptics": "^6.0.3",
     "@capacitor/share": "^6.0.4",
+    "@noble/hashes": "^1.7.1",
     "dexie": "^4.0.10",
     "dexie-react-hooks": "^1.1.7",
     "jsqr": "^1.4.0",

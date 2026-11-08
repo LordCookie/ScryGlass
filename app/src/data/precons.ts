@@ -1,5 +1,5 @@
 import {
-  db, getMeta, setMeta, whereAnyOf, addOwnedBatch, removeOwnedBatch, ownedRowKeys, saveDeck, deleteDeck,
+  db, getMeta, setMeta, whereAnyOf, addOwnedBatch, removeOwnedBatch, ownedRowKeys, createDeck, deleteDeck, writeGateway,
 } from '../db/db';
 import { NdjsonBuffer } from './ndjson';
 import {
@@ -137,6 +137,8 @@ export async function addPreconToCollection(
   p: Precon,
   opts: { copies: number; withTokens: boolean; createDeck: boolean },
 ): Promise<AddPreconResult> {
+  const gw = writeGateway();
+  if (gw) return gw('addPrecon', [p.key, opts]) as Promise<AddPreconResult>;
   const { printings } = await preconDetails(p);
   const booking = preconBookings(p, printings, opts);
   await autoBackup('vor-fertigdeck').catch(() => null);
@@ -145,7 +147,7 @@ export async function addPreconToCollection(
   let extraCommanders = 0;
   if (opts.createDeck) {
     const made = deckFromPrecon(p, printings);
-    deckId = await saveDeck(made.deck);
+    deckId = await createDeck(made.deck);
     extraCommanders = made.extraCommanders;
   }
   await db.ownedPrecons.add({
@@ -169,6 +171,8 @@ export async function previewPreconRemoval(op: OwnedPrecon): Promise<{ total: nu
 
 /** Fertigdeck wieder aus der Sammlung nehmen (nie unter 0); das Deck auf Wunsch mit. */
 export async function removePreconFromCollection(op: OwnedPrecon, opts: { deleteDeck: boolean }): Promise<number> {
+  const gw = writeGateway();
+  if (gw) return gw('removePrecon', [op.id, opts]) as Promise<number>;
   await autoBackup('vor-fertigdeck-weg').catch(() => null);
   const { key, have } = await ownedRowKeys(op.items);
   const plan = planRemoval(op.items, key, have);

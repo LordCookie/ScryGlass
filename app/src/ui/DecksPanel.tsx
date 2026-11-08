@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, saveDeck, deleteDeck, listDecks } from '../db/db';
+import { db, createDeck, changeDeck, deleteDeck, listDecks } from '../db/db';
+import type { DeckOp } from '../domain/deckOps';
 import { getCards, ownedByOracle, ownedPrintingByOracle, previewImageIds, previewPrinting, catalogFeatures } from '../data/cards';
 import { deckCombos } from '../data/combos';
 import { spellbookUrl } from '../domain/combos';
@@ -97,7 +98,7 @@ function NewDeckForm({ onCreated }: { onCreated: (id: number) => void }) {
       </select>
       <button
         onClick={async () => {
-          const id = await saveDeck({ name: name.trim() || 'Neues Deck', format, cards: [], sideboard: [], updatedAt: Date.now() });
+          const id = await createDeck({ name: name.trim() || 'Neues Deck', format, cards: [], sideboard: [], updatedAt: Date.now() });
           onCreated(id as number);
         }}
         className="rounded bg-accent px-3 py-2 font-mono text-sm text-on-accent"
@@ -134,26 +135,26 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
     return m;
   }, [imgs, ownedPrint]);
   const [detailId, setDetailId] = useState<string | null>(null);
+  // Name als Entwurf tippen und erst nach einer Pause speichern — im Big Screen geht jeder
+  // Schritt übers WLAN, ein Schritt je Taste würde Buchstaben verschlucken.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const nameTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(nameTimer.current), []);
 
   if (!deck || !cards) return <p className="px-1 font-mono text-sm text-muted">Lade…</p>;
 
   const rules = deck.format === 'commander' || deck.format === 'brawl';
 
-  async function update(patch: Partial<Deck>) {
-    await saveDeck({ ...deck!, ...patch });
+  // Jede Änderung als kleiner Schritt auf den aktuellen Stand (M18) — so überschreiben sich
+  // Handy und Big Screen nicht, wenn beide dasselbe Deck bearbeiten.
+  function change(op: DeckOp) {
+    void changeDeck(deckId, op).catch((e: Error) => alert(e.message));
   }
   function adjust(list: 'cards' | 'sideboard', oracleId: string, delta: number) {
-    const arr = [...deck![list]];
-    const i = arr.findIndex((c) => c.oracleId === oracleId);
-    if (i >= 0) {
-      const qty = arr[i].qty + delta;
-      if (qty <= 0) arr.splice(i, 1);
-      else arr[i] = { ...arr[i], qty };
-    } else if (delta > 0) arr.push({ oracleId, qty: delta });
     // Spürbares Feedback wie im Scanner: Hinzufügen = Ton + Vibration, Entfernen = kurzes Tippen.
     if (delta > 0) feedbackAdded();
     else hapticTap();
-    void update({ [list]: arr } as Partial<Deck>);
+    change({ kind: 'adjust', list, oracleId, delta });
   }
 
   return (
@@ -169,12 +170,23 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
           </button>
         </div>
         <input
-          value={deck.name}
-          onChange={(e) => void update({ name: e.target.value })}
+          value={nameDraft ?? deck.name}
+          onChange={(e) => {
+            const name = e.target.value;
+            setNameDraft(name);
+            window.clearTimeout(nameTimer.current);
+            nameTimer.current = window.setTimeout(() => change({ kind: 'rename', name }), 400);
+          }}
+          onBlur={() => {
+            if (nameDraft == null) return;
+            window.clearTimeout(nameTimer.current);
+            const name = nameDraft;
+            void changeDeck(deckId, { kind: 'rename', name }).finally(() => setNameDraft(null));
+          }}
           className="mb-2 w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-lg outline-none focus:border-accent"
         />
         <div className="flex flex-wrap items-center gap-2 font-mono text-sm">
-          <select value={deck.format} onChange={(e) => void update({ format: e.target.value as FormatId })}
+          <select value={deck.format} onChange={(e) => change({ kind: 'format', format: e.target.value as FormatId })}
             className="rounded border border-border bg-bg px-2 py-1 outline-none focus:border-accent">
             {LEGALITY_FORMATS.map((f) => <option key={f} value={f}>{FORMAT_LABELS[f]}</option>)}
           </select>
@@ -185,7 +197,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
         <CommanderSection
           commander={deck.commanderId ? cards.get(deck.commanderId) : undefined}
           chosenScryfallId={deck.commanderId ? effectiveImgs.get(deck.commanderId) : undefined}
-          onSet={(id) => void update({ commanderId: id })}
+          onSet={(id) => change({ kind: 'commander', oracleId: id ?? null })}
         />
       )}
 
@@ -208,7 +220,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
       {tab === 'stats' && <DeckStatsView deck={deck} cards={cards} owned={owned ?? new Map()} chosen={ownedPrint} />}
       {tab === 'check' && <DeckCheckView deck={deck} cards={cards} owned={owned ?? EMPTY_OWNED} />}
       {tab === 'fehlt' && <MissingView deck={deck} cards={cards} owned={owned ?? new Map()} />}
-      {tab === 'text' && <DeckTextView deck={deck} cards={cards} onImport={(patch) => void update(patch)} />}
+      {tab === 'text' && <DeckTextView deck={deck} cards={cards} onImport={(lists) => change({ kind: 'replaceLists', ...lists })} />}
 
       {detailId && <CardDetail oracleId={detailId} onClose={() => setDetailId(null)} />}
     </section>
@@ -663,7 +675,7 @@ function MissingView({ deck, cards, owned }: { deck: Deck; cards: Map<string, Ca
 
 function DeckTextView({
   deck, cards, onImport,
-}: { deck: Deck; cards: Map<string, Card>; onImport: (patch: Partial<Deck>) => void }) {
+}: { deck: Deck; cards: Map<string, Card>; onImport: (lists: { cards: DeckCard[]; sideboard: DeckCard[] }) => void }) {
   const exportText = useMemo(() => {
     const main = deck.cards.map((e) => ({ qty: e.qty, name: cards.get(e.oracleId)?.name ?? e.oracleId }));
     const side = deck.sideboard.map((e) => ({ qty: e.qty, name: cards.get(e.oracleId)?.name ?? e.oracleId }));

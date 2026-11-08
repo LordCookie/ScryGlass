@@ -1,4 +1,4 @@
-import { db, getMeta, setMeta } from '../db/db';
+import { db, getMeta, setMeta, writeGateway } from '../db/db';
 import { loadTokenCatalog } from './tokenCatalog';
 
 /**
@@ -17,6 +17,8 @@ export async function getTokenCount(): Promise<number> {
 
 /** Zähler ändern (nie unter 0); gibt den neuen Stand zurück. */
 export function addTokens(delta: number): Promise<number> {
+  const gw = writeGateway();
+  if (gw) return gw('addTokens', [delta]) as Promise<number>;
   return db.transaction('rw', db.meta, async () => {
     const n = Math.max(0, (await getTokenCount()) + delta);
     await setMeta(TOKEN_KEY, n);
@@ -25,6 +27,11 @@ export function addTokens(delta: number): Promise<number> {
 }
 
 export async function setTokenCount(n: number): Promise<void> {
+  const gw = writeGateway();
+  if (gw) {
+    await gw('setTokenCount', [n]);
+    return;
+  }
   await setMeta(TOKEN_KEY, Math.max(0, Math.floor(n)));
 }
 

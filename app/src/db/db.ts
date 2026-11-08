@@ -16,6 +16,7 @@ import type {
 } from '../domain/types';
 import type { PriceEntry } from '../domain/prices';
 import { isTokenCard } from '../domain/tokens';
+import { applyDeckOp, type DeckOp } from '../domain/deckOps';
 
 /**
  * Persistenz via IndexedDB/Dexie (PLAN.md § 3). Kein LocalStorage.
@@ -90,6 +91,22 @@ export class ScryGlassDB extends Dexie {
 
 export const db = new ScryGlassDB();
 
+// --- Big Screen: Schreib-Gateway (PLAN.md M18) ---------------------------------
+// Im Browser (Fernbetrieb) schreibt nur das Handy. Ist ein Gateway gesetzt, gehen alle
+// Schreibfunktionen für Sammlung, Decks, Tokens und Fertigdecks als Auftrag ans Handy;
+// das führt dieselbe Funktion aus und meldet die Änderung zurück. Am Handy: kein Gateway.
+
+export type WriteGateway = (op: string, args: unknown[]) => Promise<unknown>;
+let gateway: WriteGateway | null = null;
+
+export function setWriteGateway(g: WriteGateway | null): void {
+  gateway = g;
+}
+
+export function writeGateway(): WriteGateway | null {
+  return gateway;
+}
+
 // --- Meta -------------------------------------------------------------------
 
 export async function getMeta<T = unknown>(key: string): Promise<T | undefined> {
@@ -140,6 +157,7 @@ export async function addOwned(
   delta = 1,
   opts: { printingId?: string; source?: OwnedSource; peerDevice?: string } = {},
 ): Promise<number> {
+  if (gateway) return gateway('addOwned', [oracleId, finish, delta, opts]) as Promise<number>;
   return db.transaction('rw', db.owned, db.cards, async () => {
     const existing = await findOwned(oracleId, finish, opts.printingId);
     const qty = (existing?.qty ?? 0) + delta;
@@ -175,6 +193,10 @@ export async function addOwnedBatch(
   }[],
   opts: { keepExisting?: boolean } = {},
 ): Promise<void> {
+  if (gateway) {
+    await gateway('addOwnedBatch', [items, opts]);
+    return;
+  }
   await db.transaction('rw', db.owned, db.cards, async () => {
     for (const it of items) {
       const finish = it.finish ?? 'nonfoil';
@@ -196,6 +218,7 @@ export async function addOwnedBatch(
 /** Zieht mehrere Bestände ab (Fertigdeck wieder entfernen, M19) — nie unter 0, bei 0
  *  verschwindet die Zeile. Gibt zurück, wie viele Karten wirklich abgezogen wurden. */
 export async function removeOwnedBatch(items: readonly OwnedBooking[]): Promise<number> {
+  if (gateway) return gateway('removeOwnedBatch', [items]) as Promise<number>;
   return db.transaction('rw', db.owned, db.cards, async () => {
     let removed = 0;
     for (const it of items) {
@@ -227,6 +250,10 @@ export async function ownedRowKeys(items: readonly OwnedBooking[]): Promise<{ ke
  *  damit Sammlung/Detail dieses Artwork anzeigen (PLAN.md § 3, printingId).
  *  Nicht für Tokens: dort IST die Ausgabe der Bestand (je Artwork gezählt). */
 export async function setOwnedPrinting(oracleId: string, printingId: string): Promise<void> {
+  if (gateway) {
+    await gateway('setOwnedPrinting', [oracleId, printingId]);
+    return;
+  }
   await db.transaction('rw', db.owned, async () => {
     const rows = await db.owned.where('oracleId').equals(oracleId).toArray();
     for (const r of rows) if (r.id != null) await db.owned.update(r.id, { printingId });
@@ -248,12 +275,39 @@ export async function listDecks(): Promise<Deck[]> {
   return all.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+/** Ganzes Deck speichern — nur für Wiederherstellen; Änderungen laufen über `changeDeck`. */
 export async function saveDeck(deck: Deck): Promise<number> {
+  if (gateway) return gateway('saveDeck', [deck]) as Promise<number>;
   const id = await db.decks.put({ ...deck, updatedAt: Date.now() });
   return id;
 }
 
+/** Neues Deck anlegen; gibt die ID zurück. */
+export async function createDeck(deck: Omit<Deck, 'id'>): Promise<number> {
+  if (gateway) return gateway('createDeck', [deck]) as Promise<number>;
+  const { id: _id, ...rest } = deck as Deck;
+  return db.decks.add({ ...rest, updatedAt: Date.now() });
+}
+
+/** Einen Schritt auf den aktuellen Stand des Decks anwenden (M18) — keine verlorenen Änderungen,
+ *  wenn Handy und Browser dasselbe Deck bearbeiten. Gelöschtes Deck → Fehler. */
+export async function changeDeck(id: number, op: DeckOp): Promise<void> {
+  if (gateway) {
+    await gateway('changeDeck', [id, op]);
+    return;
+  }
+  await db.transaction('rw', db.decks, async () => {
+    const deck = await db.decks.get(id);
+    if (!deck) throw new Error('Das Deck gibt es nicht mehr — vielleicht am Handy gelöscht.');
+    await db.decks.put(applyDeckOp(deck, op));
+  });
+}
+
 export async function deleteDeck(id: number): Promise<void> {
+  if (gateway) {
+    await gateway('deleteDeck', [id]);
+    return;
+  }
   await db.decks.delete(id);
 }
 
