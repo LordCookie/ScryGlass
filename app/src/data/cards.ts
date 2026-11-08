@@ -1,4 +1,4 @@
-import { db, whereAnyOf } from '../db/db';
+import { db, whereAnyOf, getMeta } from '../db/db';
 import type { Card, Printing, Lang } from '../domain/types';
 
 /**
@@ -77,4 +77,15 @@ export async function ownedPrintingByOracle(): Promise<Map<string, string>> {
   const map = new Map<string, string>();
   for (const o of rows) if (o.printingId && !map.has(o.oracleId)) map.set(o.oracleId, o.printingId);
   return map;
+}
+
+/** Kennt der Katalog schon die Game-Changer-Markierung (Pipeline ab M17)? Ein Durchlauf über
+ *  die Karten, danach je Katalogstand gemerkt. */
+let gameChangerCache: { version?: string; has: boolean } | null = null;
+export async function catalogKnowsGameChangers(): Promise<boolean> {
+  const version = await getMeta<string>('catalogVersion');
+  if (gameChangerCache && gameChangerCache.version === version) return gameChangerCache.has;
+  const has = (await db.cards.filter((c) => c.gameChanger === true).first()) != null;
+  gameChangerCache = { version, has };
+  return has;
 }

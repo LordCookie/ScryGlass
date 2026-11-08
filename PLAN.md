@@ -882,15 +882,22 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
       ein Punkt am „Mehr"-Tab.
 - [ ] Sprache und Zustand je Exemplar (Wert), Listen (Tauschordner, Wunschliste) → 0.3.0.
 
-### M17 — Deck-Check (geplant)
+### M17 — Deck-Check
 Regelbasiert und erklärbar statt eines trainierten Modells (keine freien Trainingsdaten,
-eine Zahl ohne Begründung hilft niemandem):
-- [ ] Bracket-Schätzung (offizielle Commander-Brackets 1–5): Game Changer, Zwei-Karten-
-      Kombos, Zusatzzüge, Massen-Landzerstörung, Tutoren — mit den Karten, die den
-      Ausschlag geben.
-- [ ] Kombos/Endlosschleifen aus Commander Spellbook — erst Lizenz der Daten klären.
-- [ ] Manabasis: Länderzahl zur Kurve, Farbquellen zu den Farbsymbolen.
-- [ ] Rollen zählen: Rampe, Kartenziehen, Removal, Board-Wipes, mit Hinweis bei zu wenig.
+eine Zahl ohne Begründung hilft niemandem). `domain/deckCheck.ts`, Reiter „Deck-Check":
+- [x] Bracket-Untergrenze (offizielle Commander-Brackets, Stand Okt. 2025 — Tutoren zählen
+      nicht mehr): Game Changer (≤ 3 → 3, mehr → 4), Massen-Landzerstörung → 4, mehrere
+      Zusatzzüge → 4, Zwei-Karten-Kombo → mindestens 3. Jeweils mit den Karten. 1 vs. 2 und
+      4 vs. 5 hängen von der Absicht ab — sagt die Oberfläche auch so.
+- [x] Game Changer aus Scryfall (`game_changer` → Katalog-Feld `gameChanger`). Alte Kataloge
+      haben es nicht; die App merkt das und sagt es, statt still „1–2" zu melden.
+- [ ] Erster Katalog mit `gameChanger` (nach dem Push der Pipeline, nächster CI-Lauf).
+- [x] Kombos: Auswahl von 41 bekannten Zwei-Karten-Paaren (alle Namen gegen den Katalog geprüft).
+- [ ] Vollständige Kombo-Daten aus Commander Spellbook — erst Lizenz der Daten klären.
+- [x] Manabasis: Länderzahl nach Frank Karsten (Ø Manawert, günstige Rampe/Kartenziehen),
+      Farbquellen gegen den Anteil der Farbsymbole.
+- [x] Rollen (Commander): Rampe, Kartenziehen, gezieltes Removal, Board-Wipes am Regeltext,
+      Richtwerte 10/10/8/2.
 
 ---
 

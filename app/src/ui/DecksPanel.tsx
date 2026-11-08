@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, saveDeck, deleteDeck, listDecks } from '../db/db';
-import { getCards, ownedByOracle, ownedPrintingByOracle, previewImageIds, previewPrinting } from '../data/cards';
+import { getCards, ownedByOracle, ownedPrintingByOracle, previewImageIds, previewPrinting, catalogKnowsGameChangers } from '../data/cards';
 import { searchCards } from '../data/search';
 import { normalizeName } from '../domain/nameMatch';
 import { isTokenCard } from '../domain/tokens';
 import { validateDeck, availableColors } from '../domain/deckValidate';
 import { computeStats, isBasicLand, CURVE_BUCKETS, COLOR_KEYS } from '../domain/deckStats';
 import { computeMissing } from '../domain/deckMissing';
+import { checkDeck, type CheckLevel } from '../domain/deckCheck';
 import { TYPE_LABEL } from '../domain/collectionFilter';
 import { parseDeckText, serializeDeckText } from '../domain/deckText';
 import { LEGALITY_FORMATS, FORMAT_LABELS, type Card, type Deck, type DeckCard, type FormatId } from '../domain/types';
@@ -104,7 +105,7 @@ function NewDeckForm({ onCreated }: { onCreated: (id: number) => void }) {
 function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) {
   const deck = useLiveQuery(() => db.decks.get(deckId), [deckId]);
   const owned = useLiveQuery(() => ownedByOracle(), []);
-  const [tab, setTab] = useState<'liste' | 'stats' | 'fehlt' | 'text'>('liste');
+  const [tab, setTab] = useState<'liste' | 'stats' | 'check' | 'fehlt' | 'text'>('liste');
   useBackHandler(true, onBack); // Android-Zurück = zur Deckliste
 
   // Karten-Lookup für alle im Deck referenzierten oracleIds.
@@ -182,11 +183,12 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
 
       <AddCardBox owned={owned ?? new Map()} onAdd={(id, list) => adjust(list, id, 1)} allowSideboard={!rules} />
 
-      <div className="flex gap-1 font-mono text-xs">
-        {(['liste', 'stats', 'fehlt', 'text'] as const).map((t) => (
+      {/* Fünf Reiter passen am Handy nicht in eine Zeile — lieber umbrechen als Wörter trennen. */}
+      <div className="flex flex-wrap gap-1 font-mono text-xs">
+        {(['liste', 'stats', 'check', 'fehlt', 'text'] as const).map((t) => (
           <button key={t} onClick={() => setTab(t)}
-            className={`rounded px-3 py-1.5 ${tab === t ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:text-text'}`}>
-            {t === 'liste' ? 'Liste' : t === 'stats' ? 'Statistik' : t === 'fehlt' ? 'Fehlt mir' : 'Text'}
+            className={`whitespace-nowrap rounded px-3 py-1.5 ${tab === t ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:text-text'}`}>
+            {t === 'liste' ? 'Liste' : t === 'stats' ? 'Statistik' : t === 'check' ? 'Deck-Check' : t === 'fehlt' ? 'Fehlt mir' : 'Text'}
           </button>
         ))}
       </div>
@@ -196,6 +198,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
           onAdjust={adjust} allowSideboard={!rules} onOpenDetail={setDetailId} />
       )}
       {tab === 'stats' && <DeckStatsView deck={deck} cards={cards} owned={owned ?? new Map()} chosen={ownedPrint} />}
+      {tab === 'check' && <DeckCheckView deck={deck} cards={cards} />}
       {tab === 'fehlt' && <MissingView deck={deck} cards={cards} owned={owned ?? new Map()} />}
       {tab === 'text' && <DeckTextView deck={deck} cards={cards} onImport={(patch) => void update(patch)} />}
 
@@ -465,6 +468,80 @@ function DeckValueBox({ deck, cards, owned, chosen }: {
           </p>
         </>
       )}
+    </div>
+  );
+}
+
+const BRACKET_TEXT: Record<2 | 3 | 4, { label: string; note: string }> = {
+  2: { label: 'Bracket 1–2', note: 'Nichts, was ein höheres Bracket verlangt. Ob 1 (Exhibition) oder 2 (Core), hängt davon ab, wie das Deck gemeint ist.' },
+  3: { label: 'Mindestens Bracket 3', note: 'Upgraded. Ob es eher 4 ist, hängt von Tempo und Absicht ab.' },
+  4: { label: 'Mindestens Bracket 4', note: 'Optimized. Ein cEDH-Deck (5) ist es nur, wenn es aufs Turnier-Metagame zielt.' },
+};
+const LEVEL_TAG: Record<CheckLevel, { text: string; cls: string }> = {
+  ok: { text: 'OK', cls: 'bg-bg text-muted' },
+  info: { text: 'TIPP', cls: 'bg-fill text-paper' },
+  warn: { text: 'ACHTUNG', cls: 'bg-danger text-paper' },
+};
+
+/** Deck-Check (M17): Bracket-Schätzung, Manabasis, Rollen, Kombos — jeweils mit Begründung. */
+function DeckCheckView({ deck, cards }: { deck: Deck; cards: Map<string, Card> }) {
+  const gcData = useLiveQuery(() => catalogKnowsGameChangers(), []);
+  const result = useMemo(
+    () => (gcData == null ? null : checkDeck(deck, cards, { gameChangerData: gcData })),
+    [deck, cards, gcData],
+  );
+  if (!result) return <p className="px-1 font-mono text-sm text-muted">Prüfe…</p>;
+  const b = result.bracket;
+  return (
+    <div className="space-y-3 font-mono text-xs">
+      {b && (
+        <div className="rounded-lg bg-surface p-3">
+          <h3 className="mb-1 font-hud text-[9px] text-muted">COMMANDER-BRACKET (SCHÄTZUNG)</h3>
+          <p className="mb-1 text-lg text-text">{BRACKET_TEXT[b.floor].label}</p>
+          <p className="mb-2 text-muted">{BRACKET_TEXT[b.floor].note}</p>
+          {b.reasons.length > 0 && (
+            <ul className="space-y-1.5">
+              {b.reasons.map((r) => (
+                <li key={r.text}>
+                  <span className="text-text">{r.text}</span>
+                  <span className="block text-muted">{r.cards.join(', ')}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {b.missingGameChangers && (
+            <p className="mt-2 text-accent">
+              Game Changer zählt die Schätzung erst nach dem nächsten Katalog-Update mit (Mehr → Katalog).
+            </p>
+          )}
+        </div>
+      )}
+      {result.sections.map((sec) => (
+        <div key={sec.title} className="rounded-lg bg-surface p-3">
+          <h3 className="mb-2 text-sm">{sec.title}</h3>
+          <ul className="space-y-2">
+            {sec.items.map((it) => (
+              <li key={it.key} className="flex gap-2">
+                <span className={`h-fit shrink-0 px-1 py-0.5 font-hud text-[7px] ${LEVEL_TAG[it.level].cls}`}>{LEVEL_TAG[it.level].text}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-text">{it.title}</p>
+                  {it.detail && <p className="text-muted">{it.detail}</p>}
+                  {it.cards && it.cards.length > 0 && (
+                    <details className="text-muted">
+                      <summary className="cursor-pointer">Karten zeigen</summary>
+                      <p className="mt-1">{it.cards.join(', ')}</p>
+                    </details>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      <p className="px-1 text-[10px] text-muted">
+        Regelbasiert: Brackets nach den offiziellen Commander-Regeln, Länderzahl nach Frank Karsten,
+        Rollen grob am Regeltext erkannt, Kombos aus einer Auswahl bekannter Paare. Ein Hinweis, kein Urteil.
+      </p>
     </div>
   );
 }

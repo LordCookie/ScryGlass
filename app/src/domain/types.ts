@@ -21,6 +21,8 @@ export interface Card {
   layout: string; // normal | transform | modal_dfc | split | adventure | ...
   legalities: number; // Bitmaske, siehe LEGALITY_FORMATS
   maxCopies: number; // 4 | 99
+  /** Auf der Game-Changer-Liste der Commander-Brackets (M17). Fehlt = nein bzw. alter Katalog. */
+  gameChanger?: boolean;
 }
 
 /** Konkrete Druckausgabe (eine je Scryfall-Karte). */
