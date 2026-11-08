@@ -9,6 +9,10 @@ import { setProgressFor } from '../data/setProgress';
 import { getSetList } from '../data/nextSet';
 import type { SetProgress } from '../domain/setProgress';
 import { addTokens, getTokenSummary } from '../data/tokens';
+import { loadComboIndex } from '../data/combos';
+import { findCombos } from '../domain/combos';
+import { Stars } from './Stars';
+import { openCombos } from './comboNav';
 
 /**
  * Sammlungs-Statistik: Kennzahlen, Farben, Kartentypen, Manakurve und die häufigsten
@@ -104,7 +108,50 @@ export function CollectionStats({ rows, tokens = false }: { rows: readonly Filte
           s.sets.map((x) => <Bar key={x.set} label={x.set.toUpperCase()} value={x.qty} max={maxSet} />)
         )}
       </Section>
+
+      {!tokens && <ComboSection rows={rows} />}
     </div>
+  );
+}
+
+/** Kombos aus der Auswahl (M17) — schlicht am Ende, mit Sprung in die Suche. Ohne Kombo-Daten
+ *  (älterer Katalog) bleibt der Abschnitt weg: Kombos sind ein Zusatz. */
+function ComboSection({ rows }: { rows: readonly FilterRow[] }) {
+  const [counts, setCounts] = useState<{ full: number; strong: number; almost: number } | null | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    void loadComboIndex().then((ix) => {
+      if (!alive) return;
+      if (!ix) return setCounts(null);
+      const hits = findCombos(ix, new Set(rows.map((r) => r.owned.oracleId)), { maxMissing: 1 });
+      const full = hits.filter((h) => h.missing.length === 0);
+      setCounts({ full: full.length, strong: full.filter((h) => ix.store.stars[h.i] >= 3).length, almost: hits.length - full.length });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [rows]);
+  if (counts === null) return null;
+  return (
+    <Section title="KOMBOS" note="aus diesen Karten · Commander Spellbook">
+      {counts === undefined ? (
+        <p className="text-muted">Zähle…</p>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="font-hud text-[14px] text-text">{nf.format(counts.full)}</span>
+            <span className="flex flex-1 flex-wrap items-center gap-1 text-muted">
+              komplett, davon {nf.format(counts.strong)} ab <Stars n={3} />
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-hud text-[14px] text-text">{nf.format(counts.almost)}</span>
+            <span className="flex-1 text-muted">fehlt je eine Karte</span>
+          </div>
+          <button onClick={openCombos} className="mt-1 bg-bg px-2 py-1 text-accent hover:text-paper">In der Suche ansehen</button>
+        </>
+      )}
+    </Section>
   );
 }
 

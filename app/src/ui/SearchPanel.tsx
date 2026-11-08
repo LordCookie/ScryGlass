@@ -8,6 +8,8 @@ import { LEGALITY_FORMATS, FORMAT_LABELS, type FormatId } from '../domain/types'
 import { CardImage } from './CardImage';
 import { CardDetail } from './CardDetail';
 import { PixelCheckbox } from './PixelCheckbox';
+import { ComboSearch } from './ComboSearch';
+import { comboRequested, clearComboRequest } from './comboNav';
 
 /**
  * Kartensuche über den ganzen Katalog (eigener Tab): Name, Typ oder Regeltext (DE/EN)
@@ -35,6 +37,10 @@ const nf = new Intl.NumberFormat('de-DE');
 const inputCls = 'w-full border-2 border-border bg-bg px-2 py-1 text-text outline-none focus:border-paper';
 
 export function SearchPanel() {
+  // „Kombos" ist ein Zusatz (M17): eine schlichte Zeile unter dem Suchfeld. Die Σ-Statistik
+  // kann direkt hierher springen (ui/comboNav).
+  const [mode, setMode] = useState<'karten' | 'kombos'>(() => (comboRequested() ? 'kombos' : 'karten'));
+  useEffect(() => clearComboRequest(), []);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<CardFilter>(EMPTY_CARD_FILTER);
   const [ownedOnly, setOwnedOnly] = useState(false);
@@ -53,7 +59,7 @@ export function SearchPanel() {
     if (showFilters && subtypes.length === 0) void catalogSubtypes().then(setSubtypes);
   }, [showFilters, subtypes.length]);
 
-  const active = !!query.trim() || hasCardFilter(filter) || ownedOnly;
+  const active = mode === 'karten' && (!!query.trim() || hasCardFilter(filter) || ownedOnly);
   useEffect(() => {
     if (!active) {
       setResult(null);
@@ -89,9 +95,19 @@ export function SearchPanel() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Name, Typ oder Regeltext (DE/EN)…"
+          placeholder={mode === 'karten' ? 'Name, Typ oder Regeltext (DE/EN)…' : 'Karte in der Kombo (DE/EN)…'}
           className="mb-2 w-full border-2 border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-paper"
         />
+        <div className="mb-2 flex gap-1 font-mono text-xs">
+          {(['karten', 'kombos'] as const).map((m) => (
+            <button key={m} onClick={() => setMode(m)} aria-pressed={mode === m}
+              className={`px-2 py-1 ${mode === m ? 'bg-fill text-paper' : 'bg-bg text-muted hover:text-text'}`}>
+              {m === 'karten' ? 'Karten' : 'Kombos'}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'karten' && (<>
 
         {/* Farben: mehrere wählbar; farblos schließt Farben aus. */}
         <div className="flex flex-wrap gap-1 font-mono text-xs">
@@ -176,9 +192,12 @@ export function SearchPanel() {
             )}
           </div>
         )}
+        </>)}
       </div>
 
-      {!active ? (
+      {mode === 'kombos' ? (
+        <ComboSearch query={query} owned={owned} onOpenCard={setDetailId} />
+      ) : !active ? (
         <p className="px-1 font-mono text-sm text-muted">
           Suche nach Name, Typ oder Regeltext — oder stöbere nur mit den Filtern (z. B. Format + Farben).
         </p>

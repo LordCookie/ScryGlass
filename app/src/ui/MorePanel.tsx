@@ -553,6 +553,13 @@ function AboutSection() {
         weiterverteilt. Preise sind unverbindliche Richtwerte (Cardmarket in Euro, über
         Scryfall). Keine Cloud, keine Konten, keine Monetarisierung.
       </p>
+      <p className="mb-2">
+        Kombo-Daten von{' '}
+        <a className="text-accent underline" href="https://commanderspellbook.com" target="_blank" rel="noreferrer">Commander Spellbook</a>
+        {' '}— danke! Die Sterne sind eine eigene Einstufung von ScryGlass. Rollen im Deck-Check
+        (Rampe, Removal …) aus den Community-Tags von{' '}
+        <a className="text-accent underline" href="https://tagger.scryfall.com" target="_blank" rel="noreferrer">Scryfall Tagger</a>.
+      </p>
       <p>Quellcode: MIT-Lizenz.</p>
     </div>
   );
