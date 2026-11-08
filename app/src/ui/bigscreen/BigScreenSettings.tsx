@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import QRCode from 'qrcode';
 import {
   bigScreenPhone, bigScreenAvailable, initBigScreenPhone, setBigScreenPassword, setBigScreenIdle,
-  startBigScreen, stopBigScreen, kickBigScreenSession,
+  startBigScreen, stopBigScreen, kickBigScreenSession, bigScreenCatalogReady, prepareBigScreenCatalog,
 } from '../../bigscreen/phone';
 import { remoteClient } from '../../bigscreen/client';
 import { IDLE_OPTIONS, PASSWORD_MIN } from '../../domain/bigscreen';
@@ -23,6 +23,20 @@ export function BigScreenSection() {
   const [msg, setMsg] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   useEffect(() => { void initBigScreenPhone(); }, []);
+  // Bekommt der Browser denselben Katalog? (Sonst einmal bereitstellen.)
+  const [catalog, setCatalog] = useState<{ ready: boolean } | null>(null);
+  const [preparing, setPreparing] = useState<string | null>(null);
+  useEffect(() => { void bigScreenCatalogReady().then(setCatalog).catch(() => setCatalog(null)); }, [st.running]);
+  async function prepare() {
+    setPreparing('Lade…');
+    try {
+      const r = await prepareBigScreenCatalog((b) => setPreparing(`Lade ${(b / 1_000_000).toFixed(1).replace('.', ',')} MB…`));
+      setPreparing(r === 'update' ? 'Katalog-Update läuft (Mehr → Katalog).' : null);
+      setCatalog(await bigScreenCatalogReady());
+    } catch (e) {
+      setPreparing(`Fehlgeschlagen: ${(e as Error).message}`);
+    }
+  }
   useEffect(() => {
     if (st.url) void QRCode.toDataURL(st.url, { width: 200, margin: 1 }).then(setQr).catch(() => setQr(null));
     else setQr(null);
@@ -87,6 +101,19 @@ export function BigScreenSection() {
             {changing && <button onClick={() => { setChanging(false); setPw(''); }} className="px-3 py-1.5 text-sm text-muted">Abbrechen</button>}
           </div>
           <p className="text-[10px] text-muted">Gespeichert wird nur ein daraus abgeleiteter Schlüssel, nie das Passwort.</p>
+        </div>
+      )}
+
+      {catalog && !catalog.ready && (
+        <div className="mb-3 bg-bg p-3 text-xs">
+          <p className="text-warn">Der Browser bekäme einen älteren Katalog als dieses Handy.</p>
+          <p className="mt-1 text-muted">
+            Einmal bereitstellen: Das Handy lädt die Katalog-Dateien (rund 45 MB, im WLAN) von GitHub und hebt sie auf.
+            Danach kommt der Katalog für den Browser immer vom Handy.
+          </p>
+          <button disabled={!!preparing && preparing.startsWith('Lade')} onClick={() => void prepare()}
+            className="mt-2 rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-40">Katalog bereitstellen</button>
+          {preparing && <p className="mt-1 text-muted">{preparing}</p>}
         </div>
       )}
 

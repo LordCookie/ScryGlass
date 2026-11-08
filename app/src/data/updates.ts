@@ -13,6 +13,7 @@ import {
 import { syncHashes, loadHashIndex } from './imageHash';
 import { syncCombos } from './combos';
 import { syncPrecons } from './precons';
+import { canStageCatalog, stageCatalog, promoteStagedCatalog, dropStagedCatalog, dropLiveCatalog } from './catalogStage';
 import { invalidateNameIndex } from './matcher';
 import { invalidateSearchIndex } from './search';
 import { AppUpdater, hasAppUpdater, withScreenOn } from '../native/appUpdater';
@@ -265,6 +266,8 @@ export async function dismissWhatsNew(): Promise<void> {
 // --- Katalog-Update -------------------------------------------------------------
 
 export type CatalogStep =
+  /** Dateien aufs Handy laden (für Big Screen aufgehoben, M18) */
+  | { phase: 'laden'; bytes: number; total: number }
   | { phase: 'katalog'; progress: SyncProgress }
   /** `total` geschätzt: ein Bild-Hash je Druckausgabe */
   | { phase: 'bilder'; done: number; total: number }
@@ -281,12 +284,26 @@ async function applyCatalog(source: CatalogSource, onStep: (s: CatalogStep) => v
   let base = CATALOG_BASE_URL;
   let gzip = false;
   let version: CatalogVersion;
+  let staged = false;
   if (source.kind === 'github') {
     const [info, remote] = await Promise.all([fetchRemoteCatalogInfo(), fetchRemoteVersion(REMOTE_CATALOG_BASE, 10000)]);
     if (!info || !remote) throw new Error('Katalog auf GitHub nicht erreichbar.');
     base = REMOTE_CATALOG_BASE;
     gzip = info.gzip;
     version = remote;
+    // Erst aufs Handy laden, dann von dort einspielen — die Dateien bleiben für den Big Screen
+    // liegen (M18). Klappt das nicht, wie früher direkt von GitHub.
+    if (gzip && canStageCatalog()) {
+      try {
+        const total = info.bytes + 2_000_000; // + Kombos/Fertigdecks (ungefähr)
+        onStep({ phase: 'laden', bytes: 0, total });
+        base = await stageCatalog(REMOTE_CATALOG_BASE, (bytes) => onStep({ phase: 'laden', bytes, total }));
+        staged = true;
+      } catch {
+        await dropStagedCatalog();
+        base = REMOTE_CATALOG_BASE;
+      }
+    }
   } else {
     version = source.version;
   }
@@ -300,6 +317,10 @@ async function applyCatalog(source: CatalogSource, onStep: (s: CatalogStep) => v
   await syncCombos(base, version.catalogVersion, (done) => onStep({ phase: 'kombos', done, total: combos }), gzip);
   const precons = version.counts.precons ?? 2_500;
   await syncPrecons(base, version.catalogVersion, (done) => onStep({ phase: 'fertigdecks', done, total: precons }), gzip);
+  // Big Screen (M18): der aufgehobene Stand passt jetzt zur Datenbank. Beim eingebauten
+  // Katalog liefert der Server die Dateien aus der APK — ein alter aufgehobener Stand muss weg.
+  if (staged) await promoteStagedCatalog().catch(() => {});
+  else if (source.kind === 'eingebaut') await dropLiveCatalog();
   return version.catalogVersion;
 }
 

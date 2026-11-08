@@ -6,6 +6,10 @@ import { getDeviceName } from '../peer/peerStore';
 import { APP_VERSION } from '../version';
 import { BigScreenHost } from './host';
 import { BIGSCREEN_PORTS } from './protocol';
+import { CATALOG_BASE_URL, fetchRemoteVersion, getLocalCatalogVersion } from '../data/catalog';
+import { liveCatalogVersion, stageCatalog, promoteStagedCatalog, dropStagedCatalog } from '../data/catalogStage';
+import { REMOTE_CATALOG_BASE, startCatalogUpdate } from '../data/updates';
+import { isNewerCatalog } from '../domain/updates';
 
 /**
  * Big Screen am Handy (PLAN.md M18): einschalten, Passwort, Sitzungen, Wachmodus mit
@@ -183,4 +187,38 @@ function setDimmed(dimmed: boolean) {
 /** Ruhebild antippen → wieder normal. */
 export function wakeFromDim(): void {
   onTouch();
+}
+
+// --- Katalog für den Browser (M18) ---------------------------------------------------
+
+/**
+ * Bekommt der Browser denselben Katalog wie das Handy? Ja, wenn der aufgehobene Stand
+ * (Katalog-Update) oder der eingebaute (APK) zur Datenbank passt. Sonst — z. B. nach einem
+ * Katalog-Update mit einer älteren App-Version — muss er einmal bereitgestellt werden.
+ */
+export async function bigScreenCatalogReady(): Promise<{ ready: boolean; local?: string }> {
+  const [local, live, embedded] = await Promise.all([
+    getLocalCatalogVersion(),
+    liveCatalogVersion(),
+    fetchRemoteVersion(CATALOG_BASE_URL, 3000).then((v) => v?.catalogVersion),
+  ]);
+  return { ready: !!local && (live === local || (!live && embedded === local)), local };
+}
+
+/** Katalog-Dateien von GitHub holen und aufheben — mit Einspielen, falls dort ein neuerer liegt. */
+export async function prepareBigScreenCatalog(onBytes?: (bytes: number) => void): Promise<'aufgehoben' | 'update'> {
+  const [local, remote] = await Promise.all([getLocalCatalogVersion(), fetchRemoteVersion(REMOTE_CATALOG_BASE, 10000)]);
+  if (!remote) throw new Error('Katalog auf GitHub nicht erreichbar.');
+  if (!local || isNewerCatalog(remote.catalogVersion, local)) {
+    void startCatalogUpdate({ kind: 'github' });
+    return 'update';
+  }
+  try {
+    await stageCatalog(REMOTE_CATALOG_BASE, onBytes);
+    await promoteStagedCatalog();
+  } catch (e) {
+    await dropStagedCatalog();
+    throw e;
+  }
+  return 'aufgehoben';
 }
