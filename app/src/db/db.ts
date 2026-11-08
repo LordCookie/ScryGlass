@@ -10,6 +10,9 @@ import type {
   InboxBasket,
   Finish,
   OwnedSource,
+  OwnedBooking,
+  Precon,
+  OwnedPrecon,
 } from '../domain/types';
 import type { PriceEntry } from '../domain/prices';
 import { isTokenCard } from '../domain/tokens';
@@ -36,6 +39,8 @@ export class ScryGlassDB extends Dexie {
   owned!: Table<Owned, number>; // PK: ++id
   decks!: Table<Deck, number>; // PK: ++id
   inbox!: Table<InboxBasket, string>; // PK: basketId
+  precons!: Table<Precon, string>; // PK: key (Fertigdecks, Katalogdaten — M19)
+  ownedPrecons!: Table<OwnedPrecon, number>; // PK: ++id (übernommene Fertigdecks)
   meta!: Table<MetaEntry, string>; // PK: key
 
   constructor(name = 'scryglass') {
@@ -74,6 +79,11 @@ export class ScryGlassDB extends Dexie {
     // (domain/nameMatch, 0.2.7). Gibt ~34 MB frei.
     this.version(6).stores({
       trigrams: null,
+    });
+    // v7: Fertigdecks (M19) — Katalogliste aus MTGJSON und die übernommenen.
+    this.version(7).stores({
+      precons: 'key, group, date',
+      ownedPrecons: '++id, key, addedAt',
     });
   }
 }
@@ -151,7 +161,9 @@ export async function addOwned(
   });
 }
 
-/** Trägt mehrere Bestände auf einmal ein (Scan-Korb-Übernahme, Peer-Import). */
+/** Trägt mehrere Bestände auf einmal ein (Scan-Korb-Übernahme, Peer-Import, Fertigdecks).
+ *  `keepExisting`: Artwork und Herkunft vorhandener Bestände bleiben, Ausgabe und Quelle
+ *  gelten nur für neue Karten (Fertigdecks bringen ihre eigene Ausgabe mit, M19). */
 export async function addOwnedBatch(
   items: {
     oracleId: string;
@@ -161,6 +173,7 @@ export async function addOwnedBatch(
     source?: OwnedSource;
     peerDevice?: string;
   }[],
+  opts: { keepExisting?: boolean } = {},
 ): Promise<void> {
   await db.transaction('rw', db.owned, db.cards, async () => {
     for (const it of items) {
@@ -171,13 +184,43 @@ export async function addOwnedBatch(
         oracleId: it.oracleId,
         finish,
         qty: (existing?.qty ?? 0) + (it.qty ?? 1),
-        printingId: it.printingId ?? existing?.printingId,
+        printingId: opts.keepExisting ? existing?.printingId ?? it.printingId : it.printingId ?? existing?.printingId,
         addedAt: existing?.addedAt ?? Date.now(),
-        source: it.source ?? existing?.source ?? 'manual',
+        source: (opts.keepExisting ? existing?.source ?? it.source : it.source ?? existing?.source) ?? 'manual',
         peerDevice: it.peerDevice ?? existing?.peerDevice,
       });
     }
   });
+}
+
+/** Zieht mehrere Bestände ab (Fertigdeck wieder entfernen, M19) — nie unter 0, bei 0
+ *  verschwindet die Zeile. Gibt zurück, wie viele Karten wirklich abgezogen wurden. */
+export async function removeOwnedBatch(items: readonly OwnedBooking[]): Promise<number> {
+  return db.transaction('rw', db.owned, db.cards, async () => {
+    let removed = 0;
+    for (const it of items) {
+      const existing = await findOwned(it.oracleId, it.finish, it.printingId);
+      if (!existing?.id) continue;
+      const n = Math.min(existing.qty, it.qty);
+      removed += n;
+      if (existing.qty - n <= 0) await db.owned.delete(existing.id);
+      else await db.owned.update(existing.id, { qty: existing.qty - n });
+    }
+    return removed;
+  });
+}
+
+/** Bestandszeile, auf die eine Buchung fällt — als Schlüssel (Karten je Karte + Ausführung,
+ *  Tokens je Artwork). Für die Vorschau beim Entfernen. */
+export async function ownedRowKeys(items: readonly OwnedBooking[]): Promise<{ key: (b: OwnedBooking) => string; have: Map<string, number> }> {
+  const ids = [...new Set(items.map((b) => b.oracleId))];
+  const [cards, rows] = await Promise.all([db.cards.bulkGet(ids), whereAnyOf(db.owned, 'oracleId', ids)]);
+  const token = new Set(cards.filter((c) => isTokenCard(c)).map((c) => c!.oracleId));
+  const key = (b: Pick<OwnedBooking, 'oracleId' | 'finish' | 'printingId'>) =>
+    token.has(b.oracleId) ? `${b.oracleId}|${b.finish}|${b.printingId ?? ''}` : `${b.oracleId}|${b.finish}`;
+  const have = new Map<string, number>();
+  for (const r of rows) have.set(key(r), (have.get(key(r)) ?? 0) + r.qty);
+  return { key, have };
 }
 
 /** Merkt die gewählte Druckausgabe (Artwork) für alle Bestände einer Karte —

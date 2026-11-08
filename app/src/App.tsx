@@ -12,7 +12,9 @@ import { checkForUpdates, currentUpdateStatus, pendingWhatsNew, dismissWhatsNew,
 import { getCachedNextSet, refreshNextSet } from './data/nextSet';
 import { backupReminder } from './data/backups';
 import { syncCombos } from './data/combos';
+import { syncPrecons } from './data/precons';
 import { OPEN_COMBOS_EVENT } from './ui/comboNav';
+import { OPEN_DECK_EVENT } from './ui/deckNav';
 import { nextSetLabel, type UpcomingSet } from './domain/nextSet';
 import { initFeedbackPrefs } from './native/feedback';
 import { initBackButton } from './native/backButton';
@@ -84,10 +86,11 @@ export default function App() {
     // Bild-Hash-Index (Scanner v2) best-effort im Hintergrund nachladen.
     if (ready) {
       const ver = await getLocalCatalogVersion();
-      // Danach die Kombo-Daten (M17) — nacheinander, damit sie nicht um die Datenbank rangeln.
+      // Danach Kombos (M17) und Fertigdecks (M19) — nacheinander, damit sie nicht um die Datenbank rangeln.
       void syncHashes(CATALOG_BASE_URL, ver)
         .then(() => void loadHashIndex())
         .then(() => syncCombos(CATALOG_BASE_URL, ver))
+        .then(() => syncPrecons(CATALOG_BASE_URL, ver))
         .catch(() => {});
       // Höchstens einmal am Tag bei GitHub nach Neuem sehen — etwas später, damit der
       // Start nicht mit dem Bild-Index um Netz und Datenbank konkurriert.
@@ -101,6 +104,12 @@ export default function App() {
     const open = () => setTab('suche');
     window.addEventListener(OPEN_COMBOS_EVENT, open);
     return () => window.removeEventListener(OPEN_COMBOS_EVENT, open);
+  }, []);
+  // Sprung zu einem Deck (nach „Fertigdeck hinzufügen", M19).
+  useEffect(() => {
+    const open = () => setTab('decks');
+    window.addEventListener(OPEN_DECK_EVENT, open);
+    return () => window.removeEventListener(OPEN_DECK_EVENT, open);
   }, []);
   // Vibrations-Einstellung (unter „Mehr") gleich beim Start laden — gilt app-weit.
   useEffect(() => { void initFeedbackPrefs(); }, []);

@@ -32,8 +32,10 @@ export interface AutoBackup {
 }
 
 async function currentBackupJson(at: number): Promise<{ json: string; owned: number; decks: number }> {
-  const [owned, decks, tokens] = await Promise.all([db.owned.toArray(), db.decks.toArray(), getTokenCount()]);
-  return { json: serializeCollection(owned, decks, at, tokens), owned: owned.length, decks: decks.length };
+  const [owned, decks, tokens, precons] = await Promise.all([
+    db.owned.toArray(), db.decks.toArray(), getTokenCount(), db.ownedPrecons.toArray(),
+  ]);
+  return { json: serializeCollection(owned, decks, at, tokens, precons), owned: owned.length, decks: decks.length };
 }
 
 /** Eine eingelesene Sicherung übernehmen (auch für „JSON importieren"). */
@@ -41,6 +43,11 @@ export async function applyBackup(parsed: CollectionExport): Promise<void> {
   await replaceOwned(parsed.owned);
   for (const d of parsed.decks) await saveDeck(d);
   if (parsed.tokens != null) await setTokenCount(parsed.tokens);
+  // Übernommene Fertigdecks (M19) gehören zum Bestand — mit ihm ersetzt.
+  await db.transaction('rw', db.ownedPrecons, async () => {
+    await db.ownedPrecons.clear();
+    if (parsed.precons?.length) await db.ownedPrecons.bulkAdd(parsed.precons.map(({ id: _id, ...p }) => p));
+  });
 }
 
 // --- Außerhalb der App ------------------------------------------------------

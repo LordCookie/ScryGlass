@@ -12,6 +12,7 @@ import {
 } from './catalog';
 import { syncHashes, loadHashIndex } from './imageHash';
 import { syncCombos } from './combos';
+import { syncPrecons } from './precons';
 import { invalidateNameIndex } from './matcher';
 import { invalidateSearchIndex } from './search';
 import { AppUpdater, hasAppUpdater, withScreenOn } from '../native/appUpdater';
@@ -267,7 +268,8 @@ export type CatalogStep =
   | { phase: 'katalog'; progress: SyncProgress }
   /** `total` geschätzt: ein Bild-Hash je Druckausgabe */
   | { phase: 'bilder'; done: number; total: number }
-  | { phase: 'kombos'; done: number; total: number };
+  | { phase: 'kombos'; done: number; total: number }
+  | { phase: 'fertigdecks'; done: number; total: number };
 
 /** Woher: der wöchentliche von GitHub oder der in die APK eingebaute (nach einem App-Update
  *  mit neuerem Katalog; im Browser beim Entwickeln der einzige). */
@@ -296,6 +298,8 @@ async function applyCatalog(source: CatalogSource, onStep: (s: CatalogStep) => v
   void loadHashIndex();
   const combos = version.counts.combos ?? 100_000;
   await syncCombos(base, version.catalogVersion, (done) => onStep({ phase: 'kombos', done, total: combos }), gzip);
+  const precons = version.counts.precons ?? 2_500;
+  await syncPrecons(base, version.catalogVersion, (done) => onStep({ phase: 'fertigdecks', done, total: precons }), gzip);
   return version.catalogVersion;
 }
 

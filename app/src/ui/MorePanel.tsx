@@ -312,8 +312,8 @@ function BackupSection() {
   }
 
   async function exportJson() {
-    const [owned, decks] = await Promise.all([db.owned.toArray(), db.decks.toArray()]);
-    const ok = await saveFile(documentsBackupName(Date.now()), serializeCollection(owned, decks, undefined, await getTokenCount()));
+    const [owned, decks, precons] = await Promise.all([db.owned.toArray(), db.decks.toArray(), db.ownedPrecons.toArray()]);
+    const ok = await saveFile(documentsBackupName(Date.now()), serializeCollection(owned, decks, undefined, await getTokenCount(), precons));
     if (!ok) return;
     await markSafeBackup();
     setMsg(`${owned.length} Bestände + ${decks.length} Decks ${native ? 'geteilt' : 'exportiert'}.`);
@@ -559,6 +559,11 @@ function AboutSection() {
         {' '}— danke! Die Sterne sind eine eigene Einstufung von ScryGlass. Rollen im Deck-Check
         (Rampe, Removal …) aus den Community-Tags von{' '}
         <a className="text-accent underline" href="https://tagger.scryfall.com" target="_blank" rel="noreferrer">Scryfall Tagger</a>.
+      </p>
+      <p className="mb-2">
+        Decklisten der Fertigdecks von{' '}
+        <a className="text-accent underline" href="https://mtgjson.com" target="_blank" rel="noreferrer">MTGJSON</a>
+        {' '}(MIT-Lizenz, © Zach Halpern) — danke!
       </p>
       <p>Quellcode: MIT-Lizenz.</p>
     </div>

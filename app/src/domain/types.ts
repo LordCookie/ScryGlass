@@ -5,7 +5,7 @@
 
 export type Finish = 'nonfoil' | 'foil' | 'etched';
 export type Lang = 'en' | 'de';
-export type OwnedSource = 'scan' | 'manual' | 'peer';
+export type OwnedSource = 'scan' | 'manual' | 'peer' | 'precon';
 
 /** Oracle-Karte (eine je oracleId). Oracle-Level-Felder, sprachneutral (EN kanonisch). */
 export interface Card {
@@ -154,6 +154,58 @@ export interface Deck {
   cards: DeckCard[]; // Mainboard
   sideboard: DeckCard[];
   updatedAt: number;
+}
+
+// --- Fertigdecks (Precons, M19) ---------------------------------------------
+
+export type PreconGroup = 'commander' | 'starter' | 'duel' | 'jumpstart' | 'secretlair' | 'other';
+
+/** Karte im Fertigdeck: genaue Druckausgabe (scryfallId), Anzahl, Ausführung. */
+export interface PreconCard {
+  p: string;
+  n: number;
+  f: Finish;
+}
+
+/** Fertigdeck aus dem Katalog (MTGJSON) — Katalogdaten, beim Update ersetzt. */
+export interface Precon {
+  key: string; // MTGJSON-Dateiname, z. B. „CavalryCharge_MOC"
+  name: string;
+  set: string; // „moc"
+  date: string; // ISO-Datum, kann leer sein
+  group: PreconGroup;
+  type: string; // MTGJSON-Typ (englisch), z. B. „Commander Deck"
+  commander: PreconCard[];
+  main: PreconCard[];
+  side: PreconCard[];
+  /** liegt bei, gehört aber nicht ins Deck (Display-Commander, Planes, Schemes) */
+  extra: PreconCard[];
+  tokens: PreconCard[];
+  /** Karten, die der Katalog beim Bau nicht kannte */
+  unknown: number;
+  /** normalisierter Suchtext (Name, Set, Commander EN+DE), beim Import gebaut */
+  search: string;
+}
+
+/** Eine Buchung in die Sammlung — gemerkt, damit „Wieder entfernen" genau das abzieht. */
+export interface OwnedBooking {
+  oracleId: string;
+  finish: Finish;
+  printingId?: string;
+  qty: number;
+}
+
+/** In die Sammlung übernommenes Fertigdeck (Nutzerdaten, kommt ins Backup). */
+export interface OwnedPrecon {
+  id?: number;
+  key: string;
+  name: string;
+  set: string;
+  addedAt: number;
+  copies: number;
+  /** beim Hinzufügen angelegtes Deck (fehlt, wenn keins angelegt oder nach Restore) */
+  deckId?: number;
+  items: OwnedBooking[];
 }
 
 // --- Peer-Scanning (PLAN.md § 8) --------------------------------------------

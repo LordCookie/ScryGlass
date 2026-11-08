@@ -16,6 +16,7 @@ import { CardDetail } from './CardDetail';
 import { CollectionStats } from './CollectionStats';
 import { addTokens, getTokenCount } from '../data/tokens';
 import { ManaCost, ColorPips } from './mana';
+import { PreconsView } from './PreconsView';
 
 /**
  * Sammlungsansicht (PLAN.md § 5, M5): Bestand, Suche, Filter, Sortierung.
@@ -24,12 +25,12 @@ import { ManaCost, ColorPips } from './mana';
  * Reaktiv über Dexie.
  *
  * Karten und Tokens getrennt (Großes Token-Update, M14): Tokens zählen je Artwork,
- * ihr Raster zeigt deshalb jede Druckausgabe einzeln.
+ * ihr Raster zeigt deshalb jede Druckausgabe einzeln. Dritter Reiter: Fertigdecks (M19).
  */
 
 type SortKey = 'name' | 'cmc' | 'qty' | 'value';
 type ViewMode = 'grid' | 'list' | 'stats';
-type Kind = 'cards' | 'tokens';
+type Kind = 'cards' | 'tokens' | 'precons';
 const CMC_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7];
 const FINISH_LABEL: Record<Finish, string> = { nonfoil: 'normal', foil: 'foil', etched: 'etched' };
 const COLORS: { key: string; label: string }[] = [
@@ -49,6 +50,38 @@ type KnownRow = FilterRow & { scryfallId?: string };
 
 export function CollectionView() {
   const [kind, setKind] = useState<Kind>('cards');
+  if (kind === 'precons') {
+    return (
+      <section className="space-y-3">
+        <div className="rounded-lg bg-surface p-4">
+          <div className="mb-2 flex items-baseline justify-between">
+            <h2 className="font-hud text-sm text-text">SAMMLUNG</h2>
+          </div>
+          <KindToggle kind={kind} onKind={setKind} />
+        </div>
+        <PreconsView />
+      </section>
+    );
+  }
+  return <OwnedCollection kind={kind} onKind={setKind} />;
+}
+
+/** Karten | Tokens | Fertigdecks (M14, M19) — Tokens zählen je Artwork und nicht für Decks. */
+function KindToggle({ kind, onKind, tokenTotal = 0 }: { kind: Kind; onKind: (k: Kind) => void; tokenTotal?: number }) {
+  const label = (k: Kind) => (k === 'cards' ? 'Karten' : k === 'tokens' ? `Tokens${tokenTotal > 0 ? ` (${tokenTotal})` : ''}` : 'Fertigdecks');
+  return (
+    <div className="mb-2 flex gap-1 font-mono text-xs">
+      {(['cards', 'tokens', 'precons'] as Kind[]).map((k) => (
+        <button key={k} onClick={() => onKind(k)} aria-pressed={kind === k}
+          className={`px-3 py-1 ${kind === k ? 'bg-fill text-paper' : 'bg-bg text-muted hover:text-text'}`}>
+          {label(k)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function OwnedCollection({ kind, onKind }: { kind: Exclude<Kind, 'precons'>; onKind: (k: Kind) => void }) {
   const [filter, setFilter] = useState<CollectionFilter>(EMPTY_FILTER);
   const [showFilters, setShowFilters] = useState(false);
   const [sort, setSort] = useState<SortKey>('name');
@@ -137,15 +170,7 @@ export function CollectionView() {
           <h2 className="font-hud text-sm text-text">SAMMLUNG</h2>
           <span className="font-mono text-xs text-muted">{totalCards} Karten · {distinct} verschiedene{tokenTotal > 0 ? ` · ${tokenTotal} Tokens` : ''}</span>
         </div>
-        {/* Karten oder Tokens (M14) — Tokens zählen je Artwork und nicht für Decks. */}
-        <div className="mb-2 flex gap-1 font-mono text-xs">
-          {(['cards', 'tokens'] as Kind[]).map((k) => (
-            <button key={k} onClick={() => setKind(k)} aria-pressed={kind === k}
-              className={`px-3 py-1 ${kind === k ? 'bg-fill text-paper' : 'bg-bg text-muted hover:text-text'}`}>
-              {k === 'cards' ? 'Karten' : `Tokens${tokenTotal > 0 ? ` (${tokenTotal})` : ''}`}
-            </button>
-          ))}
-        </div>
+        <KindToggle kind={kind} onKind={onKind} tokenTotal={tokenTotal} />
         <input
           value={filter.query}
           onChange={(e) => patch({ query: e.target.value })}

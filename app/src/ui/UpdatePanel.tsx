@@ -65,6 +65,7 @@ function catalogProgress(s: CatalogStep | null): { label: string; done: number; 
     return { label: `Katalog wird geladen · ${pct(done, total)}`, done, total };
   }
   if (s.phase === 'kombos') return { label: `Kombos · ${pct(s.done, s.total)}`, done: s.done, total: s.total };
+  if (s.phase === 'fertigdecks') return { label: `Fertigdecks · ${pct(s.done, s.total)}`, done: s.done, total: s.total };
   return { label: `Bild-Abgleich · ${pct(s.done, s.total)}`, done: s.done, total: s.total };
 }
 

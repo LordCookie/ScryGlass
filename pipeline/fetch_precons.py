@@ -96,6 +96,7 @@ class Builder:
         self.rows: List[list] = []
         self.dropped_unknown = 0  # Decks, denen zu viel fehlt
         self.skipped_type = 0
+        self.file_meta: Dict = {}  # Stand aus den Deck-Dateien selbst (date, version)
 
     def _idx(self, sid: str) -> int:
         if sid not in self.printing_index:
@@ -116,7 +117,9 @@ class Builder:
             merged[key] = merged.get(key, 0) + n
         return [[self._idx(sid), n, f] for (sid, f), n in merged.items()]
 
-    def add(self, key: str, deck: Dict) -> bool:
+    def add(self, key: str, deck: Dict, file_meta: Optional[Dict] = None) -> bool:
+        if file_meta and not self.file_meta:
+            self.file_meta = {k: file_meta[k] for k in ("date", "version") if k in file_meta}
         group = TYPE_GROUPS.get(deck.get("type", ""))
         if not group:
             self.skipped_type += 1
@@ -157,7 +160,8 @@ class Builder:
         # Neueste zuerst, dann nach Name — so zeigt die App ohne Sortieren das Richtige.
         rows = sorted(self.rows, key=lambda r: r[1].lower())
         rows.sort(key=lambda r: r[3], reverse=True)  # stabil: gleiches Datum bleibt nach Name
-        head = {"meta": {**meta, "count": len(rows)}, "printings": list(self.printing_index)}
+        head = {"meta": {**self.file_meta, **{k: v for k, v in meta.items() if v}, "count": len(rows)},
+                "printings": list(self.printing_index)}
         return {"head": head, "rows": rows}
 
 
@@ -168,7 +172,7 @@ def deck_key(name: str) -> str:
 
 
 def iter_tar(fileobj=None, path: Optional[str] = None) -> Iterator[tuple]:
-    """(key, deck) aus AllDeckFiles.tar.xz, gestreamt (das Archiv ist ~150 MB)."""
+    """(key, deck, meta) aus AllDeckFiles.tar.xz, gestreamt (das Archiv ist ~150 MB)."""
     with tarfile.open(name=path, fileobj=fileobj, mode="r|xz") as tar:
         for m in tar:
             if not m.isfile() or not m.name.endswith(".json"):
@@ -176,14 +180,16 @@ def iter_tar(fileobj=None, path: Optional[str] = None) -> Iterator[tuple]:
             f = tar.extractfile(m)
             if f is None:
                 continue
-            yield deck_key(m.name), json.load(f)["data"]
+            doc = json.load(f)
+            yield deck_key(m.name), doc["data"], doc.get("meta")
 
 
 def iter_dir(path: str) -> Iterator[tuple]:
     for name in sorted(os.listdir(path)):
         if name.endswith(".json"):
             with open(os.path.join(path, name), encoding="utf-8") as f:
-                yield deck_key(name), json.load(f)["data"]
+                doc = json.load(f)
+            yield deck_key(name), doc["data"], doc.get("meta")
 
 
 def load_known(path: str) -> Optional[Set[str]]:
@@ -200,8 +206,8 @@ def load_known(path: str) -> Optional[Set[str]]:
 
 def build(decks: Iterable[tuple], meta: Dict, known: Optional[Set[str]] = None) -> Dict:
     b = Builder(known)
-    for key, deck in decks:
-        b.add(key, deck)
+    for key, deck, *rest in decks:
+        b.add(key, deck, rest[0] if rest else None)
     out = b.result(meta)
     out["stats"] = {"skippedType": b.skipped_type, "droppedUnknown": b.dropped_unknown}
     return out

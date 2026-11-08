@@ -35,6 +35,23 @@ describe('collectionIo', () => {
     expect(old.owned).toHaveLength(2);
   });
 
+  it('Fertigdecks kommen mit (ohne Deck-ID); kaputte fallen weg; Quelle „precon" ist gültig', () => {
+    const items = [{ oracleId: 'o1', finish: 'foil' as const, printingId: 'p1', qty: 1 }];
+    const precons = [
+      { id: 4, key: 'B_X', name: 'B', set: 'x', addedAt: 2, copies: 1, deckId: 9, items },
+      { id: 3, key: 'A_X', name: 'A', set: 'x', addedAt: 1, copies: 2, items },
+    ];
+    const withPrecon = [...owned, { ...owned[0], oracleId: 'o9', source: 'precon' as const }];
+    const back = parseCollection(serializeCollection(withPrecon, decks, 1, undefined, precons));
+    expect(back.owned).toHaveLength(3);
+    expect(back.precons?.map((p) => p.key)).toEqual(['A_X', 'B_X']);
+    expect(back.precons?.[1]).not.toHaveProperty('deckId');
+    expect(back.precons?.[1]).not.toHaveProperty('id');
+    const broken = JSON.parse(serializeCollection(owned, decks, 1, undefined, precons));
+    broken.precons[0].items = [{ oracleId: 1 }];
+    expect(parseCollection(JSON.stringify(broken)).precons?.map((p) => p.key)).toEqual(['B_X']);
+  });
+
   it('byte-stabil (zweimal serialisieren = identisch)', () => {
     expect(serializeCollection(owned, decks, 1)).toBe(serializeCollection([...owned].reverse(), decks, 1));
   });

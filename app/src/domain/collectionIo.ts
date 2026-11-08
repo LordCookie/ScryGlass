@@ -3,7 +3,7 @@
  * Datenverlust in IndexedDB (Browser-Reset, Reinstall) ist real — deshalb ein
  * verlustfreies, byte-stabiles Backup (Einträge deterministisch sortiert).
  */
-import type { Owned, Deck, Finish, OwnedSource } from './types';
+import type { Owned, Deck, Finish, OwnedSource, OwnedPrecon } from './types';
 
 export const COLLECTION_SCHEMA = 'scryglass-collection';
 export const SCHEMA_VERSION = 1;
@@ -16,6 +16,8 @@ export interface CollectionExport {
   decks: Deck[];
   /** gezählte Spielsteine (Tokens) — fehlt in älteren Backups */
   tokens?: number;
+  /** übernommene Fertigdecks (M19) — fehlt in älteren Backups */
+  precons?: OwnedPrecon[];
 }
 
 export class CollectionImportError extends Error {}
@@ -34,11 +36,19 @@ function sortDecks(decks: readonly Deck[]): Deck[] {
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.updatedAt - b.updatedAt));
 }
 
+/** Fertigdecks ohne DB-Schlüssel; die Deck-ID passt nach dem Wiederherstellen nicht mehr. */
+function sortPrecons(precons: readonly OwnedPrecon[]): OwnedPrecon[] {
+  return [...precons]
+    .map(({ id: _id, deckId: _deck, ...rest }) => rest as OwnedPrecon)
+    .sort((a, b) => a.addedAt - b.addedAt || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
 export function buildExport(
   owned: readonly Owned[],
   decks: readonly Deck[] = [],
   exportedAt: number = Date.now(),
   tokens?: number,
+  precons: readonly OwnedPrecon[] = [],
 ): CollectionExport {
   return {
     schema: COLLECTION_SCHEMA,
@@ -47,6 +57,7 @@ export function buildExport(
     owned: sortOwned(owned),
     decks: sortDecks(decks),
     ...(tokens != null ? { tokens } : {}),
+    ...(precons.length > 0 ? { precons: sortPrecons(precons) } : {}),
   };
 }
 
@@ -55,12 +66,13 @@ export function serializeCollection(
   decks: readonly Deck[] = [],
   exportedAt?: number,
   tokens?: number,
+  precons: readonly OwnedPrecon[] = [],
 ): string {
-  return JSON.stringify(buildExport(owned, decks, exportedAt, tokens), null, 2);
+  return JSON.stringify(buildExport(owned, decks, exportedAt, tokens, precons), null, 2);
 }
 
 const FINISHES: Finish[] = ['nonfoil', 'foil', 'etched'];
-const SOURCES: OwnedSource[] = ['scan', 'manual', 'peer'];
+const SOURCES: OwnedSource[] = ['scan', 'manual', 'peer', 'precon'];
 
 function isValidOwned(v: unknown): v is Owned {
   if (typeof v !== 'object' || v === null) return false;
@@ -73,6 +85,23 @@ function isValidOwned(v: unknown): v is Owned {
     e.qty > 0 &&
     typeof e.addedAt === 'number' &&
     SOURCES.includes(e.source as OwnedSource)
+  );
+}
+
+function isValidPrecon(v: unknown): v is OwnedPrecon {
+  if (typeof v !== 'object' || v === null) return false;
+  const p = v as Record<string, unknown>;
+  return (
+    typeof p.key === 'string' &&
+    typeof p.name === 'string' &&
+    typeof p.addedAt === 'number' &&
+    typeof p.copies === 'number' &&
+    Array.isArray(p.items) &&
+    p.items.every((b) => {
+      const e = b as Record<string, unknown>;
+      return typeof e === 'object' && e !== null && typeof e.oracleId === 'string' &&
+        FINISHES.includes(e.finish as Finish) && typeof e.qty === 'number' && e.qty > 0;
+    })
   );
 }
 
@@ -116,5 +145,6 @@ export function parseCollection(json: string): CollectionExport {
     owned: sortOwned(obj.owned as Owned[]),
     decks: sortDecks(decks),
     ...(typeof obj.tokens === 'number' && obj.tokens >= 0 ? { tokens: Math.floor(obj.tokens) } : {}),
+    ...(Array.isArray(obj.precons) ? { precons: sortPrecons(obj.precons.filter(isValidPrecon)) } : {}),
   };
 }

@@ -83,6 +83,7 @@ def test_main_writes_file_and_version_counts(tmp_path):
     lines = (tmp_path / "precons.ndjson").read_text(encoding="utf-8").splitlines()
     head = json.loads(lines[0])
     assert head["meta"]["source"] == "MTGJSON" and head["meta"]["count"] == 2
+    assert head["meta"]["version"] == "5.3.0+test" and head["meta"]["date"] == "2026-11-08"  # aus den Deck-Dateien
     assert len(lines) == 3
     version = json.loads((tmp_path / "version.json").read_text(encoding="utf-8"))
     assert version["counts"]["precons"] == 2 and version["precons"]["source"] == "MTGJSON"

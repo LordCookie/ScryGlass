@@ -20,6 +20,7 @@ import { CardImage } from './CardImage';
 import { CardDetail } from './CardDetail';
 import { feedbackAdded, hapticTap } from '../native/feedback';
 import { useBackHandler } from './backStack';
+import { deckRequested, clearDeckRequest } from './deckNav';
 import { ensureRowPrices } from '../data/prices';
 import { deckValueRows, missingValueRows, collectionValue, formatEur, priceKey, type PriceEntry, type ValueRow } from '../domain/prices';
 
@@ -38,7 +39,8 @@ function colorNames(colors: readonly string[]): string {
 
 export function DecksPanel() {
   const decks = useLiveQuery(() => listDecks(), []);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(() => deckRequested());
+  useEffect(() => clearDeckRequest(), []);
 
   if (editingId != null) {
     return <DeckEditor deckId={editingId} onBack={() => setEditingId(null)} />;

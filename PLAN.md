@@ -1191,8 +1191,8 @@ die Kombos mit `continue-on-error`)
   - Oben stehen „Deine Fertigdecks": was schon hinzugefügt wurde, mit Datum und
     Commander-Bild.
   - Darunter eine Suche nach Name, Set oder Commander (auch deutsch) und die Filter
-    Commander · Einsteiger · Duel Decks · Andere. Neueste zuerst. Ohne Suchtext zeigt der
-    Reiter die Commander-Decks der letzten zwei Jahre.
+    Commander · Einsteiger · Duel Decks · Jumpstart · Secret Lair · Andere. Neueste zuerst.
+    Voreingestellt ist Commander; mit Suchtext wird über alle Gruppen gesucht.
   - Antippen öffnet die Vorschau: Commander-Bild, Set, Erscheinungsdatum, die Liste nach
     Typ gruppiert, Foils markiert und „Davon besitzt du schon 23 Karten".
 - **„Zur Sammlung hinzufügen"** mit drei Einstellungen:
@@ -1222,15 +1222,19 @@ die Kombos mit `continue-on-error`)
 - Im breiten Layout steht die Liste links und die Vorschau rechts.
 
 **Umsetzung in Schritten**
-- [ ] 1. Pipeline `fetch_precons.py` mit Tests, CI-Schritt, Nennung von MTGJSON.
-- [ ] 2. App: Import (Phase „Fertigdecks"), Tabellen, `domain/precons.ts` mit Tests.
-- [ ] 3. Reiter „Fertigdecks": Suche, Vorschau, Hinzufügen, Deck anlegen, Entfernen.
-- [ ] 4. Test mit echten Decks: aktuelles Commander-Deck mit Foil-Commander, altes Duel
-      Deck, ein Jumpstart-Thema.
+- [x] 1. Pipeline `fetch_precons.py` mit Tests, CI-Schritt, Nennung von MTGJSON. Echter
+      Lauf 2026-11-08: 3.144 Decks bei MTGJSON, 2.492 übernommen (610 andere Typen wie
+      MTGO/Arena, 42 mit zu vielen unbekannten Karten, z. B. Weltmeister-Decks mit
+      Gedenkkarten), 37.019 Drucke, 2,4 MB roh / 1 MB gz.
+- [x] 2. App: Import (Phase „Fertigdecks"), Tabellen (Dexie v7), `domain/precons.ts` mit
+      Tests, Backup mit `ownedPrecons`. Vorhandene Bestände behalten Artwork und Herkunft.
+- [x] 3. Reiter „Fertigdecks": Suche, Vorschau, Hinzufügen, Deck anlegen, „Deck öffnen",
+      Entfernen (Browser-Test mit „Cavalry Charge": 111 Karten rein, Deck legal, wieder
+      raus → Sammlung wie vorher).
+- [ ] 4. Test am Handy mit echten Decks: aktuelles Commander-Deck mit Foil-Commander, altes
+      Duel Deck, ein Jumpstart-Thema. Braucht den nächsten Katalog aus der CI.
 
-**Offen (Entscheidung User)**
-- Kommt M19 mit 0.3.15 oder vorher als eigenes Update? Es hängt nicht am Big Screen und
-  ist deutlich kleiner.
+**Release:** M19 hängt nicht am Big Screen und kann vorher als eigenes Update kommen.
 
 ---
 
