@@ -132,9 +132,14 @@ camera for scanning.
 
 - Your collection, decks and settings live **only on your phone**. There is no account
   and no tracking.
-- Make backups under **Mehr → Backup & Export**: a JSON backup to restore later, and a
-  CSV export that ManaBox and Moxfield can read. ScryGlass also backs up automatically
-  before every update.
+- Make backups under **Mehr → Backup & Export**. *In Dokumente sichern* saves a file to
+  `Documents/ScryGlass` that survives uninstalling the app; *Backup teilen* sends it to
+  Google Drive, mail or wherever you like. ScryGlass also backs up automatically before
+  every update and import, and reminds you if your last backup is a month old.
+- **Switching from ManaBox?** Export your collection there as CSV and import it under
+  **Mehr → Backup & Export → CSV importieren**. Moxfield and most other CSV exports work
+  too. You see what was recognized before anything is added. The CSV export goes the
+  other way and is readable by ManaBox and Moxfield.
 - The internet is used only for card images and prices (from Scryfall), the
   next-set countdown and updates (from GitHub). Without a connection everything else
   keeps working.

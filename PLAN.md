@@ -1,6 +1,6 @@
 # PLAN.md — ScryGlass (MTG Sammlungs- & Deckbau-App)
 
-> **ScryGlass** — Stand **v0.2.8** (2026-11-03), Tester-Version für Android.
+> **ScryGlass** — Stand **v0.2.9** (2026-11-08), Tester-Version für Android.
 > Local-first, offline-fähig, nicht-kommerziell. Basiert auf dem wiederverwendbaren
 > Kern von [engram](https://github.com/LordCookie/Engram) (Scanner, Sammlung, Dexie,
 > Offline-Bilder, Capacitor), aber mit komplett neuer Datenschicht.
@@ -868,6 +868,30 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
 - [ ] Erst-Test am Handy: Version mit Fix von Hand, dann das nächste Release aus der App.
 - [ ] Optional: Releases von GitHub Actions bauen lassen (Schlüssel als Secret).
 
+### M16 — Umstieg von ManaBox & Datensicherheit (v0.2.9)
+- [x] **Sammlungs-CSV importieren** (`domain/collectionCsv`, `data/collectionImport`):
+      Spalten über die Kopfzeile (ManaBox, Moxfield, Deckbox, eigener Export; Komma oder
+      Semikolon), Auflösung Scryfall-ID → Set + Nummer → Name (EN/DE). Vorschau mit nicht
+      gefundenen Zeilen; ManaBox-Decks und -Listen nur auf Wunsch. Hinzufügen oder ersetzen,
+      vorher automatische Sicherung.
+- [ ] Echte ManaBox-Datei als Fixture (Kopfzeile bisher nach Doku/Erfahrung).
+- [x] **Sicherung außerhalb der App:** „In Dokumente sichern" → `Dokumente/ScryGlass/`,
+      übersteht das Deinstallieren. Automatische Sicherungen ab Android 11 zusätzlich nach
+      `Dokumente/ScryGlass/Automatisch` (ohne Nachfrage; Android ≤ 10 nur per Knopf).
+- [x] Erinnerung: ab 30 Bestandszeilen und 30 Tagen ohne Sicherung außerhalb der App
+      ein Punkt am „Mehr"-Tab.
+- [ ] Sprache und Zustand je Exemplar (Wert), Listen (Tauschordner, Wunschliste) → 0.3.0.
+
+### M17 — Deck-Check (geplant)
+Regelbasiert und erklärbar statt eines trainierten Modells (keine freien Trainingsdaten,
+eine Zahl ohne Begründung hilft niemandem):
+- [ ] Bracket-Schätzung (offizielle Commander-Brackets 1–5): Game Changer, Zwei-Karten-
+      Kombos, Zusatzzüge, Massen-Landzerstörung, Tutoren — mit den Karten, die den
+      Ausschlag geben.
+- [ ] Kombos/Endlosschleifen aus Commander Spellbook — erst Lizenz der Daten klären.
+- [ ] Manabasis: Länderzahl zur Kurve, Farbquellen zu den Farbsymbolen.
+- [ ] Rollen zählen: Rampe, Kartenziehen, Removal, Board-Wipes, mit Hinweis bei zu wenig.
+
 ---
 
 ## 11. Risiken
@@ -941,3 +965,4 @@ Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zä
 | 0.2.6 | 2026-11-02 | Updates aus der App (App-Version mit Prüfsumme + Signaturprüfung, Katalog von GitHub), automatische Sicherungen, „Was ist neu", Release-Signatur mit eigenem Passwort |
 | 0.2.7 | 2026-11-02 | Katalog- und App-Update im Hintergrund (Tab-Wechsel bricht nichts ab), Katalog-Update ~5× schneller und 27 statt 45 MB, Bildschirm bleibt beim Laden an; erstes Update aus der App heraus |
 | 0.2.8 | 2026-11-03 | Fix: App-Update aus der App lud nie (Zielordner fehlte); Fehlermeldung nennt den Grund, Link zur Release-Seite. 0.2.6/0.2.7 einmal von Hand aktualisieren |
+| 0.2.9 | 2026-11-08 | Umstieg von ManaBox: Sammlungs-CSV importieren (ManaBox, Moxfield & Co.), Sicherung in Dokumente/ScryGlass (übersteht Deinstallieren), Erinnerung ans Sichern, Manakurve und deutsche Typen in der Deck-Statistik |
