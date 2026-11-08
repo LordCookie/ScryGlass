@@ -27,6 +27,9 @@ import { SearchPanel } from './ui/SearchPanel';
 import { PixelIcon, type PixelIconName } from './ui/PixelIcon';
 import { MorePanel } from './ui/MorePanel';
 import { ReleaseNotes, UpdateProgressStrip } from './ui/UpdatePanel';
+import { ConnectionIndicator } from './ui/bigscreen/ConnectionIndicator';
+import { Ruhebild } from './ui/bigscreen/Ruhebild';
+import { setScannerActive } from './bigscreen/phone';
 
 type Tab = 'scan' | 'sammlung' | 'decks' | 'suche' | 'mehr';
 type Gate = 'checking' | 'importing' | 'ready' | 'offline';
@@ -49,21 +52,25 @@ const TABS: { key: Tab; label: string; icon: PixelIconName }[] = [
   { key: 'mehr', label: 'Mehr', icon: 'more' },
 ];
 
-export default function App() {
+/**
+ * `remote`: Big Screen im Browser (PLAN.md M18). Katalog und Anmeldung erledigt dann
+ * ui/bigscreen/RemoteRoot; Scanner, Updates und Sicherungen gibt es nur am Handy.
+ */
+export default function App({ remote = false }: { remote?: boolean } = {}) {
   const [tab, setTab] = useState<Tab>('sammlung');
-  const [gate, setGate] = useState<Gate>('checking');
+  const [gate, setGate] = useState<Gate>(remote ? 'ready' : 'checking');
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [update, setUpdate] = useState<CatalogVersion | null>(null);
 
   const inboxCount = useLiveQuery(() => db.inbox.count(), []) ?? 0;
   // Neues auf GitHub (App oder Katalog) → Punkt am „Mehr"-Tab (M15).
   const updateStatus = useLiveQuery(() => currentUpdateStatus(), []);
-  const hasUpdate = !!(updateStatus?.app || updateStatus?.catalog);
+  const hasUpdate = !remote && !!(updateStatus?.app || updateStatus?.catalog);
   // Seit 30 Tagen nichts außerhalb der App gesichert → derselbe Punkt (0.2.9).
-  const backupDue = useLiveQuery(() => backupReminder(), []) ?? false;
+  const backupDue = (useLiveQuery(() => backupReminder(), []) ?? false) && !remote;
   // Nach einem App-Update einmal die Patch Notes zeigen.
   const [whatsNew, setWhatsNew] = useState<{ version: string; notes: string } | null>(null);
-  useEffect(() => { void pendingWhatsNew().then(setWhatsNew); }, []);
+  useEffect(() => { if (!remote) void pendingWhatsNew().then(setWhatsNew); }, [remote]);
   const closeWhatsNew = () => {
     setWhatsNew(null);
     void dismissWhatsNew();
@@ -98,7 +105,7 @@ export default function App() {
     }
   }
 
-  useEffect(() => { void runSync(); }, []);
+  useEffect(() => { if (!remote) void runSync(); }, [remote]);
   // Sprung zu den Kombos (aus der Σ-Statistik) — die Suche holt den Wunsch beim Öffnen ab.
   useEffect(() => {
     const open = () => setTab('suche');
@@ -116,6 +123,8 @@ export default function App() {
   // Android-Zurück: offene Ebenen zuerst (Scanner, Detail, Deck), dann zur Sammlung, dann minimieren.
   useEffect(() => initBackButton(), []);
   useBackHandler(tab !== 'sammlung', () => setTab('sammlung'));
+  // Big Screen am Handy: im Scanner kein Ruhebild (M18).
+  useEffect(() => { if (!remote) setScannerActive(tab === 'scan'); }, [tab, remote]);
 
   // Eingebauter Katalog neuer als der lokale (nach einem App-Update): im Hintergrund
   // einspielen — den Fortschritt zeigen die Leiste unten bzw. „Mehr → Katalog".
@@ -148,6 +157,7 @@ export default function App() {
           <span className="text-muted">Scry</span><span className="text-paper">Glass</span>
         </h1>
         <NextSetBadge />
+        {remote && <span className="ml-auto"><ConnectionIndicator /></span>}
       </header>
 
       {update && (
@@ -158,20 +168,20 @@ export default function App() {
         </div>
       )}
       {/* Läuft ein Update im Hintergrund weiter — in „Mehr" steht es ausführlich. */}
-      {tab !== 'mehr' && <UpdateProgressStrip onOpen={() => setTab('mehr')} />}
+      {tab !== 'mehr' && !remote && <UpdateProgressStrip onOpen={() => setTab('mehr')} />}
 
       <main className="flex-1 px-4 pb-28">
         {tab === 'scan' && <ScannerPanel />}
         {tab === 'sammlung' && <CollectionView />}
         {tab === 'decks' && <DecksPanel />}
         {tab === 'suche' && <SearchPanel />}
-        {tab === 'mehr' && <MorePanel />}
+        {tab === 'mehr' && <MorePanel remote={remote} />}
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-10 border-t-2 border-fill bg-surface"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="mx-auto flex max-w-2xl">
-          {TABS.map((t) => {
+          {TABS.filter((t) => !(remote && t.key === 'scan')).map((t) => {
             const active = tab === t.key;
             return (
               <button
@@ -199,6 +209,8 @@ export default function App() {
           })}
         </div>
       </nav>
+
+      {!remote && <Ruhebild />}
 
       {whatsNew && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-bg/80 p-3 sm:items-center" onClick={closeWhatsNew}>

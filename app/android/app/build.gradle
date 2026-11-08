@@ -66,6 +66,8 @@ dependencies {
     implementation project(':capacitor-android')
     // Peer-Scanning-Server (PLAN.md § 8): eingebetteter HTTP-Server, kein Cloud-Hop.
     implementation "org.nanohttpd:nanohttpd:$nanohttpdVersion"
+    // Big Screen (M18): WebSocket für Live-Änderungen im Browser
+    implementation "org.nanohttpd:nanohttpd-websocket:$nanohttpdVersion"
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion"
     // Native Scanner-Kamera (CameraX) + Texterkennung auf dem Gerät (ML Kit, gebündelt → offline).
     implementation "androidx.camera:camera-core:$cameraxVersion"

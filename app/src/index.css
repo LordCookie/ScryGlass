@@ -359,6 +359,29 @@ video,
   animation: frame-flash 0.3s steps(3) forwards;
 }
 
+/* Big Screen (DESIGN A10): Karte fliegt vom Handy-Rahmen in den Browser-Rahmen (Stapeln),
+   dreht sich beim Landen um (Flip). Strecke kommt per --fly-x, Bogen per --fly-y. */
+@keyframes bs-fly {
+  0% { transform: translate(0, 0) scaleX(1); }
+  45% { transform: translate(calc(var(--fly-x) * 0.5), var(--fly-y)) scaleX(1); }
+  80% { transform: translate(var(--fly-x), 0) scaleX(1); }
+  90% { transform: translate(var(--fly-x), 0) scaleX(0.1); }
+  100% { transform: translate(var(--fly-x), 0) scaleX(1); }
+}
+.bs-fly { animation: bs-fly 0.7s steps(7) forwards; }
+@keyframes bs-settle {
+  0% { transform: translateY(calc(var(--px) * -2)); }
+  100% { transform: translateY(0); }
+}
+.bs-settle { animation: bs-settle 0.2s steps(2) 1; }
+/* A11: neuer Scan fliegt unten rechts von unten herein. */
+@keyframes bs-toast-in {
+  0% { transform: translateY(calc(var(--px) * 24)); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.bs-toast-in { animation: bs-toast-in 0.25s steps(4) 1; }
+/* Ruhebild am Handy rückt jede Minute ein Stück (gegen Einbrennen) — per Stil, keine Animation. */
+
 /* prefers-reduced-motion: Deko einfrieren, aber Fortschritt/Pips/Zähler laufen weiter
    (das ist Information, keine Deko — DESIGN § 5). */
 @media (prefers-reduced-motion: reduce) {
@@ -366,8 +389,12 @@ video,
   .reticle-corner,
   .cam-boot,
   .cam-boot::before,
-  .scan-line {
+  .scan-line,
+  .bs-fly,
+  .bs-settle,
+  .bs-toast-in {
     animation: none !important;
   }
+  .bs-fly { display: none; }
   .cam-boot { display: none; }
 }

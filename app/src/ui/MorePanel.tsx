@@ -22,6 +22,7 @@ import { APP_VERSION } from '../version';
 import { getScanDiag, setScanDiag } from '../data/scanDiag';
 import { getTokenCount } from '../data/tokens';
 import { PixelCheckbox } from './PixelCheckbox';
+import { BigScreenSection, BigScreenRemoteSection } from './bigscreen/BigScreenSettings';
 
 /** „Mehr": Updates, Einstellungen, Backup/Export, Rechtliches (PLAN.md § 5, § 4, § 12, M15). */
 
@@ -86,7 +87,21 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
-export function MorePanel() {
+export function MorePanel({ remote = false }: { remote?: boolean }) {
+  if (remote) {
+    // Big Screen (M18): Updates, Sicherungen, Gemeinsam scannen und Big Screen selbst gibt es nur am Handy.
+    return (
+      <section className="space-y-3">
+        <BigScreenRemoteSection />
+        <div className="rounded-lg bg-surface p-4">
+          <h2 className="font-mono text-lg">Sammlung importieren</h2>
+          <CsvImportPanel onImported={() => {}} />
+        </div>
+        <SettingsSection remote />
+        <AboutSection />
+      </section>
+    );
+  }
   return (
     <section className="space-y-3">
       {/* Updates oben — dorthin zeigt der Punkt am „Mehr"-Tab (M15). */}
@@ -95,6 +110,7 @@ export function MorePanel() {
       <SettingsSection />
       {/* Gemeinsam scannen — früher eigener Tab, jetzt hier (Platz für die Suche). */}
       <PeerPanel />
+      <BigScreenSection />
       <BackupSection />
       <ScanLogSection />
       <AboutSection />
@@ -103,7 +119,7 @@ export function MorePanel() {
 }
 
 /** Einstellungen: Vibration für Scanner & Decks (app-weit, native/feedback.ts) und Farbschema (ui/themes.ts). */
-function SettingsSection() {
+function SettingsSection({ remote = false }: { remote?: boolean }) {
   const [vibrate, setVibrate] = useState(getVibration());
   const [theme, setTheme] = useState<ThemeKey>(currentTheme());
 
@@ -127,7 +143,7 @@ function SettingsSection() {
   return (
     <div className="rounded-lg bg-surface p-4">
       <h2 className="mb-3 font-mono text-lg">Einstellungen</h2>
-      <div className="flex items-center gap-3">
+      {!remote && <div className="flex items-center gap-3">
         <PixelIcon name="vibrate" className={vibrate ? 'text-paper' : 'text-muted'} />
         <div className="min-w-0 flex-1">
           <div className="font-mono text-sm">Vibration</div>
@@ -139,10 +155,10 @@ function SettingsSection() {
           className={`shrink-0 px-3 py-1.5 font-mono text-sm ${vibrate ? 'bg-fill text-paper' : 'bg-bg text-muted'}`}>
           {vibrate ? 'An' : 'Aus'}
         </button>
-      </div>
+      </div>}
 
-      {/* Farbschema: Vorschau-Kacheln, Auswahl wirkt sofort und wird gemerkt. */}
-      <div className="mt-5">
+      {/* Farbschema: Vorschau-Kacheln, Auswahl wirkt sofort und wird gemerkt (im Big Screen je Browser). */}
+      <div className={remote ? '' : 'mt-5'}>
         <div className="mb-2 font-mono text-sm">Farbschema</div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {THEMES.map((t) => (

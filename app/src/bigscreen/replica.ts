@@ -1,6 +1,6 @@
 import { db, setMeta } from '../db/db';
 import { TOKEN_KEY } from '../data/tokens';
-import type { ServerMsg, Snapshot } from './protocol';
+import type { SeqMsg, ServerMsg, Snapshot } from './protocol';
 import type { Deck, Owned, OwnedPrecon } from '../domain/types';
 
 /**
@@ -46,14 +46,14 @@ export async function clearReplica(): Promise<void> {
  */
 export class SeqTracker {
   private last: number | null = null;
-  private buffer: Extract<ServerMsg, { seq: number }>[] = [];
+  private buffer: SeqMsg[] = [];
 
   get seq(): number | null {
     return this.last;
   }
 
   /** Was mit einer Nachricht zu tun ist. */
-  accept(msg: Extract<ServerMsg, { seq: number }>): 'apply' | 'skip' | 'buffer' | 'resync' {
+  accept(msg: SeqMsg): 'apply' | 'skip' | 'buffer' | 'resync' {
     if (this.last === null) {
       this.buffer.push(msg);
       return 'buffer';
@@ -67,7 +67,7 @@ export class SeqTracker {
   }
 
   /** Schnappschuss eingespielt: gepufferte, neuere Nachrichten in Reihenfolge zurückgeben. */
-  synced(seq: number): Extract<ServerMsg, { seq: number }>[] | 'resync' {
+  synced(seq: number): SeqMsg[] | 'resync' {
     this.last = seq;
     const later = this.buffer.filter((m) => m.seq > seq).sort((a, b) => a.seq - b.seq);
     this.buffer = [];

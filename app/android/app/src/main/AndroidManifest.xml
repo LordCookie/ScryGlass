@@ -43,6 +43,8 @@
     <!-- Peer-Scanning im LAN (§ 8). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Big Screen (M18): WLAN-Lock, damit das WLAN beim Ausliefern nicht in den Stromsparmodus geht -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Scanner: Live-Kamera via getUserMedia im WebView (OCR, § 6). -->
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- App-Update aus der App (M15): heruntergeladene APK dem Installer übergeben. -->

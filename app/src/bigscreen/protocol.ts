@@ -15,7 +15,12 @@ export interface BigScreenInfo {
   mode: 'bigscreen';
   deviceName: string;
   appVersion: string;
+  /** Katalog-Dateien unter `/catalog/`: gepackt (.gz, vom Katalog-Update aufgehoben) oder roh (aus der APK) */
+  catalogGzip?: boolean;
 }
+
+/** Wo der Browser den Katalog des Handys findet. */
+export const REMOTE_CATALOG_BASE = '/catalog';
 
 export interface Snapshot {
   seq: number;
@@ -56,6 +61,9 @@ export type ServerMsg =
   | { t: 'expired' }
   /** Abgemeldet oder Big Screen aus. */
   | { t: 'bye'; reason: 'abgemeldet' | 'aus' };
+
+/** Nachrichten mit fortlaufender Nummer (Änderungen an der Kopie). */
+export type SeqMsg = Extract<ServerMsg, { t: 'change' } | { t: 'tokens' } | { t: 'reset' }>;
 
 export interface WriteRequest {
   op: string;

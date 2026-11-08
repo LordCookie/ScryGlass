@@ -13,6 +13,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ScryCameraPlugin.class);
         // App-Update aus der App: APK prüfen (Prüfsumme, Signatur) und Installer öffnen.
         registerPlugin(AppUpdaterPlugin.class);
+        // Big Screen: die App im Browser am PC, ausgeliefert vom Handy (PLAN.md M18).
+        registerPlugin(BigScreenPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
