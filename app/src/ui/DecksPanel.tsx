@@ -8,6 +8,7 @@ import { isTokenCard } from '../domain/tokens';
 import { validateDeck, availableColors } from '../domain/deckValidate';
 import { computeStats, isBasicLand, CURVE_BUCKETS, COLOR_KEYS } from '../domain/deckStats';
 import { computeMissing } from '../domain/deckMissing';
+import { TYPE_LABEL } from '../domain/collectionFilter';
 import { parseDeckText, serializeDeckText } from '../domain/deckText';
 import { LEGALITY_FORMATS, FORMAT_LABELS, type Card, type Deck, type DeckCard, type FormatId } from '../domain/types';
 import { ColorPips } from './mana';
@@ -513,7 +514,7 @@ function DeckStatsView({ deck, cards, owned, chosen }: {
         <div className="rounded-lg bg-surface p-3 font-mono text-xs">
           <h3 className="mb-1 text-sm">Typen</h3>
           {Object.entries(stats.types).sort((a, b) => b[1] - a[1]).map(([t, n]) => (
-            <div key={t} className="flex justify-between text-muted"><span>{t}</span><span>{n}</span></div>
+            <div key={t} className="flex justify-between text-muted"><span>{TYPE_LABEL[t] ?? t}</span><span>{n}</span></div>
           ))}
         </div>
       </div>
