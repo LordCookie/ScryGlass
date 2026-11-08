@@ -34,6 +34,13 @@ jobs:
         working-directory: pipeline
         run: python fetch_scryfall.py --out dist
 
+      # Kombos aus Commander Spellbook (M17). Darf scheitern — der Katalog geht trotzdem raus,
+      # die App behält dann die Kombos vom letzten Mal.
+      - name: Build combos (Commander Spellbook)
+        working-directory: pipeline
+        continue-on-error: true
+        run: python fetch_combos.py --out dist
+
       # Komprimiert für die App (110 → 45 MB, M15); die App entpackt beim Streamen.
       # Die unkomprimierten bleiben für den Hash-Lauf und ältere App-Versionen.
       - name: Gzip for the app

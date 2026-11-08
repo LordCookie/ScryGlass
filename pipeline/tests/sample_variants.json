@@ -1,0 +1,31 @@
+{"timestamp": "2026-11-08T12:00:00+00:00", "version": "7.3.6", "variants": [
+ {"id": "a-b", "status": "OK", "uses": [
+   {"card": {"name": "Thassa's Oracle", "oracleId": "o-thoracle"}, "zoneLocations": ["H"], "mustBeCommander": false, "quantity": 1},
+   {"card": {"name": "Demonic Consultation", "oracleId": "o-consult"}, "zoneLocations": ["H"], "mustBeCommander": false, "quantity": 1}],
+  "requires": [], "produces": [
+   {"feature": {"name": "Win the game", "status": "S"}, "quantity": 1},
+   {"feature": {"name": "Exile your library", "status": "H"}, "quantity": 1}],
+  "identity": "UB", "manaValueNeeded": 3, "manaNeeded": "{U}{U}{B}", "popularity": 100},
+ {"id": "c-d-e", "status": "OK", "uses": [
+   {"card": {"name": "Kiki-Jiki, Mirror Breaker", "oracleId": "o-kiki"}, "zoneLocations": ["B"], "mustBeCommander": true, "quantity": 1},
+   {"card": {"name": "Pestermite", "oracleId": "o-pester"}, "zoneLocations": ["B"], "mustBeCommander": false, "quantity": 1},
+   {"card": {"name": "Some Library Card", "oracleId": "o-lib"}, "zoneLocations": ["L"], "mustBeCommander": false, "quantity": 1}],
+  "requires": [], "produces": [
+   {"feature": {"name": "Infinite creature tokens with haste", "status": "S"}, "quantity": 1}],
+  "identity": "UR", "manaValueNeeded": 7, "manaNeeded": "", "popularity": 300},
+ {"id": "lifegain", "status": "OK", "uses": [
+   {"card": {"name": "A", "oracleId": "o-a"}, "zoneLocations": ["B"], "quantity": 1},
+   {"card": {"name": "B", "oracleId": "o-b"}, "zoneLocations": ["B"], "quantity": 1},
+   {"card": {"name": "C", "oracleId": "o-c"}, "zoneLocations": ["B"], "quantity": 1}],
+  "requires": [], "produces": [
+   {"feature": {"name": "Infinite lifegain triggers", "status": "C"}, "quantity": 1}],
+  "identity": "W", "manaValueNeeded": null, "manaNeeded": "", "popularity": null},
+ {"id": "with-template", "status": "OK", "uses": [
+   {"card": {"name": "Fastbond", "oracleId": "o-fastbond"}, "zoneLocations": ["B"], "quantity": 1},
+   {"card": {"name": "Trench Behemoth", "oracleId": "o-trench"}, "zoneLocations": ["B"], "quantity": 1}],
+  "requires": [{"template": {"name": "Land that gains life on ETB"}}], "produces": [], "identity": "GU", "manaValueNeeded": 0},
+ {"id": "draft", "status": "D", "uses": [
+   {"card": {"name": "X", "oracleId": "o-x"}, "zoneLocations": ["B"], "quantity": 1},
+   {"card": {"name": "Y", "oracleId": "o-y"}, "zoneLocations": ["B"], "quantity": 1}],
+  "requires": [], "produces": [], "identity": "C", "manaValueNeeded": 0}
+]}
