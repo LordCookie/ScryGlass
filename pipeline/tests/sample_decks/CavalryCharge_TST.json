@@ -1,0 +1,123 @@
+{
+ "meta": {
+  "date": "2026-11-08",
+  "version": "5.3.0+test"
+ },
+ "data": {
+  "code": "TST",
+  "name": "Cavalry Charge",
+  "releaseDate": "2026-04-21",
+  "type": "Commander Deck",
+  "commander": [
+   {
+    "name": "Sidar Jabari",
+    "count": 1,
+    "isFoil": true,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-cmd"
+    },
+    "setCode": "TST",
+    "number": "1"
+   }
+  ],
+  "displayCommander": [
+   {
+    "name": "Elenda",
+    "count": 1,
+    "isFoil": true,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-disp"
+    },
+    "setCode": "TST",
+    "number": "1"
+   }
+  ],
+  "mainBoard": [
+   {
+    "name": "Sol Ring",
+    "count": 1,
+    "isFoil": false,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-sol"
+    },
+    "setCode": "TST",
+    "number": "1"
+   },
+   {
+    "name": "Plains",
+    "count": 30,
+    "isFoil": false,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-plains"
+    },
+    "setCode": "TST",
+    "number": "1"
+   },
+   {
+    "name": "Plains",
+    "count": 5,
+    "isFoil": false,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-plains"
+    },
+    "setCode": "TST",
+    "number": "1"
+   },
+   {
+    "name": "Etched Thing",
+    "count": 1,
+    "isFoil": true,
+    "isEtched": true,
+    "identifiers": {
+     "scryfallId": "p-etch"
+    },
+    "setCode": "TST",
+    "number": "1"
+   }
+  ],
+  "sideBoard": [],
+  "planes": [
+   {
+    "name": "Some Plane",
+    "count": 1,
+    "isFoil": false,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-plane"
+    },
+    "setCode": "TST",
+    "number": "1"
+   }
+  ],
+  "schemes": [],
+  "tokens": [
+   {
+    "name": "Soldier",
+    "count": 2,
+    "isFoil": false,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-tok"
+    },
+    "setCode": "TST",
+    "number": "1"
+   },
+   {
+    "name": "Unknown Token",
+    "count": 1,
+    "isFoil": false,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-unknown-tok"
+    },
+    "setCode": "TST",
+    "number": "1"
+   }
+  ]
+ }
+}

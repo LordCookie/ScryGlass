@@ -1,0 +1,36 @@
+{
+ "meta": {
+  "date": "2026-11-08",
+  "version": "5.3.0+test"
+ },
+ "data": {
+  "code": "TST",
+  "name": "World Champs",
+  "releaseDate": "2001-10-01",
+  "type": "Theme Deck",
+  "mainBoard": [
+   {
+    "name": "Memorabilia",
+    "count": 9,
+    "isFoil": false,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-gone"
+    },
+    "setCode": "TST",
+    "number": "1"
+   },
+   {
+    "name": "Sol Ring",
+    "count": 1,
+    "isFoil": false,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-sol"
+    },
+    "setCode": "TST",
+    "number": "1"
+   }
+  ]
+ }
+}

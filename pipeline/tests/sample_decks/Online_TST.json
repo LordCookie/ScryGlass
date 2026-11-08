@@ -1,0 +1,25 @@
+{
+ "meta": {
+  "date": "2026-11-08",
+  "version": "5.3.0+test"
+ },
+ "data": {
+  "code": "TST",
+  "name": "Online Only",
+  "releaseDate": "2020-01-01",
+  "type": "MTGO Redemption",
+  "mainBoard": [
+   {
+    "name": "Sol Ring",
+    "count": 1,
+    "isFoil": false,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-sol"
+    },
+    "setCode": "TST",
+    "number": "1"
+   }
+  ]
+ }
+}

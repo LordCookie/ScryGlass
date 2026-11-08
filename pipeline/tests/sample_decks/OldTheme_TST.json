@@ -1,0 +1,50 @@
+{
+ "meta": {
+  "date": "2026-11-08",
+  "version": "5.3.0+test"
+ },
+ "data": {
+  "code": "TST",
+  "name": "Old Theme",
+  "releaseDate": "2001-01-01",
+  "type": "Theme Deck",
+  "commander": [],
+  "mainBoard": [
+   {
+    "name": "Sol Ring",
+    "count": 4,
+    "isFoil": false,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-sol"
+    },
+    "setCode": "TST",
+    "number": "1"
+   },
+   {
+    "name": "Memorabilia",
+    "count": 1,
+    "isFoil": false,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-gone"
+    },
+    "setCode": "TST",
+    "number": "1"
+   }
+  ],
+  "sideBoard": [
+   {
+    "name": "Plains",
+    "count": 2,
+    "isFoil": false,
+    "isEtched": false,
+    "identifiers": {
+     "scryfallId": "p-plains"
+    },
+    "setCode": "TST",
+    "number": "1"
+   }
+  ]
+ }
+}

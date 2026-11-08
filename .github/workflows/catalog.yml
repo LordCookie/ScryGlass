@@ -41,6 +41,13 @@ jobs:
         continue-on-error: true
         run: python fetch_combos.py --out dist
 
+      # Fertigdecks aus MTGJSON (M19), abgeglichen mit printings.ndjson von oben. Darf
+      # ebenfalls scheitern — die App behält dann die Fertigdecks vom letzten Mal.
+      - name: Build precons (MTGJSON)
+        working-directory: pipeline
+        continue-on-error: true
+        run: python fetch_precons.py --out dist
+
       # Komprimiert für die App (110 → 45 MB, M15); die App entpackt beim Streamen.
       # Die unkomprimierten bleiben für den Hash-Lauf und ältere App-Versionen.
       - name: Gzip for the app
