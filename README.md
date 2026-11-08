@@ -107,8 +107,8 @@ your PC or tablet and log in with your password. The phone serves the app over y
 Wi-Fi, including the card catalog, so the PC needs no internet for it. You can browse,
 edit your collection, build decks and import CSV files, while the phone keeps scanning.
 New scans pop up in the bottom right corner. On wide screens the app switches to a
-desktop layout: navigation on the left, more columns, a sortable table and the card detail
-as a side panel.
+desktop layout: navigation on the left with its own combos tab, more columns, a sortable
+table and the card detail as a side panel. The browser uses the phone's color scheme.
 
 The phone stays the only copy of your data. Meant for your own Wi-Fi only.
 

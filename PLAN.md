@@ -913,7 +913,7 @@ eine Zahl ohne Begründung hilft niemandem). `domain/deckCheck.ts`, Reiter „De
       Massen-Landzerstörung, Zusatzzüge, Tutoren — wie Commander Spellbook. Alte Kataloge:
       grob am Regeltext. Richtwerte 10/10/8/2.
 
-### M18 — Big-Screen-Modus (gebaut 2026-11-08, Test am Gerät offen)
+### M18 — Big-Screen-Modus (v0.3.16, am Handy getestet 2026-11-08)
 
 Die App im Browser am PC/Tablet, das Handy bleibt Server und **einzige Wahrheit** für
 Sammlung und Decks. Am Handy läuft alles normal weiter, auch der Scanner — was dort
@@ -1044,7 +1044,8 @@ Entscheidungen und Gründe:
   - Am Handy verschwindet der Browser aus der Liste. War es der letzte, läuft die
     30-min-Frist bis zum Auto-Aus.
 - Nur am Handy (im Browser ausgeblendet): Scanner, App-/Katalog-Update, Sicherungen und
-  Wiederherstellen, Gemeinsam scannen, Big-Screen-Einstellungen. Das Farbschema gilt je Browser.
+  Wiederherstellen, Gemeinsam scannen, Big-Screen-Einstellungen. Das Farbschema kommt vom
+  Handy; im Browser gewählt, gilt es fürs Handy und alle Browser.
 
 **Sicherheit** (nur fürs eigene WLAN gedacht — Hinweis beim Einschalten)
 - Passwort ≥ 6 Zeichen. Gespeichert wird nur ein abgeleiteter Schlüssel (PBKDF2-SHA256,
@@ -1118,9 +1119,9 @@ Entscheidungen und Gründe:
 - [x] 5. Breites Layout (siehe unten), `ui/wide.tsx`.
 - [x] Entwicklung: `npm run dev:bigscreen` (Port 5180) spielt das Handy im Vite-Server —
       Anmeldung, Katalog-Laden, Schreiben, Scans, Trennen im Browser durchgespielt.
-- [ ] 6. Test am Gerät: zwei Browser + drei Tabs, gleichzeitig am Handy scannen, dasselbe
-      Deck am Handy und im Browser bearbeiten, IP-Wechsel, Ruhebild, App in den
-      Hintergrund und zurück, Trennen mit offenen Tabs.
+- [x] 6. Test am Gerät mit 0.3.15 (Vorabversion): läuft; einzig fehlte das Farbschema
+      vom Handy → in 0.3.16 übernimmt der Browser es (im Browser gewählt gilt es fürs Handy).
+- [x] 7. Breit: eigener Reiter „Kombos" in der Leiste links (Wunsch nach dem Test).
 
 **Entschieden (2026-11-08)**
 - Katalog kommt vom Handy übers WLAN, nicht von GitHub; die Wartezeit bekommt eine
@@ -1232,8 +1233,7 @@ die Kombos mit `continue-on-error`)
 - [x] 3. Reiter „Fertigdecks": Suche, Vorschau, Hinzufügen, Deck anlegen, „Deck öffnen",
       Entfernen (Browser-Test mit „Cavalry Charge": 111 Karten rein, Deck legal, wieder
       raus → Sammlung wie vorher).
-- [ ] 4. Test am Handy mit echten Decks: aktuelles Commander-Deck mit Foil-Commander, altes
-      Duel Deck, ein Jumpstart-Thema. Braucht den nächsten Katalog aus der CI.
+- [x] 4. Katalog-CI 2026-11-08 mit precons.ndjson (2.492 Decks); in 0.3.15/0.3.16 eingebaut.
 
 **Release:** M19 hängt nicht am Big Screen und kann vorher als eigenes Update kommen.
 
@@ -1313,3 +1313,5 @@ Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zä
 | 0.2.8 | 2026-11-03 | Fix: App-Update aus der App lud nie (Zielordner fehlte); Fehlermeldung nennt den Grund, Link zur Release-Seite. 0.2.6/0.2.7 einmal von Hand aktualisieren |
 | 0.2.9 | 2026-11-08 | Umstieg von ManaBox: Sammlungs-CSV importieren (ManaBox, Moxfield & Co.), Sicherung in Dokumente/ScryGlass (übersteht Deinstallieren), Erinnerung ans Sichern, Manakurve und deutsche Typen in der Deck-Statistik |
 | 0.3.0 | 2026-11-08 | Deck-Check (Bracket-Schätzung, Manabasis, Rollen aus Scryfall-Tags), alle Kombos von Commander Spellbook mit eigenen Pixel-Sternen (Suche, Σ-Statistik, Deck-Check), App-Update nimmt die geladene APK beim zweiten Versuch |
+| 0.3.15 | 2026-11-08 | Nur Vorabversion (Test am Handy): Big Screen, Fertigdecks, breites Layout |
+| 0.3.16 | 2026-11-08 | Big Screen (App im PC-Browser übers WLAN, Katalog vom Handy, Farbschema vom Handy), Fertigdecks aus MTGJSON, breites Layout ab 1024 px mit eigenem Reiter „Kombos", Deck-Änderungen als Schritte, Katalog 08.11. mit Fertigdecks |
