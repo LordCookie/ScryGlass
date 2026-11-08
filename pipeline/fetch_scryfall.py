@@ -247,6 +247,9 @@ class Catalog:
                 "legalities": legality_mask(card.get("legalities", {}) or {}),
                 "maxCopies": max_copies(type_line, oracle_text),
             }
+            # Game Changer (Commander-Brackets, M17) — nur wenn gesetzt, spart Platz.
+            if card.get("game_changer"):
+                self.cards[oid]["gameChanger"] = True
             self._card_is_en[oid] = is_en
 
         # --- Namensindex (ohne Tokens, siehe TOKEN_LAYOUTS) ---

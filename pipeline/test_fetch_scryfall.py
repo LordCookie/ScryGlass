@@ -160,6 +160,9 @@ def test_catalog_card_fields():
     jace = by_id["ob-jace"]
     # modern|legacy|vintage(restricted)|commander = 4+8+16+32
     assert jace["legalities"] == 60
+    # Game Changer nur bei gesetzter Markierung (Commander-Brackets, M17)
+    assert jace["gameChanger"] is True
+    assert "gameChanger" not in bolt
 
 
 def test_catalog_split_and_dfc_faces():
