@@ -924,7 +924,8 @@ gescannt wird, erscheint sofort im Browser.
 2. Das Handy zeigt `http://192.168.178.23:8780` (+ QR für Tablets) und die verbundenen
    Browser. Solange Big Screen läuft, bleibt der Bildschirm an (Ladekabel empfohlen).
 3. Im Browser die Adresse öffnen → Anmeldeseite → Passwort → die App, nur breiter.
-4. „Ausschalten" am Handy (oder nach 30 min ohne Zugriff) beendet Server und Sitzungen.
+4. „Ausschalten" am Handy beendet Server und Sitzungen. Von selbst geht er aus, wenn
+   30 min lang kein Browser angemeldet ist.
 
 **Aufbau**
 
@@ -932,8 +933,8 @@ gescannt wird, erscheint sofort im Browser.
  Browser (PC, mehrere Tabs)                Handy (eine App)
  ─────────────────────────                ─────────────────────────────────────────
  gleiche Web-App (vom Handy geladen) ──►   Kotlin: BigScreenServer (NanoHTTPD, Port 8780)
-   Katalog: eigene IndexedDB (Cache)         • /            → App-Dateien aus den APK-Assets
-   Sammlung/Decks: Kopie (Replik)            • /catalog/*   → eingebetteter Katalog
+   Katalog: Kopie vom Handy (IndexedDB)      • /            → App-Dateien aus den APK-Assets
+   Sammlung/Decks: Kopie (Replik)            • /catalog/*   → Katalog-Dateien des Handys
                                              • /api/*       → an JS weitergereicht (Brücke)
    liest lokal (useLiveQuery wie gehabt)     • /api/events  → WebSocket: Änderungen live
    schreibt per POST /api/write ─────────►  JS (WebView): src/bigscreen/server.ts
@@ -957,10 +958,21 @@ Entscheidungen und Gründe:
   jede Änderung an den drei Tabellen ab, auch aus Scanner, Backup und Import, und schickt
   sie mit fortlaufender Nummer. Verpasst ein Tab eine Nummer (Funkloch, Schlaf), holt er
   sich einen frischen Schnappschuss (`GET /api/snapshot`, ~100–700 KB).
-- **Katalog im Browser selbst.** Er ist groß (≈ 80 MB) und ändert sich nur wöchentlich. Der
-  Browser lädt ihn einmal und hält ihn in seiner IndexedDB. Quelle: GitHub
-  (`catalog-latest`, gleicher Stand wie am Handy), ohne Internet der eingebettete Katalog
-  vom Handy. Erstes Laden 1–2 min, danach sofort.
+- **Der Katalog kommt vom Handy, nicht aus dem Internet (local first).** Der Browser bekommt
+  übers WLAN genau den Katalogstand des Handys und legt ihn in seine IndexedDB. Neu geladen
+  wird nur, wenn das Handy einen neueren Stand hat (Version steht in `/bigscreen.json`).
+  - Der Haken: Am Handy steckt der Katalog in der IndexedDB der WebView, und die kann der
+    native Server nicht lesen. Ihn Zeile für Zeile über die JS-Brücke zu schieben wäre zu
+    langsam (160.000 Druckausgaben).
+  - Deshalb **hebt das Handy die Katalog-Dateien auf**: Beim Katalog-Update werden die
+    geladenen `.ndjson.gz` erst unter `files/katalog/<version>/` gespeichert und dann von
+    dort eingespielt. Der vorige Stand wird gelöscht. Gebraucht werden cards, printings,
+    names und combos, zusammen ≈ 16 MB. Die Bild-Hashes braucht nur der Scanner am Handy.
+  - Hat das Handy noch nie ein Katalog-Update geladen, liefert der Server den eingebauten
+    Katalog aus den APK-Assets.
+  - Der Server gibt die Dateien direkt aus, ohne JS-Brücke und mit Größenangabe für den
+    Fortschrittsbalken. Im WLAN dauert das erste Laden etwa 10–30 s. Der Browser entpackt
+    mit `DecompressionStream`; dass das auch ohne HTTPS geht, beim Bau prüfen.
 - **Kotlin ↔ JS-Brücke für die API.** Die Daten liegen in der IndexedDB der WebView, die
   Kotlin nicht lesen kann. Der Server reicht `/api/*` als Ereignis an JS
   (`notifyListeners("request", {id, …})`), JS antwortet mit `respond({id, status, body})`.
@@ -976,8 +988,19 @@ Entscheidungen und Gründe:
 **Was im Browser geht**
 - Sammlung (Raster/Liste/Σ), Kartendetail (Anzahl, Artwork), Suche inkl. Kombos, Decks
   bauen inkl. Deck-Check, Text-Import/-Export, **CSV-Import vom PC**, Exporte als Download.
-- Neu und nur im Browser: „Zuletzt gescannt" — eine Liste, die live mitläuft, während am
-  Handy gescannt wird.
+- **Unten rechts, immer sichtbar: neue Scans vom Handy.**
+  - Jede Karte, die am Handy gescannt wird, erscheint dort einige Sekunden: Pixel-Vorschau,
+    Name, Anzahl, Foil. Kommen mehrere schnell hintereinander, stapeln sie sich.
+  - Darunter bleibt ein Zähler „12 neu seit Anmeldung" stehen. Antippen öffnet die Liste
+    „Zuletzt gescannt" für diese Sitzung.
+  - Macht man am Handy einen Scan rückgängig, wird er auch hier durchgestrichen.
+  - Quelle ist das Scan-Protokoll (`scans`, ScannerPanel `addToBasket`): Jeder Treffer, der
+    in den Scan-Korb geht, landet dort ohnehin, mit Karte und Weg (Bild/OCR); Rückgängig setzt
+    `rejected`. Angezeigt wird also schon beim Scannen. Erst beim „In Sammlung übernehmen"
+    ändert sich die Sammlung im Browser; dann wechselt der Zähler von „im Korb" zu
+    „übernommen". Eigene Änderungen im Browser erscheinen hier nicht.
+  - Übernommene Körbe aus „Gemeinsam scannen" erscheinen als ein Eintrag („23 Karten von
+    Yaras Handy").
 - Nur am Handy (im Browser ausgeblendet): Scanner, App-/Katalog-Update, Sicherungen und
   Wiederherstellen, Gemeinsam scannen, Big-Screen-Einstellungen. Das Farbschema gilt je Browser.
 
@@ -993,8 +1016,15 @@ Entscheidungen und Gründe:
   Service Worker (PWA-Registrierung im Fernbetrieb abschalten), `navigator.clipboard`
   (Fallback gibt es schon).
 - Sitzung: zufälliges 256-Bit-Token als Cookie (`HttpOnly`, `SameSite=Strict`), nur im
-  Speicher des Handys. Ablauf nach 2 h ohne Zugriff, „Angemeldet bleiben" 30 Tage. Am Handy
-  sichtbar, einzeln oder alle abmeldbar.
+  Speicher des Handys. Am Handy sichtbar, einzeln oder alle abmeldbar.
+- **Wie lange eine Anmeldung ohne Eingabe gilt, stellt man selbst ein** (Big-Screen-Optionen
+  am Handy): 15 min · 1 h (Standard) · 4 h · 1 Tag · 1 Woche · bis Big Screen aus.
+  - Als Eingabe zählt, was der Mensch im Browser tut: Klick, Taste, Scrollen. Der Browser
+    meldet das höchstens einmal pro Minute. Die WebSocket-Verbindung im Hintergrund zählt
+    nicht — ein vergessener offener Tab läuft also trotzdem ab.
+  - Läuft eine Anmeldung ab, legt sich die Anmeldeseite über die App, und die Daten sind
+    nicht mehr zu sehen. Nach dem Anmelden geht es an derselben Stelle weiter.
+  - Eine geänderte Einstellung gilt sofort für alle Sitzungen.
 - Bremse gegen Raten: nach 5 Fehlversuchen 1 min Sperre, danach doppelt so lang.
 - Bleibt ehrlich: Ohne HTTPS kann jemand im selben WLAN das Sitzungs-Cookie mitlesen. Ein
   selbst signiertes Zertifikat würde jeden Browser warnen lassen, deshalb kein HTTPS in v1.
@@ -1011,17 +1041,21 @@ Entscheidungen und Gründe:
 
 **Bekannte Haken**
 - Ändert sich die IP des Handys (DHCP), ist es für den Browser eine neue Adresse mit leerer
-  IndexedDB, und der Katalog wird neu geladen. Gegenmittel später: `scryglass.local` per
-  mDNS (Android NSD); Windows und macOS lösen `.local` meist auf.
-- Der Browser lädt Kartenbilder und Preise direkt von Scryfall — dafür braucht der PC Internet.
+  IndexedDB, und der Katalog wird neu vom Handy geladen (im WLAN schnell). Gegenmittel
+  später: `scryglass.local` per mDNS (Android NSD); Windows und macOS lösen `.local` meist auf.
+- Kartenbilder und Preise kommen im Browser wie am Handy von Scryfall. Ohne Internet am
+  PC fehlen also Bilder und Preise; alles andere geht. Später möglich: Das Handy reicht
+  Bilder aus seinem eigenen Cache durch.
+- Am Handy kostet das Aufheben der Katalog-Dateien ≈ 16 MB Speicher.
 
 **Umsetzung in Schritten** (jeder Schritt einzeln testbar)
 - [ ] 1. Server + Auslieferung: BigScreenServer (Assets, SPA-Fallback, `/bigscreen.json`),
-      Schalter unter Mehr, IP/QR, Bildschirm an, Auto-Aus nach 30 min.
-- [ ] 2. Anmeldung: Passwort festlegen, Challenge-Response, Sitzungen, Sperre — Logik in
-      `domain/` mit Tests.
-- [ ] 3. Lesen: Katalog im Browser, Schnappschuss + WebSocket-Änderungen, Fernbetrieb-Flag
-      (Scanner/Updates ausblenden), „Zuletzt gescannt".
+      Schalter unter Mehr, IP/QR, Bildschirm an, Auto-Aus ohne Anmeldung. Katalog-Dateien
+      beim Katalog-Update am Handy aufheben und unter `/catalog/*` ausliefern.
+- [ ] 2. Anmeldung: Passwort festlegen, Challenge-Response, Sitzungen, Sperre, einstellbare
+      Dauer ohne Eingabe — Logik in `domain/` mit Tests.
+- [ ] 3. Lesen: Katalog vom Handy in den Browser, Schnappschuss + WebSocket-Änderungen,
+      Fernbetrieb-Flag (Scanner/Updates ausblenden), neue Scans unten rechts.
 - [ ] 4. Schreiben: Schreib-Gateway in `db.ts` (lokal oder POST), Fehler sichtbar machen,
       CSV-Import vom PC.
 - [ ] 5. Breites Layout: Navigation links, Kartenraster mit mehr Spalten, Deck-Editor
