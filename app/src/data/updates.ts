@@ -14,7 +14,7 @@ import { syncHashes, loadHashIndex } from './imageHash';
 import { invalidateNameIndex } from './matcher';
 import { invalidateSearchIndex } from './search';
 import { AppUpdater, hasAppUpdater, withScreenOn } from '../native/appUpdater';
-import { autoBackup } from './backups';
+import { autoBackup, listAutoBackups } from './backups';
 import { Job } from './job';
 
 /**
@@ -151,6 +151,8 @@ const INSTALL_ERRORS: Record<string, string> = {
 
 const UPDATE_DIR = 'update';
 const WHATS_NEW_KEY = 'whatsNew';
+/** So lange gilt ein neuer Anlauf für dieselbe Version als „nochmal versucht". */
+const RETRY_WINDOW_MS = 3600_000;
 
 /**
  * Sichern → Prüfsumme holen → APK laden → nativ prüfen → Installer öffnen. Den Rest
@@ -165,7 +167,12 @@ export async function downloadAndInstall(rel: AppRelease, onStep: (s: InstallSte
   if (!perm.allowed) throw new UpdateError(INSTALL_ERRORS.ERLAUBNIS, 'ERLAUBNIS');
 
   onStep({ phase: 'sicherung' });
-  await autoBackup(`vor-${rel.version}`);
+  // Zweiter Versuch kurz danach (Installer abgebrochen, Play-Protect-Hinweis …): nicht nochmal
+  // sichern — sonst verdrängen Kopien desselben Stands die älteren Sicherungen (es bleiben drei).
+  const last = (await listAutoBackups())[0];
+  if (!(last && last.reason === `vor-${rel.version}` && Date.now() - last.at < RETRY_WINDOW_MS)) {
+    await autoBackup(`vor-${rel.version}`);
+  }
   await setMeta(WHATS_NEW_KEY, { version: rel.version, notes: rel.notes });
 
   // Ohne Prüfsumme keine Installation (jedes Release ab M15 hat eine `.sha256`).
@@ -173,6 +180,23 @@ export async function downloadAndInstall(rel: AppRelease, onStep: (s: InstallSte
   const shaRes = await fetch(rel.sha256Url);
   const sha256 = shaRes.ok ? parseSha256(await shaRes.text()) : null;
   if (!sha256) throw new UpdateError('Prüfsumme nicht lesbar — bitte später nochmal.', 'PRUEFSUMME');
+
+  // Schon geladen? Dann nicht nochmal 40 MB laden. Ob die Datei stimmt, prüft das native
+  // Plugin über die Prüfsumme — passt sie nicht, löscht es die Datei und es wird neu geladen.
+  const target = `${UPDATE_DIR}/${rel.apk.name}`;
+  const cached = await Filesystem.stat({ path: target, directory: Directory.Cache }).catch(() => null);
+  if (cached && cached.type === 'file' && (!rel.apk.size || cached.size === rel.apk.size)) {
+    onStep({ phase: 'pruefen' });
+    try {
+      await AppUpdater.install({ path: cached.uri, sha256 });
+      return;
+    } catch (e) {
+      const code = (e as { code?: string }).code ?? 'FEHLER';
+      if (code !== 'PRUEFSUMME' && code !== 'PFAD') {
+        throw new UpdateError(INSTALL_ERRORS[code] ?? `Installation fehlgeschlagen (${(e as Error).message}).`, code);
+      }
+    }
+  }
 
   await Filesystem.rmdir({ path: UPDATE_DIR, directory: Directory.Cache, recursive: true }).catch(() => {});
   // downloadFile legt auf Android den Ordner NICHT an (`recursive` wird in
@@ -186,7 +210,7 @@ export async function downloadAndInstall(rel: AppRelease, onStep: (s: InstallSte
   try {
     path = (await Filesystem.downloadFile({
       url: rel.apk.url,
-      path: `${UPDATE_DIR}/${rel.apk.name}`,
+      path: target,
       directory: Directory.Cache,
       recursive: true,
       progress: true,
