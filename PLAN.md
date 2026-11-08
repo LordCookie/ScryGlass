@@ -922,10 +922,14 @@ gescannt wird, erscheint sofort im Browser.
 **Ablauf für den Nutzer**
 1. *Mehr → Big Screen*: einmal ein Passwort festlegen, dann „Einschalten".
 2. Das Handy zeigt `http://192.168.178.23:8780` (+ QR für Tablets) und die verbundenen
-   Browser. Solange Big Screen läuft, bleibt der Bildschirm an (Ladekabel empfohlen).
-3. Im Browser die Adresse öffnen → Anmeldeseite → Passwort → die App, nur breiter.
-4. „Ausschalten" am Handy beendet Server und Sitzungen. Von selbst geht er aus, wenn
-   30 min lang kein Browser angemeldet ist.
+   Browser. Solange Big Screen läuft, ist der **Wachmodus** an (siehe „Handy bleibt
+   benutzbar"): Bildschirm bleibt an, nach 2 min ohne Berührung dunkles Ruhebild.
+3. Im Browser die Adresse öffnen → Anmeldeseite → Passwort → Ladeanimation (beim ersten
+   Mal mit dem Katalog vom Handy) → die App, nur breiter. **Lesen und Schreiben**, auch
+   Decks anlegen und bauen.
+4. Im Browser beendet „Verbindung trennen" die Anmeldung dieses Browsers. „Ausschalten" am
+   Handy beendet Server und alle Sitzungen. Von selbst geht er aus, wenn 30 min lang kein
+   Browser angemeldet ist.
 
 **Aufbau**
 
@@ -954,6 +958,18 @@ Entscheidungen und Gründe:
   `deleteDeck`, Import, Token-Zähler). Im Fernbetrieb schicken sie einen POST ans Handy.
   Das Handy führt dieselbe Funktion aus und meldet die Änderung an alle zurück — auch an
   den Tab, der sie ausgelöst hat. Eine Schreibquelle, keine Konflikte.
+- **Decks werden in kleinen Schritten geschrieben, nicht als Ganzes.** Heute speichert
+  `saveDeck` das komplette Deck. Bearbeiten Handy und Browser (oder zwei Tabs) dasselbe
+  Deck, würde das spätere Speichern das frühere überschreiben. Deshalb gehen
+  Deck-Änderungen als einzelne Schritte ans Handy: Karte ±1, Anzahl setzen, ins
+  Sideboard, Commander, Name, Format, Deck anlegen/löschen. Das Handy wendet sie auf den
+  aktuellen Stand an. Die Logik steckt als `applyDeckOp(deck, op)` in `domain/` (rein,
+  getestet), und das Handy nutzt sie selbst auch, es gibt also nur einen Weg. Ist das Deck
+  am Handy inzwischen gelöscht, sagt der Browser „Deck wurde am Handy gelöscht".
+  Die Sammlung braucht das nicht: `addOwned` und Co. sind schon heute Einzelschritte.
+- **Jeder Schreibvorgang wartet auf das Handy** (im WLAN ~20–50 ms). Dauert es länger als
+  0,3 s, erscheint ein kleiner Stapel-Sprite als „speichert…". Scheitert es, bleibt die
+  Ansicht beim alten Stand und eine Meldung sagt warum; nichts geht still verloren.
 - **Änderungen per Dexie-Middleware statt von Hand.** Am Handy fängt eine DBCore-Middleware
   jede Änderung an den drei Tabellen ab, auch aus Scanner, Backup und Import, und schickt
   sie mit fortlaufender Nummer. Verpasst ein Tab eine Nummer (Funkloch, Schlaf), holt er
@@ -973,6 +989,10 @@ Entscheidungen und Gründe:
   - Der Server gibt die Dateien direkt aus, ohne JS-Brücke und mit Größenangabe für den
     Fortschrittsbalken. Im WLAN dauert das erste Laden etwa 10–30 s. Der Browser entpackt
     mit `DecompressionStream`; dass das auch ohne HTTPS geht, beim Bau prüfen.
+  - Bricht das Laden ab, wird nur die angefangene Datei neu geladen, nicht alles.
+  - **Die Wartezeit bekommt eine eigene Ladeanimation** (DESIGN.md A10): Pixel-Karten
+    fliegen vom Handy auf den Bildschirm, darin echte Kartennamen aus dem laufenden
+    Import, vier Phasen-Pips, ehrliche Zahlen.
 - **Kotlin ↔ JS-Brücke für die API.** Die Daten liegen in der IndexedDB der WebView, die
   Kotlin nicht lesen kann. Der Server reicht `/api/*` als Ereignis an JS
   (`notifyListeners("request", {id, …})`), JS antwortet mit `respond({id, status, body})`.
@@ -985,10 +1005,14 @@ Entscheidungen und Gründe:
 - **Eigener Port 8780** (Peer-Server 8765). Fest, damit Lesezeichen funktionieren; ist er
   belegt, 8781–8785. Beide Server können gleichzeitig laufen.
 
-**Was im Browser geht**
-- Sammlung (Raster/Liste/Σ), Kartendetail (Anzahl, Artwork), Suche inkl. Kombos, Decks
-  bauen inkl. Deck-Check, Text-Import/-Export, **CSV-Import vom PC**, Exporte als Download.
-- **Unten rechts, immer sichtbar: neue Scans vom Handy.**
+**Was im Browser geht — Lesen und Schreiben**
+- Sammlung (Raster/Liste/Σ), Suche inkl. Kombos, Deck-Check, Exporte als Download.
+- Bearbeiten: im Kartendetail Anzahl, Druck/Artwork und Foil ändern, Karten löschen.
+- **Decks anlegen, bauen, umbenennen, löschen**: Karten aus Suche und Sammlung ins Deck,
+  Sideboard, Commander, Format. Text-Import/-Export für Decks.
+- **CSV-Import vom PC** (ManaBox/Moxfield), mit der gleichen Vorschau wie am Handy. Vor dem
+  Ersetzen legt das Handy wie gewohnt eine automatische Sicherung an.
+- **Unten rechts, immer sichtbar: neue Scans vom Handy** (Animation: DESIGN.md A11).
   - Jede Karte, die am Handy gescannt wird, erscheint dort einige Sekunden: Pixel-Vorschau,
     Name, Anzahl, Foil. Kommen mehrere schnell hintereinander, stapeln sie sich.
   - Darunter bleibt ein Zähler „12 neu seit Anmeldung" stehen. Antippen öffnet die Liste
@@ -1001,6 +1025,22 @@ Entscheidungen und Gründe:
     „übernommen". Eigene Änderungen im Browser erscheinen hier nicht.
   - Übernommene Körbe aus „Gemeinsam scannen" erscheinen als ein Eintrag („23 Karten von
     Yaras Handy").
+- **Verbindungsanzeige und „Verbindung trennen".**
+  - In der Navigation zeigt ein Pixel-Punkt den Zustand: „Handy verbunden" / „Handy schläft
+    — App öffnen" / „getrennt". Ist der Handy-Akku unter 15 % und hängt nicht am Kabel,
+    steht das daneben.
+  - Antippen öffnet ein kleines Feld: Handy-Name, Adresse, angemeldet seit, „Abmeldung nach
+    1 h ohne Eingabe" und der Knopf **„Verbindung trennen"**.
+  - Trennen meldet diesen Browser am Handy ab (Sitzung gelöscht, WebSocket zu). Alle Tabs
+    dieses Browsers zeigen danach die Anmeldeseite, sie teilen sich das Cookie.
+  - Die Kopie von Sammlung und Decks wird dabei aus diesem Browser gelöscht. Der Katalog
+    bleibt (öffentliche Daten, spart das nächste Laden); ein Häkchen „Auch den Katalog
+    löschen" ist für fremde PCs gedacht.
+  - Unterschied zum Ablauf ohne Eingabe: Da bleibt die Kopie hinter der Anmeldeseite
+    liegen, damit es nach dem Anmelden an derselben Stelle weitergeht. Trennen räumt auf.
+  - Läuft beim Trennen noch ein Schreibvorgang, wird erst darauf gewartet.
+  - Am Handy verschwindet der Browser aus der Liste. War es der letzte, läuft die
+    30-min-Frist bis zum Auto-Aus.
 - Nur am Handy (im Browser ausgeblendet): Scanner, App-/Katalog-Update, Sicherungen und
   Wiederherstellen, Gemeinsam scannen, Big-Screen-Einstellungen. Das Farbschema gilt je Browser.
 
@@ -1033,11 +1073,23 @@ Entscheidungen und Gründe:
 - Der Server läuft nativ in eigenen Threads. Die Kamera ist eine Ansicht hinter der
   WebView in derselben Activity (ScryCameraPlugin), die JS-Brücke antwortet also auch
   während des Scannens.
-- Big Screen läuft, solange die App im Vordergrund ist (Bildschirm bleibt an, wie beim
-  Update). Geht die App in den Hintergrund, drosselt Android die WebView, und Anfragen
-  laufen ins 503. Der Browser zeigt dann „Handy schläft — App öffnen" und verbindet sich
-  von selbst neu. Ein Hintergrund-Dienst (Foreground Service + WLAN-Lock) ist eine
-  spätere Option, falls das stört.
+- Big Screen läuft, solange die App im Vordergrund ist. Dafür gibt es den **Wachmodus**,
+  der mit Big Screen an- und ausgeht:
+  - Der Bildschirm bleibt an (KeepAwake, wie bei „Gemeinsam scannen"). Dazu ein WLAN-Lock
+    mit niedriger Latenz, damit Android das WLAN nicht in den Stromsparmodus schickt.
+  - Nach 2 min ohne Berührung (und nicht im Scanner) kommt ein **Ruhebild**: schwarz, nur
+    „Big Screen läuft · 2 Browser · 192.168.178.23:8780" in Pixel-Schrift. Die Helligkeit
+    wird nur für das App-Fenster auf das Minimum gesetzt, die Systemeinstellung bleibt
+    unberührt. Das Bild rückt jede Minute ein paar Pixel weiter, damit sich auf
+    OLED-Bildschirmen nichts einbrennt.
+  - Eine Berührung holt die normale Helligkeit und die vorige Ansicht zurück. Scannen geht
+    jederzeit; neue Scans erscheinen sofort im Browser.
+  - Ohne Ladekabel zeigt das Handy „Ladekabel empfohlen". Unter 15 % Akku sieht man das
+    auch im Browser.
+- Sperrt man das Handy trotzdem (Power-Taste) oder wechselt die App, drosselt Android die
+  WebView, und Anfragen laufen ins 503. Der Browser zeigt dann „Handy schläft — App
+  öffnen" und verbindet sich von selbst neu, sobald die App wieder vorn ist. Ein
+  Hintergrund-Dienst (Foreground Service) bleibt eine spätere Option, falls das stört.
 
 **Bekannte Haken**
 - Ändert sich die IP des Handys (DHCP), ist es für den Browser eine neue Adresse mit leerer
@@ -1050,23 +1102,32 @@ Entscheidungen und Gründe:
 
 **Umsetzung in Schritten** (jeder Schritt einzeln testbar)
 - [ ] 1. Server + Auslieferung: BigScreenServer (Assets, SPA-Fallback, `/bigscreen.json`),
-      Schalter unter Mehr, IP/QR, Bildschirm an, Auto-Aus ohne Anmeldung. Katalog-Dateien
-      beim Katalog-Update am Handy aufheben und unter `/catalog/*` ausliefern.
+      Schalter unter Mehr, IP/QR, Auto-Aus ohne Anmeldung. Katalog-Dateien beim
+      Katalog-Update am Handy aufheben und unter `/catalog/*` ausliefern. Wachmodus mit
+      Ruhebild, WLAN-Lock, Akku-Hinweis.
 - [ ] 2. Anmeldung: Passwort festlegen, Challenge-Response, Sitzungen, Sperre, einstellbare
-      Dauer ohne Eingabe — Logik in `domain/` mit Tests.
-- [ ] 3. Lesen: Katalog vom Handy in den Browser, Schnappschuss + WebSocket-Änderungen,
-      Fernbetrieb-Flag (Scanner/Updates ausblenden), neue Scans unten rechts.
-- [ ] 4. Schreiben: Schreib-Gateway in `db.ts` (lokal oder POST), Fehler sichtbar machen,
-      CSV-Import vom PC.
+      Dauer ohne Eingabe, „Verbindung trennen" — Logik in `domain/` mit Tests.
+- [ ] 3. Lesen: Katalog vom Handy in den Browser mit Ladeanimation (A10), Schnappschuss +
+      WebSocket-Änderungen, Fernbetrieb-Flag (Scanner/Updates ausblenden),
+      Verbindungsanzeige, neue Scans unten rechts.
+- [ ] 4. Schreiben: Schreib-Gateway in `db.ts` (lokal oder POST), Deck-Schritte
+      (`applyDeckOp` in `domain/` mit Tests, Handy nutzt sie auch), Fehler sichtbar
+      machen, CSV-Import vom PC.
 - [ ] 5. Breites Layout: Navigation links, Kartenraster mit mehr Spalten, Deck-Editor
       zweispaltig (Liste | Statistik/Check), Kartendetail als Seitenleiste.
-- [ ] 6. Test am Gerät: zwei Browser + drei Tabs, gleichzeitig am Handy scannen, IP-Wechsel,
-      App in den Hintergrund und zurück.
+- [ ] 6. Test am Gerät: zwei Browser + drei Tabs, gleichzeitig am Handy scannen, dasselbe
+      Deck am Handy und im Browser bearbeiten, IP-Wechsel, Ruhebild, App in den
+      Hintergrund und zurück, Trennen mit offenen Tabs.
+
+**Entschieden (2026-11-08)**
+- Katalog kommt vom Handy übers WLAN, nicht von GitHub; die Wartezeit bekommt eine
+  eigene Ladeanimation.
+- Lesen **und** Schreiben schon in 0.3.15, inklusive Decks anlegen und bauen.
+- Die App muss am Handy offen bleiben; dafür Wachmodus mit Ruhebild. Im Browser gibt es
+  „Verbindung trennen".
 
 **Offen (Entscheidung User)**
-- Schreiben im Browser schon in 0.3.15 oder erst nur Lesen?
-- Breites Layout gleich mit oder als eigener Schritt danach?
-- Ist „App muss offen bleiben" in Ordnung, oder soll es auch mit gesperrtem Handy gehen?
+- Breites Layout gleich mit in 0.3.15 oder als eigener Schritt danach?
 
 ---
 

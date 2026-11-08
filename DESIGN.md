@@ -48,7 +48,8 @@ Die Interaktion erklärt sich selbst.
 
 Ein lauter Moment, der Rest ruhig: **der Erstimport.** Der läuft eine Minute, ist
 das Erste was man von der App sieht, und ist der einzige Ort, an dem Animation den
-Bildschirm füllen darf.
+Bildschirm füllen darf. Sein Gegenstück im Browser (Big Screen, A10) darf das auch —
+dort ist es ebenfalls das Erste, was man sieht.
 
 Überall sonst gilt: Bewegung antwortet auf eine Handlung. Keine Screen-Transitions,
 keine Hover-Effekte, keine Elemente die von allein einfliegen.
@@ -242,6 +243,48 @@ gestrichelter Pixelkontur, dazu eine Einladung statt einer Zustandsbeschreibung:
 
 **A9 — Deck gültig.** Pixel-Stempel knallt einmal drauf, 3 Frames. Nur beim Wechsel
 auf gültig, nicht bei jedem Re-Render.
+
+### Big Screen (PLAN.md M18)
+
+**A10 — Katalog kommt vom Handy.** Das Gegenstück zu A1 im Browser: Beim ersten
+Anmelden (und bei jedem neuen Katalogstand) lädt der Browser den Katalog übers WLAN vom
+Handy, 10–30 Sekunden. Der zweite Ort, an dem Animation den Bildschirm füllen darf. Keine
+neuen Sprites — alles aus den vier Primitiven und dem Kartenrahmen:
+
+- **Zwei große Kartenrahmen** nebeneinander, Titelbalken „Dein Handy" und „Dieser
+  Browser". Links liegt ein unordentlicher Pixel-Haufen, rechts wächst ein ordentlicher
+  Stapel.
+- **Karten fliegen von links nach rechts** (*Stapeln*, wie A7) und drehen sich beim
+  Landen um (*Flip*). Auf der Vorderseite steht ein **echter Kartenname aus dem laufenden
+  Import** („Sol Ring", „Blitzschlag", „Rhystic Study"), deutsch wenn vorhanden. Höchstens
+  drei Namen pro Sekunde, damit man sie lesen kann.
+- **Das Tempo folgt dem echten Fortschritt**: eine fliegende Karte je ~1.000 importierte
+  Zeilen, höchstens 8 fps. Hängt das WLAN, bleiben die Karten liegen — keine Bewegung,
+  die etwas vorgaukelt.
+- **Fünf Manasymbole als Phasen**, wie A1: Karten, Druckausgaben, Namen, Kombos, Sammlung &
+  Decks. Jede fertige Phase füllt ein Pip.
+- **Fortschrittsbalken** wie A1, darüber ab und zu ein *Foil-Sweep*. Echte Zahlen:
+  `12.480 / 35.539 Karten · 6,1 / 16 MB`.
+- Bei 100 %: alle fünf Pips leuchten einmal auf, der Stapel setzt sich, *Foil-Sweep*
+  über den Stapel, dann ist die App da (ohne Übergang).
+- Bricht die Verbindung ab: Der Flug stoppt, Pips und Zahlen bleiben stehen, darunter
+  „Verbindung zum Handy unterbrochen — versuche es weiter…". Es geht mit der angefangenen
+  Datei weiter, nicht von vorn.
+- Der PC hat Platz: Sprites in ganzzahliger Vergrößerung (4× bis 6×, `image-rendering:
+  pixelated`), nie verwaschen skaliert.
+
+Copy: **„Der Katalog kommt von deinem Handy, nicht aus dem Internet. Das passiert nur
+einmal je Katalogstand."**
+
+Ist der Katalog schon aktuell, gibt es nur Phase 5 (Sammlung & Decks, meist unter einer
+Sekunde): **keine** große Animation, nur ein kleiner *Stapeln*-Sprite mit „Verbinde mit
+dem Handy…", und auch der erst nach 0,3 s.
+
+**A11 — Neuer Scan vom Handy.** Unten rechts: Mini-Kartenrahmen fliegt herein (*Stapeln*,
+von unten), Name tippt sich ein wie A3, Zähler „neu seit Anmeldung" *tickt*. Nach ein paar
+Sekunden rutscht der Rahmen in den Zähler. Scan am Handy rückgängig gemacht: Strich durch
+den Namen, kein Wackeln. Die Ausnahme von „nichts fliegt von allein ein": Die Handlung
+passiert am Handy, die Animation zeigt sie hier.
 
 ### Performance-Regeln
 
