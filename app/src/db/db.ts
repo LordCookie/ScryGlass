@@ -17,6 +17,7 @@ import type {
 import type { PriceEntry } from '../domain/prices';
 import { isTokenCard } from '../domain/tokens';
 import { applyDeckOp, type DeckOp } from '../domain/deckOps';
+import { changeFeedMiddleware } from './changeFeed';
 
 /**
  * Persistenz via IndexedDB/Dexie (PLAN.md § 3). Kein LocalStorage.
@@ -90,6 +91,8 @@ export class ScryGlassDB extends Dexie {
 }
 
 export const db = new ScryGlassDB();
+// Änderungen an Sammlung, Decks & Co. melden (Big Screen, M18) — ohne Zuhörer ohne Kosten.
+db.use(changeFeedMiddleware);
 
 // --- Big Screen: Schreib-Gateway (PLAN.md M18) ---------------------------------
 // Im Browser (Fernbetrieb) schreibt nur das Handy. Ist ein Gateway gesetzt, gehen alle
