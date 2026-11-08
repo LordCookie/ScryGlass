@@ -913,7 +913,7 @@ eine Zahl ohne Begründung hilft niemandem). `domain/deckCheck.ts`, Reiter „De
       Massen-Landzerstörung, Zusatzzüge, Tutoren — wie Commander Spellbook. Alte Kataloge:
       grob am Regeltext. Richtwerte 10/10/8/2.
 
-### M18 — Big-Screen-Modus (Konzept, Ziel 0.3.15 — noch nichts gebaut)
+### M18 — Big-Screen-Modus (gebaut 2026-11-08, Test am Gerät offen)
 
 Die App im Browser am PC/Tablet, das Handy bleibt Server und **einzige Wahrheit** für
 Sammlung und Decks. Am Handy läuft alles normal weiter, auch der Scanner — was dort
@@ -1103,20 +1103,21 @@ Entscheidungen und Gründe:
 - Am Handy kostet das Aufheben der Katalog-Dateien ≈ 18 MB Speicher.
 
 **Umsetzung in Schritten** (jeder Schritt einzeln testbar)
-- [ ] 1. Server + Auslieferung: BigScreenServer (Assets, SPA-Fallback, `/bigscreen.json`),
-      Schalter unter Mehr, IP/QR, Auto-Aus ohne Anmeldung. Katalog-Dateien beim
-      Katalog-Update am Handy aufheben und unter `/catalog/*` ausliefern. Wachmodus mit
-      Ruhebild, WLAN-Lock, Akku-Hinweis.
-- [ ] 2. Anmeldung: Passwort festlegen, Challenge-Response, Sitzungen, Sperre, einstellbare
-      Dauer ohne Eingabe, „Verbindung trennen" — Logik in `domain/` mit Tests.
-- [ ] 3. Lesen: Katalog vom Handy in den Browser mit Ladeanimation (A10), Schnappschuss +
-      WebSocket-Änderungen, Fernbetrieb-Flag (Scanner/Updates ausblenden),
-      Verbindungsanzeige, neue Scans unten rechts.
-- [ ] 4. Schreiben: Schreib-Gateway in `db.ts` (lokal oder POST), Deck-Schritte
-      (`applyDeckOp` in `domain/` mit Tests, Handy nutzt sie auch), Fehler sichtbar
-      machen, CSV-Import vom PC.
-- [ ] 5. Breites Layout (siehe unten): Navigation links, Raster mit mehr Spalten, Liste
-      als Tabelle, Kartendetail als Seitenleiste, Deck-Editor in Spalten, Tastatur.
+- [x] 1. Server + Auslieferung: `BigScreenServer.kt` (NanoWSD) + `BigScreenPlugin.kt`,
+      Mehr → Big Screen (Passwort, An/Aus, Adresse + QR, Browser abmelden), Auto-Aus nach
+      30 min ohne Anmeldung. Katalog-Update lädt erst nach `katalog/neu` und hebt den
+      Stand in `katalog/aktuell` auf (`data/catalogStage.ts`); passt der Stand nicht,
+      „Katalog bereitstellen". Wachmodus mit Ruhebild, WLAN-Lock, Akku-Hinweis.
+- [x] 2. Anmeldung: `domain/bigscreen.ts` (PBKDF2/HMAC über @noble/hashes, Einmalwert,
+      Sperre, Sitzungen, Dauer ohne Eingabe) mit Tests; „Verbindung trennen" im Browser.
+- [x] 3. Lesen: `bigscreen/host.ts` (Handy) + `client.ts`/`replica.ts` (Browser),
+      Änderungen per DBCore-Middleware (`db/changeFeed.ts`) mit fortlaufender Nummer,
+      Ladeanimation A10, Verbindungspunkt, neue Scans unten rechts (A11).
+- [x] 4. Schreiben: Schreib-Gateway in `db.ts` (+ Tokens, Fertigdecks, CSV), geprüfte
+      Aufträge (`bigscreen/ops.ts`), Deck-Schritte `domain/deckOps.ts`.
+- [x] 5. Breites Layout (siehe unten), `ui/wide.tsx`.
+- [x] Entwicklung: `npm run dev:bigscreen` (Port 5180) spielt das Handy im Vite-Server —
+      Anmeldung, Katalog-Laden, Schreiben, Scans, Trennen im Browser durchgespielt.
 - [ ] 6. Test am Gerät: zwei Browser + drei Tabs, gleichzeitig am Handy scannen, dasselbe
       Deck am Handy und im Browser bearbeiten, IP-Wechsel, Ruhebild, App in den
       Hintergrund und zurück, Trennen mit offenen Tabs.

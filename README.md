@@ -45,6 +45,11 @@ The **Sammlung** (collection) tab shows everything you own as a card grid or a l
 Filter by color, card type, mana value, set or finish, and sort by name, mana value,
 quantity or value. Tokens get their own tab and are counted per artwork.
 
+Bought a preconstructed deck? The **Fertigdecks** (precons) tab lists about 2,500
+products: Commander decks, starter and theme decks, Duel Decks, Jumpstart themes, Secret
+Lair drops and more. Pick one and add all its cards in one go, with the exact printings
+and foils, optionally as a ready-made deck. Sold it again? Remove it just as quickly.
+
 Tap a card to see its rules text, the formats it is legal in and its current price.
 Browse all printings to choose the artwork you actually own, and count normal, foil
 and etched copies separately (see the screenshots at the top).
@@ -95,7 +100,19 @@ Sorting a big box? Several phones on the same Wi-Fi can scan at once. Helpers pa
 your phone by QR code and send their scans over. You review everything before it goes
 into your collection. No internet or server needed.
 
-### 6. Pick your look
+### 6. Big Screen: your collection in the PC browser
+
+Turn on **Mehr → Big Screen** on your phone, open the address it shows in a browser on
+your PC or tablet and log in with your password. The phone serves the app over your
+Wi-Fi, including the card catalog, so the PC needs no internet for it. You can browse,
+edit your collection, build decks and import CSV files, while the phone keeps scanning.
+New scans pop up in the bottom right corner. On wide screens the app switches to a
+desktop layout: navigation on the left, more columns, a sortable table and the card detail
+as a side panel.
+
+The phone stays the only copy of your data. Meant for your own Wi-Fi only.
+
+### 7. Pick your look
 
 A pixel-art design with four color schemes: violet, sunset, black & gold and
 Halloween. The header counts down the days to the next Magic set.
@@ -173,4 +190,5 @@ and the design system in [DESIGN.md](DESIGN.md). These documents are in German.
 - **Combo data** comes from [Commander Spellbook](https://commanderspellbook.com), card
   roles from the community tags of [Scryfall Tagger](https://tagger.scryfall.com). The
   star ratings for combos are ScryGlass's own.
+- **Precon deck lists** come from [MTGJSON](https://mtgjson.com) (MIT License).
 - Source code under the [MIT License](LICENSE).
