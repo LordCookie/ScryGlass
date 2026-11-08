@@ -1,6 +1,6 @@
 # PLAN.md — ScryGlass (MTG Sammlungs- & Deckbau-App)
 
-> **ScryGlass** — Stand **v0.2.9** (2026-11-08), Tester-Version für Android.
+> **ScryGlass** — Stand **v0.3.0** (2026-11-08), Tester-Version für Android.
 > Local-first, offline-fähig, nicht-kommerziell. Basiert auf dem wiederverwendbaren
 > Kern von [engram](https://github.com/LordCookie/Engram) (Scanner, Sammlung, Dexie,
 > Offline-Bilder, Capacitor), aber mit komplett neuer Datenschicht.
@@ -865,7 +865,8 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
       jeder Download lief in ENOENT. Fix: Ordner per `mkdir` anlegen; Fehlermeldung nennt
       den nativen Grund, dazu ein Link zur Release-Seite. 0.2.6/0.2.7 können sich deshalb
       nicht selbst aktualisieren — einmal von Hand auf die Version mit Fix.
-- [ ] Erst-Test am Handy: Version mit Fix von Hand, dann das nächste Release aus der App.
+- [x] Erst-Test am Handy: 0.2.8 von Hand, 0.2.9 aus der App (Play Protect warnte „könnte schädlich
+      sein" — Updater bleibt trotzdem, Entscheid 2026-11-08).
 - [ ] Optional: Releases von GitHub Actions bauen lassen (Schlüssel als Secret).
 
 ### M16 — Umstieg von ManaBox & Datensicherheit (v0.2.9)
@@ -880,7 +881,7 @@ sonst debuggt man Netzwerk und OCR gleichzeitig.
       `Dokumente/ScryGlass/Automatisch` (ohne Nachfrage; Android ≤ 10 nur per Knopf).
 - [x] Erinnerung: ab 30 Bestandszeilen und 30 Tagen ohne Sicherung außerhalb der App
       ein Punkt am „Mehr"-Tab.
-- [ ] Sprache und Zustand je Exemplar (Wert), Listen (Tauschordner, Wunschliste) → 0.3.0.
+- [ ] Sprache und Zustand je Exemplar (Wert), Listen (Tauschordner, Wunschliste) → später (0.3.x).
 
 ### M17 — Deck-Check
 Regelbasiert und erklärbar statt eines trainierten Modells (keine freien Trainingsdaten,
@@ -994,3 +995,4 @@ Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zä
 | 0.2.7 | 2026-11-02 | Katalog- und App-Update im Hintergrund (Tab-Wechsel bricht nichts ab), Katalog-Update ~5× schneller und 27 statt 45 MB, Bildschirm bleibt beim Laden an; erstes Update aus der App heraus |
 | 0.2.8 | 2026-11-03 | Fix: App-Update aus der App lud nie (Zielordner fehlte); Fehlermeldung nennt den Grund, Link zur Release-Seite. 0.2.6/0.2.7 einmal von Hand aktualisieren |
 | 0.2.9 | 2026-11-08 | Umstieg von ManaBox: Sammlungs-CSV importieren (ManaBox, Moxfield & Co.), Sicherung in Dokumente/ScryGlass (übersteht Deinstallieren), Erinnerung ans Sichern, Manakurve und deutsche Typen in der Deck-Statistik |
+| 0.3.0 | 2026-11-08 | Deck-Check (Bracket-Schätzung, Manabasis, Rollen aus Scryfall-Tags), alle Kombos von Commander Spellbook mit eigenen Pixel-Sternen (Suche, Σ-Statistik, Deck-Check), App-Update nimmt die geladene APK beim zweiten Versuch |
