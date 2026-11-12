@@ -86,6 +86,14 @@ export function BigScreenLoader({ step, device, error, onRetry }: {
     if (step.phase === 'sammlung' && pending.current === 0) pending.current = 1;
   }, [count, step.phase]);
 
+  // Warten auf den Rutsch vom Handy: trotzdem Karten fliegen lassen (sonst steht alles still).
+  const waiting = step.phase === 'karten' && step.total === 0 && !error;
+  useEffect(() => {
+    if (!waiting) return;
+    const t = window.setInterval(() => { if (pending.current < 2) pending.current++; }, 450);
+    return () => window.clearInterval(t);
+  }, [waiting]);
+
   // Takt: höchstens MAX_FPS Karten je Sekunde starten.
   useEffect(() => {
     if (error) return;

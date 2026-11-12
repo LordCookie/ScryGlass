@@ -9,6 +9,7 @@ import { syncPrecons } from '../../data/precons';
 import type { RemoteClient } from '../../bigscreen/client';
 import { REMOTE_CATALOG_BASE, type CatalogSubset } from '../../bigscreen/protocol';
 import { startImagePrefetch } from '../../bigscreen/prefetch';
+import { storageCheck, isStorageBlockedError, type StorageState } from '../../bigscreen/storageCheck';
 import { BigScreenLoader, type LoadStep } from './BigScreenLoader';
 import { RemoteLogin } from './RemoteLogin';
 import { ScanToasts } from './ScanToasts';
@@ -32,10 +33,13 @@ export function RemoteRoot({ client }: { client: RemoteClient }) {
   const [step, setStep] = useState<LoadStep>({ phase: 'karten', done: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
   const [background, setBackground] = useState<Background>(null);
+  // Darf der Browser hier speichern? Sonst gleich erklären statt später scheitern (M20).
+  const [storage, setStorage] = useState<{ state: StorageState; detail?: string } | null>(null);
   const running = useRef(false);
 
   useEffect(() => {
     void client.check();
+    void storageCheck().then(setStorage);
   }, [client]);
 
   const load = useCallback(async () => {
@@ -70,7 +74,8 @@ export function RemoteRoot({ client }: { client: RemoteClient }) {
       startImagePrefetch();
       void loadRest(remote, base, gzip, later, setBackground);
     } catch (e) {
-      setError((e as Error).message || 'Laden fehlgeschlagen.');
+      if (isStorageBlockedError(e)) setStorage({ state: 'blockiert', detail: (e as Error).message });
+      else setError((e as Error).message || 'Laden fehlgeschlagen.');
     } finally {
       running.current = false;
     }
@@ -80,6 +85,9 @@ export function RemoteRoot({ client }: { client: RemoteClient }) {
     if (st.phase === 'laden') void load();
   }, [st.phase, load]);
 
+  if (storage && storage.state !== 'ok') {
+    return <StorageHelp state={storage.state} detail={storage.detail} />;
+  }
   if (st.phase === 'pruefen') {
     return <Centered title="Verbinde mit dem Handy…" />;
   }
@@ -141,6 +149,44 @@ function BackgroundStrip({ done, total }: { done: number; total: number }) {
       <p>Lade den übrigen Katalog · {pct} %</p>
       <div className="mt-1 h-1.5 w-full bg-bg"><div className="h-full bg-fill" style={{ width: `${pct}%` }} /></div>
       <p className="mt-1 text-[10px]">Deine Karten sind schon da. Suche und weitere Ausgaben werden gleich vollständig.</p>
+    </div>
+  );
+}
+
+/** Browser lässt nichts speichern (oder der Speicher ist kaputt): was zu tun ist. */
+function StorageHelp({ state, detail }: { state: StorageState; detail?: string }) {
+  const host = location.host;
+  return (
+    <div className="flex min-h-full flex-col items-center justify-center px-6 py-10">
+      <h1 className="font-hud text-xl">
+        <span className="text-muted">Scry</span><span className="text-paper">Glass</span>
+      </h1>
+      <div className="frame mt-8 w-full max-w-xl bg-surface p-5 font-mono text-sm">
+        {state === 'blockiert' ? (
+          <>
+            <p className="text-lg text-text">Dieser Browser lässt die Seite nichts speichern</p>
+            <p className="mt-2 text-muted">
+              Big Screen braucht im Browser ein Cookie für die Anmeldung und Speicher für den Katalog. Für {host} sind
+              „Cookies und Website-Daten" gerade blockiert.
+            </p>
+            <ol className="mt-3 list-decimal space-y-1 pl-5 text-text">
+              <li>Links neben der Adresse auf das Symbol klicken → „Website-Einstellungen".</li>
+              <li>„Cookies und Website-Daten" (Chrome: „Auf dem Gerät gespeicherte Daten") auf „Zulassen" stellen.</li>
+              <li>Kein privates Fenster und keine Erweiterung, die Speicher sperrt. Dann neu laden.</li>
+            </ol>
+          </>
+        ) : (
+          <>
+            <p className="text-lg text-text">Der Speicher dieser Seite im Browser ist beschädigt</p>
+            <p className="mt-2 text-muted">
+              Links neben der Adresse auf das Symbol klicken → „Website-Einstellungen" → „Daten löschen", dann neu laden.
+              Deine Sammlung liegt auf dem Handy und bleibt, wie sie ist.
+            </p>
+          </>
+        )}
+        {detail && <p className="mt-3 text-[10px] text-muted">Meldung des Browsers: {detail}</p>}
+        <button onClick={() => location.reload()} className="pxbtn pxbtn-primary mt-4 font-hud text-[10px]">Neu laden</button>
+      </div>
     </div>
   );
 }
