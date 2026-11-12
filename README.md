@@ -112,7 +112,9 @@ into your collection. No internet or server needed.
 
 Turn on **Mehr → Big Screen** on your phone, open the address it shows in a browser on
 your PC or tablet and log in with your password. The phone serves the app over your
-Wi-Fi, including the card catalog, so the PC needs no internet for it. You can browse,
+Wi-Fi, including the card catalog, so the PC needs no internet for it. The first time,
+the browser gets the cards from your collection and decks right away and loads the rest of
+the catalog in the background, so you can start within seconds. You can browse,
 edit your collection, build decks and import CSV files, while the phone keeps scanning.
 New scans pop up in the bottom right corner. On wide screens the app switches to a
 desktop layout: navigation on the left with its own combos tab, more columns, a sortable

@@ -1317,7 +1317,7 @@ Fünf Teile, jeder für sich testbar. Reihenfolge = Bauweise.
       **0 falsche Auto-Treffer** (alt wie neu). Schwächer: 15° auf mittelgrauem Grund.
 - [x] 6. Version 0.4.0 (versionCode 28), README, Release 2026-11-12
 
-**Nach 0.4.0 (Rückmeldung: „lädt immer noch sehr lange")**
+**0.4.1 (Rückmeldung zu 0.4.0: „lädt immer noch sehr lange")**
 - Big Screen startet mit den eigenen Karten (Vorschlag des Nutzers): `GET /api/catalog-subset`
   liefert Karten, Drucke und Namen nur für Sammlung, Decks und Fertigdecks
   (`domain/catalogSubset.ts`) — ein Rutsch, dann geht die App auf. Der ganze Katalog,
@@ -1424,3 +1424,4 @@ Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zä
 | 0.3.15 | 2026-11-08 | Nur Vorabversion (Test am Handy): Big Screen, Fertigdecks, breites Layout |
 | 0.3.16 | 2026-11-08 | Big Screen (App im PC-Browser übers WLAN, Katalog vom Handy, Farbschema vom Handy), Fertigdecks aus MTGJSON, breites Layout ab 1024 px mit eigenem Reiter „Kombos", Deck-Änderungen als Schritte, Katalog 08.11. mit Fertigdecks |
 | 0.4.0 | 2026-11-12 | Zwei Commander, „Deck testen" (Probehand, Mulligan, Wahrscheinlichkeiten, Querformat), Drag-and-drop im breiten Layout, Big Screen: Kartenbilder vom Handy mit Vorladen, Scanner entzerrt schräg gehaltene Karten |
+| 0.4.1 | 2026-11-12 | Big Screen startet mit den eigenen Karten, der übrige Katalog lädt im Hintergrund (schnellerer Import, Katalog gepackt übers WLAN); Kartendetail mit Knopf „+ In Sammlung" |
