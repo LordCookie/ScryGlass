@@ -1237,7 +1237,7 @@ die Kombos mit `continue-on-error`)
 
 **Release:** M19 hängt nicht am Big Screen und kann vorher als eigenes Update kommen.
 
-### M20 — Version 0.4.0 (in Arbeit)
+### M20 — Version 0.4.0 (gebaut, Release nach OK)
 
 Fünf Teile, jeder für sich testbar. Reihenfolge = Bauweise.
 
@@ -1300,11 +1300,21 @@ Fünf Teile, jeder für sich testbar. Reihenfolge = Bauweise.
   in § 6.2. Diagnose zeichnet das Viereck ins Protokoll-Bild.
 
 **Umsetzung in Schritten**
-- [ ] 1. Zwei Commander
-- [ ] 2. Probehand
-- [ ] 3. Drag-and-drop
-- [ ] 4. Bilder vom Handy
-- [ ] 5. Scanner-Entzerrung
+- [x] 1. Zwei Commander (`domain/deckValidate.ts` `canPair`/`commanderIdentity`, Deck-Schritte,
+      Fertigdecks). Browser-Test: Tymna + Thrasios, Farben W/U/B/G, Zählung 99 + 2.
+- [x] 2. Probehand (`domain/playtest.ts`, `ui/PlaytestView.tsx`). Getestet am PC, im Hoch-
+      und Querformat; übersteht das Drehen (Zustand im Deck-Editor, nicht im Reiter).
+- [x] 3. Drag-and-drop (`DropZone`/`dragSource` in `ui/wide.tsx`): Suche → Deck, Commander →
+      Deck, Deck → zweiter Commander; leere Ablage erscheint nur beim Ziehen.
+- [x] 4. Bilder vom Handy (`CardImageCache.kt`, `/img` in `BigScreenServer.kt`,
+      `bigscreen/prefetch.ts`, `domain/imagePrefetch.ts`). Im Simulator: alle Bilder über
+      `/img`, ohne Anmeldung 401, 36/36 vorgeladen, danach aus dem Browser-Cache (~40 ms).
+      Am echten Handy noch zu testen.
+- [x] 5. Scanner-Entzerrung (`domain/cardQuad.ts`, ≈ 3 ms am PC, nur wenn das Rechteck
+      keinen sicheren Treffer bringt). Probe mit echten Scryfall-Bildern, 256er-Ausschnitt
+      wie nativ, JPEG, echter Index (158k): gerade Karten unverändert 36/36; gedreht
+      (5–20°) oder gekippt alt 9/156 richtig (0 sicher), neu 141/156 richtig (130 sicher),
+      **0 falsche Auto-Treffer** (alt wie neu). Schwächer: 15° auf mittelgrauem Grund.
 - [ ] 6. Version 0.4.0 (versionCode 28), README, Release nach OK
 
 ### M21 — Eigenes Funknetz vom Handy (Idee, später)

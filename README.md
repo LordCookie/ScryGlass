@@ -35,6 +35,7 @@ asks you to pick.
 - **Set mode:** opening boosters or sorting one set? Limit the search to that set for
   faster, more reliable matches.
 - Works with showcase and borderless frames, tokens and emblems.
+- Cards held at an angle or tilted are straightened before the artwork is compared.
 - Sound and vibration on every hit, flashlight, tap to focus, landscape mode, and an
   undo history for mistakes.
 - Recognition runs entirely on the phone, so no photo ever leaves your device.
@@ -80,6 +81,8 @@ Legacy, Vintage, Commander, Pauper and Brawl.
 
 - Live rule checks: deck size, copy limits, format legality and, for Commander, your
   commander's color identity.
+- **Two commanders** (partner, background, friends forever, Doctor's companion): tick the
+  option and the deck gets a second commander slot; the color identity covers both.
 - Every card shows how many you own against how many the deck needs.
 - Statistics: mana curve, color distribution, card types, land ratio.
 - **Deck value**, plus a **"Fehlt mir"** (missing) list that says what you still need
@@ -87,7 +90,12 @@ Legacy, Vintage, Commander, Pauper and Brawl.
 - **Deck check:** an estimate of the Commander bracket with the cards that cause it, land
   count and color sources, ramp/card advantage/removal/board wipes, and combos in the deck,
   including the ones you are one card away from that are already in your collection.
+- **Test the deck:** draw opening hands, mulligan (London rule, first one free in
+  Commander), play a few turns, and see how likely lands and single cards show up by a
+  given turn. Turn the phone sideways and the hand spreads across the screen.
 - Import and export as text (Moxfield format).
+- On wide screens, drag cards from the search into the deck, the sideboard or a
+  commander slot.
 
 <p align="center">
   <img src="docs/screenshots/deck.png" width="260" alt="Commander deck with color identity check">
@@ -109,6 +117,9 @@ edit your collection, build decks and import CSV files, while the phone keeps sc
 New scans pop up in the bottom right corner. On wide screens the app switches to a
 desktop layout: navigation on the left with its own combos tab, more columns, a sortable
 table and the card detail as a side panel. The browser uses the phone's color scheme.
+Card images come from the phone too: it keeps them in its cache and fetches missing ones
+from Scryfall itself. After you log in, the browser quietly preloads the images of your
+collection and decks in the background.
 
 The phone stays the only copy of your data. Meant for your own Wi-Fi only.
 
