@@ -1317,6 +1317,19 @@ Fünf Teile, jeder für sich testbar. Reihenfolge = Bauweise.
       **0 falsche Auto-Treffer** (alt wie neu). Schwächer: 15° auf mittelgrauem Grund.
 - [x] 6. Version 0.4.0 (versionCode 28), README, Release 2026-11-12
 
+**Nach 0.4.0 (Rückmeldung: „lädt immer noch sehr lange")**
+- Big Screen startet mit den eigenen Karten (Vorschlag des Nutzers): `GET /api/catalog-subset`
+  liefert Karten, Drucke und Namen nur für Sammlung, Decks und Fertigdecks
+  (`domain/catalogSubset.ts`) — ein Rutsch, dann geht die App auf. Der ganze Katalog,
+  Kombos und Fertigdecks laden danach im Hintergrund (Hinweis unten links); erst dann gilt
+  der Stand als eingespielt. Simulator mit leerer Datenbank: App nach 3,3 s statt nach dem
+  ganzen Import, Rest nach ~28 s fertig, Suche danach über alle Karten.
+- `streamImport` liest bis zu 12 Chunks voraus, während geschrieben wird, und schreibt 4
+  Chunks je Transaktion (gemessen ~15 % schneller; `relaxed`/größere Chunks/`bulkAdd`
+  bringen nichts).
+- Das Handy schickt den eingebauten Katalog gepackt (`useGzipWhenAccepted` auch für NDJSON).
+- Kartendetail: deutlicher Knopf „+ In Sammlung" (1× in der gezeigten Ausgabe).
+
 ### M21 — Eigenes Funknetz vom Handy (Idee, später)
 
 Für unterwegs (Zug) oder fremde WLANs: Das Handy macht für Big Screen ein eigenes
