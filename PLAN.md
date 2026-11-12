@@ -1330,6 +1330,14 @@ Fünf Teile, jeder für sich testbar. Reihenfolge = Bauweise.
 - Das Handy schickt den eingebauten Katalog gepackt (`useGzipWhenAccepted` auch für NDJSON).
 - Kartendetail: deutlicher Knopf „+ In Sammlung" (1× in der gezeigten Ausgabe).
 
+**0.4.2 (Rückmeldung zu 0.4.1: „UnknownError: The user denied permission to access the
+database", Animation fehlt)**
+- Die Meldung kommt vom Browser: Für die Adresse sind Cookies/Website-Daten gesperrt (die
+  Anmeldung prüfte das nicht, also scheiterte erst der Ladebildschirm). Jetzt prüft
+  `bigscreen/storageCheck.ts` vor der Anmeldung IndexedDB und zeigt eine Anleitung
+  (gesperrt bzw. beschädigt). Ursache beim Nutzer noch offen (Browser/Fenster erfragt).
+- Ladeanimation: Karten fliegen auch, solange der Browser auf die eigenen Karten wartet.
+
 ### M21 — Eigenes Funknetz vom Handy (Idee, später)
 
 Für unterwegs (Zug) oder fremde WLANs: Das Handy macht für Big Screen ein eigenes
@@ -1425,3 +1433,4 @@ Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zä
 | 0.3.16 | 2026-11-08 | Big Screen (App im PC-Browser übers WLAN, Katalog vom Handy, Farbschema vom Handy), Fertigdecks aus MTGJSON, breites Layout ab 1024 px mit eigenem Reiter „Kombos", Deck-Änderungen als Schritte, Katalog 08.11. mit Fertigdecks |
 | 0.4.0 | 2026-11-12 | Zwei Commander, „Deck testen" (Probehand, Mulligan, Wahrscheinlichkeiten, Querformat), Drag-and-drop im breiten Layout, Big Screen: Kartenbilder vom Handy mit Vorladen, Scanner entzerrt schräg gehaltene Karten |
 | 0.4.1 | 2026-11-12 | Big Screen startet mit den eigenen Karten, der übrige Katalog lädt im Hintergrund (schnellerer Import, Katalog gepackt übers WLAN); Kartendetail mit Knopf „+ In Sammlung" |
+| 0.4.2 | 2026-11-12 | Big Screen prüft vor der Anmeldung, ob der Browser speichern darf, und erklärt auf Deutsch, was zu tun ist; Ladeanimation auch beim Warten auf die eigenen Karten |
