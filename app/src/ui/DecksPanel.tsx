@@ -9,20 +9,22 @@ import { Stars } from './Stars';
 import { searchCards } from '../data/search';
 import { normalizeName } from '../domain/nameMatch';
 import { isTokenCard } from '../domain/tokens';
-import { validateDeck, availableColors } from '../domain/deckValidate';
+import { validateDeck, availableColors, commanderIdentity } from '../domain/deckValidate';
 import { computeStats, isBasicLand, CURVE_BUCKETS, COLOR_KEYS } from '../domain/deckStats';
 import { computeMissing } from '../domain/deckMissing';
 import { checkDeck, type CheckLevel, type DeckCombos } from '../domain/deckCheck';
 import { TYPE_LABEL } from '../domain/collectionFilter';
 import { parseDeckText, serializeDeckText } from '../domain/deckText';
-import { LEGALITY_FORMATS, FORMAT_LABELS, type Card, type Deck, type DeckCard, type FormatId } from '../domain/types';
+import { LEGALITY_FORMATS, FORMAT_LABELS, commanderIds, type Card, type Deck, type DeckCard, type FormatId } from '../domain/types';
+import { PixelCheckbox } from './PixelCheckbox';
+import { PlaytestView } from './PlaytestView';
 import { ColorPips } from './mana';
 import { CardImage } from './CardImage';
 import { CardDetail } from './CardDetail';
 import { feedbackAdded, hapticTap } from '../native/feedback';
 import { useBackHandler } from './backStack';
 import { deckRequested, clearDeckRequest } from './deckNav';
-import { useWidth, hoverPreview } from './wide';
+import { useWidth, hoverPreview, dragSource, DropZone, useDragging, type DragCard } from './wide';
 import { ensureRowPrices } from '../data/prices';
 import { deckValueRows, missingValueRows, collectionValue, formatEur, priceKey, type PriceEntry, type ValueRow } from '../domain/prices';
 
@@ -65,7 +67,7 @@ export function DecksPanel() {
               <button onClick={() => setEditingId(d.id!)} className="min-w-0 flex-1 text-left hover:text-accent">
                 <div className="truncate">{d.name}</div>
                 <div className="text-xs text-muted">
-                  {FORMAT_LABELS[d.format]} · {d.cards.reduce((s, c) => s + c.qty, 0) + (d.commanderId ? 1 : 0)} Karten
+                  {FORMAT_LABELS[d.format]} · {d.cards.reduce((s, c) => s + c.qty, 0) + commanderIds(d).length} Karten
                 </div>
               </button>
               <button
@@ -85,6 +87,8 @@ export function DecksPanel() {
 function NewDeckForm({ onCreated }: { onCreated: (id: number) => void }) {
   const [name, setName] = useState('');
   const [format, setFormat] = useState<FormatId>('commander');
+  const [two, setTwo] = useState(false);
+  const leads = format === 'commander' || format === 'brawl';
   return (
     <div className="flex flex-wrap items-center gap-2">
       <input
@@ -99,13 +103,21 @@ function NewDeckForm({ onCreated }: { onCreated: (id: number) => void }) {
       </select>
       <button
         onClick={async () => {
-          const id = await createDeck({ name: name.trim() || 'Neues Deck', format, cards: [], sideboard: [], updatedAt: Date.now() });
+          const id = await createDeck({
+            name: name.trim() || 'Neues Deck', format, ...(leads && two ? { twoCommanders: true } : {}),
+            cards: [], sideboard: [], updatedAt: Date.now(),
+          });
           onCreated(id as number);
         }}
         className="rounded bg-accent px-3 py-2 font-mono text-sm text-on-accent"
       >
         Neu
       </button>
+      {leads && (
+        <PixelCheckbox checked={two} onChange={setTwo} className="w-full font-mono text-xs text-muted">
+          Zwei Commander (Partner, Hintergrund)
+        </PixelCheckbox>
+      )}
     </div>
   );
 }
@@ -124,7 +136,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
   const refIds = useMemo(() => {
     if (!deck) return [];
     const ids = [...deck.cards, ...deck.sideboard].map((c) => c.oracleId);
-    if (deck.commanderId) ids.push(deck.commanderId);
+    ids.push(...commanderIds(deck));
     return ids;
   }, [deck]);
   const cards = useLiveQuery(() => getCards(refIds), [refIds]);
@@ -138,6 +150,8 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
     return m;
   }, [imgs, ownedPrint]);
   const [detailId, setDetailId] = useState<string | null>(null);
+  // Probehand hier oben, damit sie einen Layout-Wechsel (Tablet drehen) übersteht.
+  const [testing, setTesting] = useState(false);
   // Name als Entwurf tippen und erst nach einer Pause speichern — im Big Screen geht jeder
   // Schritt übers WLAN, ein Schritt je Taste würde Buchstaben verschlucken.
   const [nameDraft, setNameDraft] = useState<string | null>(null);
@@ -152,6 +166,22 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
   // Handy und Big Screen nicht, wenn beide dasselbe Deck bearbeiten.
   function change(op: DeckOp) {
     void changeDeck(deckId, op).catch((e: Error) => alert(e.message));
+  }
+  /**
+   * Karte abgelegt (Drag-and-drop, M20): ins Ziel und — wenn sie aus dem Deck kam — aus
+   * der Quelle heraus. Schritte nacheinander, damit Big Screen sie in Reihenfolge bekommt.
+   */
+  function dropInto(target: 'cards' | 'sideboard' | 'commander' | 'partner', c: DragCard) {
+    if (c.from === target) return;
+    const ops: DeckOp[] = [];
+    if (target === 'commander' || target === 'partner') ops.push({ kind: target, oracleId: c.oracleId });
+    else ops.push({ kind: 'adjust', list: target, oracleId: c.oracleId, delta: 1 });
+    if (c.from === 'cards' || c.from === 'sideboard') ops.push({ kind: 'adjust', list: c.from, oracleId: c.oracleId, delta: -1 });
+    if (c.from === 'commander' || c.from === 'partner') ops.push({ kind: c.from, oracleId: null });
+    feedbackAdded();
+    void (async () => {
+      for (const op of ops) await changeDeck(deckId, op);
+    })().catch((e: Error) => alert(e.message));
   }
   function adjust(list: 'cards' | 'sideboard', oracleId: string, delta: number) {
     // Spürbares Feedback wie im Scanner: Hinzufügen = Ton + Vibration, Entfernen = kurzes Tippen.
@@ -178,22 +208,38 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
   const tabContent = (t: (typeof TABS)[number]) => (
     <>
       {t === 'stats' && <DeckStatsView deck={deck} cards={cards} owned={owned ?? new Map()} chosen={ownedPrint} />}
-      {t === 'check' && <DeckCheckView deck={deck} cards={cards} owned={owned ?? EMPTY_OWNED} />}
+      {t === 'check' && <DeckCheckView deck={deck} cards={cards} owned={owned ?? EMPTY_OWNED} onTest={() => setTesting(true)} />}
       {t === 'fehlt' && <MissingView deck={deck} cards={cards} owned={owned ?? new Map()} />}
       {t === 'text' && <DeckTextView deck={deck} cards={cards} onImport={(lists) => change({ kind: 'replaceLists', ...lists })} />}
     </>
   );
+  const first = deck.commanderId ? cards.get(deck.commanderId) : undefined;
+  const second = deck.partnerId ? cards.get(deck.partnerId) : undefined;
   const commanderEl = rules && (
-    <CommanderSection
-      commander={deck.commanderId ? cards.get(deck.commanderId) : undefined}
-      chosenScryfallId={deck.commanderId ? effectiveImgs.get(deck.commanderId) : undefined}
-      onSet={(id) => change({ kind: 'commander', oracleId: id ?? null })}
-    />
+    <>
+      <CommanderSection
+        commander={first}
+        identity={commanderIdentity([first, second].filter((c): c is Card => !!c))}
+        both={!!second}
+        chosenScryfallId={deck.commanderId ? effectiveImgs.get(deck.commanderId) : undefined}
+        onSet={(id) => change({ kind: 'commander', oracleId: id ?? null })}
+        onDropCard={(c) => dropInto('commander', c)}
+      />
+      {deck.twoCommanders && (
+        <CommanderSection
+          second
+          commander={second}
+          chosenScryfallId={deck.partnerId ? effectiveImgs.get(deck.partnerId) : undefined}
+          onSet={(id) => change({ kind: 'partner', oracleId: id ?? null })}
+          onDropCard={(c) => dropInto('partner', c)}
+        />
+      )}
+    </>
   );
   const addEl = <AddCardBox owned={owned ?? new Map()} onAdd={(id, list) => adjust(list, id, 1)} allowSideboard={!rules} />;
   const listEl = (
     <DeckList deck={deck} cards={cards} imgs={effectiveImgs} owned={owned ?? new Map()}
-      onAdjust={adjust} allowSideboard={!rules} onOpenDetail={setDetailId} />
+      onAdjust={adjust} allowSideboard={!rules} onOpenDetail={setDetailId} onDrop={dropInto} />
   );
 
   return (
@@ -229,6 +275,11 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
             className="rounded border border-border bg-bg px-2 py-1 outline-none focus:border-accent">
             {LEGALITY_FORMATS.map((f) => <option key={f} value={f}>{FORMAT_LABELS[f]}</option>)}
           </select>
+          {rules && (
+            <PixelCheckbox checked={!!deck.twoCommanders} onChange={(on) => change({ kind: 'twoCommanders', on })} className="text-xs text-muted">
+              Zwei Commander
+            </PixelCheckbox>
+          )}
         </div>
       </div>
 
@@ -256,19 +307,36 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
       )}
 
       {detailId && <CardDetail oracleId={detailId} onClose={() => setDetailId(null)} />}
+      {testing && <PlaytestView deck={deck} cards={cards} imgs={effectiveImgs} onClose={() => setTesting(false)} />}
     </section>
   );
 }
 
 function combinedEntries(deck: Deck): DeckCard[] {
   const entries = [...deck.cards];
-  if (deck.commanderId) entries.push({ oracleId: deck.commanderId, qty: 1 });
+  for (const id of commanderIds(deck)) entries.push({ oracleId: id, qty: 1 });
   return entries;
 }
 
-function CommanderSection({ commander, chosenScryfallId, onSet }: {
+/**
+ * Commander-Platz. Der erste zeigt die verfügbaren Farben (bei zwei: beide zusammen), der
+ * zweite (`second`, M20) nimmt auch einen Hintergrund.
+ */
+function CommanderSection(props: {
   commander?: Card; chosenScryfallId?: string; onSet: (id: string | undefined) => void;
+  second?: boolean; identity?: string[]; both?: boolean; onDropCard?: (c: DragCard) => void;
 }) {
+  const slot = props.second ? 'partner' : 'commander';
+  const inner = <CommanderSlot {...props} />;
+  if (!props.onDropCard) return inner;
+  return <DropZone onDrop={props.onDropCard} accept={(c) => c.from !== slot}>{inner}</DropZone>;
+}
+
+function CommanderSlot({ commander, chosenScryfallId, onSet, second = false, identity, both = false }: {
+  commander?: Card; chosenScryfallId?: string; onSet: (id: string | undefined) => void;
+  second?: boolean; identity?: string[]; both?: boolean;
+}) {
+  const title = second ? 'Zweiter Commander' : 'Commander';
   const [editing, setEditing] = useState(false);
   const [q, setQ] = useState('');
   const [results, setResults] = useState<Card[]>([]);
@@ -291,9 +359,9 @@ function CommanderSection({ commander, chosenScryfallId, onSet }: {
   // Commander gewählt und nicht im Ändern-Modus → prominent anzeigen.
   if (commander && !editing) {
     return (
-      <div className="frame">
+      <div className="frame" {...dragSource({ oracleId: commander.oracleId, from: second ? 'partner' : 'commander' }, commander.name)}>
         <div className="titlebar">
-          <span className="min-w-0 flex-1 truncate text-text">Commander</span>
+          <span className="min-w-0 flex-1 truncate text-text">{title}</span>
           <button onClick={() => { setEditing(true); setQ(''); }} className="px-1 text-xs text-paper">ändern</button>
           <button onClick={() => onSet(undefined)} className="px-1 text-xs text-paper hover:text-danger">entfernen</button>
         </div>
@@ -302,14 +370,16 @@ function CommanderSection({ commander, chosenScryfallId, onSet }: {
           <div className="min-w-0 flex-1">
             <div className="truncate text-base text-text">{commander.name}</div>
             <div className="text-xs text-muted">{commander.typeLine}</div>
-            <div className="mt-3">
-              <div className="mb-1 font-hud text-[9px] text-muted">VERFÜGBARE FARBEN</div>
-              <div className="flex items-center gap-2">
-                <ColorPips colors={availableColors(commander.colorIdentity)} />
-                <span className="text-sm text-text">{colorNames(availableColors(commander.colorIdentity))}</span>
+            {!second && (
+              <div className="mt-3">
+                <div className="mb-1 font-hud text-[9px] text-muted">{both ? 'VERFÜGBARE FARBEN (BEIDE)' : 'VERFÜGBARE FARBEN'}</div>
+                <div className="flex items-center gap-2">
+                  <ColorPips colors={availableColors(identity ?? commander.colorIdentity)} />
+                  <span className="text-sm text-text">{colorNames(availableColors(identity ?? commander.colorIdentity))}</span>
+                </div>
+                <div className="mt-1 text-[10px] text-muted">Farblose Karten passen immer.</div>
               </div>
-              <div className="mt-1 text-[10px] text-muted">Farblose Karten passen immer.</div>
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -320,10 +390,10 @@ function CommanderSection({ commander, chosenScryfallId, onSet }: {
   return (
     <div className="rounded-lg bg-surface p-3">
       <div className="mb-1 flex items-center justify-between font-mono text-xs text-muted">
-        <span>Commander wählen (legendäre Kreatur)</span>
+        <span>{second ? 'Zweiter Commander (Partner oder Hintergrund)' : 'Commander wählen (legendäre Kreatur)'}</span>
         {commander && <button onClick={() => setEditing(false)} className="hover:text-text">abbrechen</button>}
       </div>
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Legendäre Kreatur suchen…"
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={second ? 'Partner oder Hintergrund suchen…' : 'Legendäre Kreatur suchen…'}
         className="w-full border-2 border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-paper" />
       {results.length > 0 && (
         <ul className="mt-2 divide-y divide-white/5 overflow-hidden border-2 border-border">
@@ -363,7 +433,8 @@ function AddCardBox({
       {results.length > 0 && (
         <ul className="mt-2 divide-y divide-white/5 overflow-hidden rounded-md border border-border">
           {results.map((c) => (
-            <li key={c.oracleId} className="flex items-center gap-2 px-3 py-1.5 font-mono text-sm">
+            <li key={c.oracleId} {...dragSource({ oracleId: c.oracleId, from: 'search' }, c.name)}
+              className="flex items-center gap-2 px-3 py-1.5 font-mono text-sm">
               <ColorPips colors={c.colorIdentity} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate">{c.name}</span>
@@ -383,19 +454,29 @@ function AddCardBox({
 }
 
 function DeckList({
-  deck, cards, imgs, owned, onAdjust, allowSideboard, onOpenDetail,
+  deck, cards, imgs, owned, onAdjust, allowSideboard, onOpenDetail, onDrop,
 }: {
   deck: Deck; cards: Map<string, Card>; imgs: Map<string, string>; owned: Map<string, number>;
   onAdjust: (list: 'cards' | 'sideboard', id: string, delta: number) => void;
   allowSideboard: boolean; onOpenDetail: (oracleId: string) => void;
+  onDrop: (list: 'cards' | 'sideboard', c: DragCard) => void;
 }) {
   const [view, setView] = useState<'list' | 'grid'>('list');
   const validation = validateDeck(deck, cards);
+  const dragging = useDragging();
   const renderList = (list: 'cards' | 'sideboard', title: string) => {
     const entries = deck[list];
-    if (entries.length === 0) return null;
+    // Leere Liste nur beim Ziehen als Ablage zeigen.
+    if (entries.length === 0) {
+      if (!dragging || dragging.from === list) return null;
+      return (
+        <DropZone onDrop={(c) => onDrop(list, c)} className="rounded-lg border-2 border-dashed border-border p-4 text-center font-mono text-xs text-muted">
+          {title} — hierher ziehen
+        </DropZone>
+      );
+    }
     return (
-      <div className="rounded-lg bg-surface p-3">
+      <DropZone onDrop={(c) => onDrop(list, c)} accept={(c) => c.from !== list} className="rounded-lg bg-surface p-3">
         <h3 className="mb-2 font-mono text-sm">{title} ({entries.reduce((s, c) => s + c.qty, 0)})</h3>
         {view === 'grid' ? (
           <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
@@ -404,7 +485,8 @@ function DeckList({
               const have = owned.get(e.oracleId) ?? 0;
               return (
                 <li key={e.oracleId}>
-                  <button onClick={() => onOpenDetail(e.oracleId)} className="relative block w-full" title={card?.name}>
+                  <button onClick={() => onOpenDetail(e.oracleId)} {...dragSource({ oracleId: e.oracleId, from: list }, card?.name)}
+                    className="relative block w-full" title={card?.name}>
                     <CardImage scryfallId={imgs.get(e.oracleId)} name={card?.name} size="normal" className="h-auto w-full" />
                     <span className="absolute right-0 top-0 bg-titlebar px-1.5 py-0.5 font-hud text-[10px] text-paper">{e.qty}×</span>
                     <span className={`absolute bottom-0 left-0 bg-bg px-1 font-hud text-[8px] ${have >= e.qty ? 'text-ok' : 'text-danger'}`}>{have}/{e.qty}</span>
@@ -419,7 +501,8 @@ function DeckList({
               const card = cards.get(e.oracleId);
               const have = owned.get(e.oracleId) ?? 0;
               return (
-                <li key={e.oracleId} className="flex items-center gap-2 font-mono text-sm">
+                <li key={e.oracleId} {...dragSource({ oracleId: e.oracleId, from: list }, card?.name)}
+                  className="flex items-center gap-2 font-mono text-sm">
                   <ColorPips colors={card?.colorIdentity ?? []} />
                   <button onClick={() => onAdjust(list, e.oracleId, -1)} aria-label="weniger" className="px-2 py-0.5 text-muted hover:text-paper">−</button>
                   <span className="w-7 text-center font-hud text-[10px] text-text">{e.qty}×</span>
@@ -431,7 +514,7 @@ function DeckList({
             })}
           </ul>
         )}
-      </div>
+      </DropZone>
     );
   };
   return (
@@ -449,7 +532,7 @@ function DeckList({
           </ul>
         )}
       </div>
-      {deck.cards.length === 0 && !deck.commanderId && <p className="px-1 font-mono text-sm text-muted">Deck ist leer — Karten oben hinzufügen.</p>}
+      {deck.cards.length === 0 && commanderIds(deck).length === 0 && <p className="px-1 font-mono text-sm text-muted">Deck ist leer — Karten oben hinzufügen.</p>}
       {renderList('cards', 'Deck')}
       {allowSideboard && renderList('sideboard', 'Sideboard')}
     </div>
@@ -537,7 +620,9 @@ const LEVEL_TAG: Record<CheckLevel, { text: string; cls: string }> = {
 };
 
 /** Deck-Check (M17): Bracket-Schätzung, Manabasis, Rollen, Kombos — jeweils mit Begründung. */
-function DeckCheckView({ deck, cards, owned }: { deck: Deck; cards: Map<string, Card>; owned: Map<string, number> }) {
+function DeckCheckView({ deck, cards, owned, onTest }: {
+  deck: Deck; cards: Map<string, Card>; owned: Map<string, number>; onTest: () => void;
+}) {
   const features = useLiveQuery(() => catalogFeatures(), []);
   // Kombos aus Commander Spellbook — `null` = lädt noch, `undefined` = keine Daten (älterer Katalog).
   const [combos, setCombos] = useState<DeckCombos | undefined | null>(null);
@@ -615,6 +700,12 @@ function DeckCheckView({ deck, cards, owned }: { deck: Deck; cards: Map<string, 
         {combos ? ' Kombos von Commander Spellbook (Sterne: eigene Einstufung).' : ' Kombos aus einer Auswahl bekannter Paare.'}
         {' '}Ein Hinweis, kein Urteil.
       </p>
+      <div className="rounded-lg bg-surface p-3">
+        <h3 className="mb-1 text-sm">Deck testen</h3>
+        <p className="mb-2 text-muted">Probehand ziehen, Mulligan, ein paar Züge durchspielen — und wie wahrscheinlich Länder und Karten kommen.</p>
+        <button onClick={onTest} disabled={deck.cards.length === 0}
+          className="rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-40">Probehand ziehen</button>
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { CardImage } from './CardImage';
 
 /**
@@ -66,6 +66,99 @@ export function HoverPreviewHost() {
   return (
     <div className="pointer-events-none fixed z-[70]" style={{ left, top, width: w }}>
       <CardImage scryfallId={p.id} name={p.name} size="normal" className="h-auto w-full" />
+    </div>
+  );
+}
+
+// --- Drag-and-drop (M20, nur mit Maus im breiten Layout) ----------------------------
+
+const DND_TYPE = 'application/x-scryglass-card';
+export type DragFrom = 'search' | 'cards' | 'sideboard' | 'commander' | 'partner';
+export interface DragCard {
+  oracleId: string;
+  from: DragFrom;
+}
+
+let dragging: DragCard | null = null;
+const dragListeners = new Set<() => void>();
+function setDragging(c: DragCard | null) {
+  dragging = c;
+  for (const l of dragListeners) l();
+}
+
+/** Wird gerade eine Karte gezogen? (Leere Ablagen nur dann zeigen.) */
+export function useDragging(): DragCard | null {
+  return useSyncExternalStore(
+    (l) => { dragListeners.add(l); return () => { dragListeners.delete(l); }; },
+    () => dragging,
+    () => null,
+  );
+}
+
+/** Props zum Ziehen einer Karte — am Handy (ohne Maus) leer. */
+export function dragSource(card: DragCard, name?: string) {
+  if (!canHover()) return {};
+  return {
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.setData(DND_TYPE, JSON.stringify(card));
+      if (name) e.dataTransfer.setData('text/plain', name);
+      e.dataTransfer.effectAllowed = card.from === 'search' ? 'copy' : 'move';
+      setPreview?.(null);
+      setDragging(card);
+    },
+    onDragEnd: () => setDragging(null),
+  };
+}
+
+function isCardDrag(e: React.DragEvent): boolean {
+  return e.dataTransfer.types.includes(DND_TYPE);
+}
+
+/** Ablage für gezogene Karten; zeigt beim Drüberziehen einen gestrichelten Rand. */
+export function DropZone({ onDrop, accept, className = '', children }: {
+  onDrop: (c: DragCard) => void;
+  accept?: (c: DragCard) => boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const [over, setOver] = useState(false);
+  const depth = useRef(0);
+  const ok = () => !dragging || !accept || accept(dragging);
+  return (
+    <div
+      className={`${className} ${over ? 'outline-dashed outline-2 outline-offset-2 outline-paper' : ''}`}
+      onDragEnter={(e) => {
+        if (!isCardDrag(e) || !ok()) return;
+        e.preventDefault();
+        depth.current += 1;
+        setOver(true);
+      }}
+      onDragOver={(e) => {
+        if (!isCardDrag(e) || !ok()) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = dragging?.from === 'search' ? 'copy' : 'move';
+      }}
+      onDragLeave={(e) => {
+        if (!isCardDrag(e)) return;
+        depth.current = Math.max(0, depth.current - 1);
+        if (depth.current === 0) setOver(false);
+      }}
+      onDrop={(e) => {
+        if (!isCardDrag(e)) return;
+        e.preventDefault();
+        depth.current = 0;
+        setOver(false);
+        setDragging(null);
+        try {
+          const c = JSON.parse(e.dataTransfer.getData(DND_TYPE)) as DragCard;
+          if (typeof c?.oracleId === 'string' && (!accept || accept(c))) onDrop(c);
+        } catch {
+          /* fremder Inhalt — ignorieren */
+        }
+      }}
+    >
+      {children}
     </div>
   );
 }
