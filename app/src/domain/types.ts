@@ -84,6 +84,8 @@ export interface ScanLog {
   crop?: string;
   /** Karte wurde eingerastet (Kanten gefunden) statt des Rahmens genommen (§ 6.2, Schritt 3). */
   cropSnapped?: boolean;
+  /** Karte wurde entzerrt (M20): Schräglage in Grad — nur wenn das entzerrte Bild gewann. */
+  cropTilt?: number;
   /** Nutzer hat die Übernahme rückgängig gemacht → Fehltreffer, keine Ground Truth. */
   rejected?: boolean;
   /** Ground Truth: was der Nutzer tatsächlich übernommen hat. */

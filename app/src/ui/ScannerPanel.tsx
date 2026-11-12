@@ -12,6 +12,7 @@ import { scanToken } from '../data/tokenScan';
 import { isTokenCard } from '../domain/tokens';
 import { getScanDiag } from '../data/scanDiag';
 import { snapCard, hashVariantRects, type Rect } from '../domain/cardSnap';
+import { findCardQuad, warpQuad, QUAD_HASH_BOXES, QUAD_MIN_TILT, type Quad } from '../domain/cardQuad';
 import { fuseScan, type FuseConfig, type FuseResult } from '../domain/scanFuse';
 import {
   pickNameLine, cleanNameText, collectorText, parseCollectorText, looksLikeToken, textLooksLikeToken, type CollectorInfo,
@@ -194,6 +195,8 @@ interface EvalInput {
   cropMap?: string;
   /** native Kamera: Karte eingerastet statt Rahmen */
   cropSnapped?: boolean;
+  /** native Kamera: entzerrte Karte gewann (Schräglage in Grad, M20) */
+  cropTilt?: number;
   /** Spielstein/Emblem erkannt — wird gegen den Token-Teil des Katalogs geprüft (M14) */
   isToken?: boolean;
   /** in welchem Teil des Bild-Index `hashMatch` gesucht wurde (Standard: Karten) */
@@ -350,6 +353,7 @@ export function ScannerPanel() {
     crop?: string;
     cropMap?: string;
     cropSnapped?: boolean;
+    cropTilt?: number;
   } | null>(null);
   // Scanner-Diagnose (Mehr → Scanner-Protokoll): Ausschnitt live zeigen + mitspeichern.
   const diagRef = useRef(false);
@@ -733,8 +737,29 @@ export function ScannerPanel() {
     return { hashes, base };
   }
 
-  /** Graustufen (0..255) eines Bildes — fürs Einrasten der Karte. */
-  function grayOf(img: HTMLImageElement): { gray: Uint8Array; w: number; h: number } | null {
+  /**
+   * Entzerrte Karte hashen (M20): Viereck → gerade 146×204, dazu die beiden um den
+   * Kartenrand vergrößerten Ausschnitte und die 180°-Drehung des ersten.
+   */
+  function quadHashes(g: { rgba: Uint8ClampedArray; w: number; h: number }, quad: Quad): { hashes: string[]; base: HTMLCanvasElement | null } {
+    const canv = QUAD_HASH_BOXES.map((box) => {
+      const c = document.createElement('canvas');
+      c.width = 146;
+      c.height = 204;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return null;
+      ctx.putImageData(new ImageData(warpQuad(g.rgba, g.w, g.h, quad, 146, 204, box), 146, 204), 0, 0);
+      return c;
+    });
+    const base = canv[0];
+    const all = [...canv];
+    if (base) all.push(rotate180(base));
+    const hashes = all.filter((c): c is HTMLCanvasElement => !!c).map((c) => phashFromCanvas(c)).filter((x) => !!x);
+    return { hashes, base };
+  }
+
+  /** Graustufen (0..255) eines Bildes — fürs Einrasten der Karte; `rgba` fürs Entzerren. */
+  function grayOf(img: HTMLImageElement): { gray: Uint8Array; rgba: Uint8ClampedArray; w: number; h: number } | null {
     const w = img.naturalWidth;
     const h = img.naturalHeight;
     const c = document.createElement('canvas');
@@ -746,11 +771,11 @@ export function ScannerPanel() {
     const d = ctx.getImageData(0, 0, w, h).data;
     const gray = new Uint8Array(w * h);
     for (let i = 0, j = 0; i < gray.length; i++, j += 4) gray[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
-    return { gray, w, h };
+    return { gray, rgba: d, w, h };
   }
 
-  /** Diagnose-Bild fürs Protokoll: Ausschnitt mit Luft, Rahmen gelb, Einrast-Rechteck grün. */
-  function annotate(img: HTMLImageElement, reticle: Rect, snapped: Rect | null): string | undefined {
+  /** Diagnose-Bild fürs Protokoll: Ausschnitt mit Luft, Rahmen gelb, Einrast-Rechteck grün, Viereck türkis. */
+  function annotate(img: HTMLImageElement, reticle: Rect, snapped: Rect | null, quad?: Quad | null): string | undefined {
     const c = document.createElement('canvas');
     c.width = img.naturalWidth;
     c.height = img.naturalHeight;
@@ -763,6 +788,14 @@ export function ScannerPanel() {
     if (snapped) {
       ctx.strokeStyle = '#3fbf8f';
       ctx.strokeRect(snapped.l + 0.5, snapped.t + 0.5, snapped.r - snapped.l, snapped.b - snapped.t);
+    }
+    if (quad) {
+      // Entzerrtes Viereck (M20) in Türkis.
+      ctx.strokeStyle = '#4fc3f7';
+      ctx.beginPath();
+      quad.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+      ctx.closePath();
+      ctx.stroke();
     }
     return c.toDataURL('image/jpeg', 0.85).split(',')[1];
   }
@@ -908,6 +941,7 @@ export function ScannerPanel() {
       crop: inp.crop,
       cropMap: inp.cropMap,
       cropSnapped: inp.cropSnapped,
+      cropTilt: inp.cropTilt,
     };
 
     const best = d.matches[0];
@@ -1024,6 +1058,7 @@ export function ScannerPanel() {
       let hashMatch: HashMatch | null = null;
       let hashes: string[] = [];
       let cropSnapped: boolean | undefined;
+      let cropTilt: number | undefined;
       let diagImg: string | undefined; // fürs Protokoll (nur mit Diagnose)
       if (f.wide && f.wideInset) {
         // Karte im Ausschnitt mit Luft einrasten (§ 6.2, Schritt 3), dann hashen.
@@ -1034,6 +1069,7 @@ export function ScannerPanel() {
         const g = grayOf(img);
         const snap = g ? snapCard(g.gray, g.w, g.h, reticle) : { rect: reticle, snapped: false, score: 0 };
         cropSnapped = snap.snapped;
+        let quadShown: ReturnType<typeof findCardQuad> = null;
         if (haveHashes) {
           const setData = isToken ? null : currentSetData();
           const subset = setData?.subset ?? undefined;
@@ -1041,22 +1077,31 @@ export function ScannerPanel() {
           // Eingerastet: erst die eingerasteten Varianten; ist das schon auto-sicher, reicht
           // es. Sonst zusätzlich (als Netz) der Rahmen wie bisher — der größere Vorsprung
           // gewinnt. Nicht eingerastet: nur der Rahmen mit Versatz-Varianten.
+          const isStrong = (m: HashMatch | null) => !!m && m.distance <= cfg.hashAutoDist && m.margin >= cfg.hashAutoMargin;
           const snapV = snap.snapped ? cardHashes(img, hashVariantRects(snap.rect, true)) : null;
           const mSnap = snapV ? nearestByHashMulti(snapV.hashes, subset, kind) : null;
-          const strong = !!mSnap && mSnap.distance <= cfg.hashAutoDist && mSnap.margin >= cfg.hashAutoMargin;
-          const retV = strong ? null : cardHashes(img, hashVariantRects(reticle, false).slice(0, snap.snapped ? 2 : undefined));
+          // Schräg gehalten? Erst wenn das Rechteck nicht reicht: Karte als Viereck suchen und
+          // entzerren (M20). Rastet das Rechteck ein, lohnt es nur bei deutlicher Schräglage.
+          const found = !isStrong(mSnap) && g ? findCardQuad(g.gray, g.w, g.h, reticle) : null;
+          quadShown = found;
+          const quadV = found && g && (!snap.snapped || found.tilt >= QUAD_MIN_TILT) ? quadHashes(g, found.quad) : null;
+          const mQuad = quadV ? nearestByHashMulti(quadV.hashes, subset, kind) : null;
+          const mFirst = betterMatch(mSnap, mQuad);
+          const strong = isStrong(mFirst);
+          const retV = strong ? null : cardHashes(img, hashVariantRects(reticle, false).slice(0, snap.snapped || quadV ? 2 : undefined));
           const mRet = retV ? nearestByHashMulti(retV.hashes, subset, kind) : null;
-          hashMatch = betterMatch(mSnap, mRet);
-          hashes = [...(snapV?.hashes ?? []), ...(retV?.hashes ?? [])];
+          hashMatch = betterMatch(mFirst, mRet);
+          if (found && mQuad && hashMatch === mQuad) cropTilt = found.tilt;
+          hashes = [...(snapV?.hashes ?? []), ...(quadV?.hashes ?? []), ...(retV?.hashes ?? [])];
           if (diagRef.current) {
-            const used = snapV && hashMatch === mSnap ? snapV.base : retV?.base;
+            const used = snapV && hashMatch === mSnap ? snapV.base : quadV && hashMatch === mQuad ? quadV.base : retV?.base;
             const shown = used?.toDataURL('image/jpeg', 0.85).split(',')[1];
             if (shown) setDiagCrop(shown);
           }
         }
         if (diagRef.current) {
           setDiagSnapped(snap.snapped);
-          diagImg = annotate(img, reticle, snap.snapped ? snap.rect : null);
+          diagImg = annotate(img, reticle, snap.snapped ? snap.rect : null, quadShown?.quad);
         }
       } else if (f.crop) {
         // Ältere Plugin-Version ohne Einrast-Ausschnitt: der Rahmen selbst.
@@ -1076,7 +1121,7 @@ export function ScannerPanel() {
       const ocrConf = nameLine ? (conf && conf > 0 ? conf * 100 : 100) : 0;
       await evaluate({
         mode: 'live', titleText: nameLine ? cleanNameText(nameLine.text) : '', fullText, ocrConf, hashMatch,
-        sharpness: f.sharpness, collector, hashes, crop: diagImg, cropMap: f.mapping, cropSnapped,
+        sharpness: f.sharpness, collector, hashes, crop: diagImg, cropMap: f.mapping, cropSnapped, cropTilt,
         isToken, hashKind: kind,
       });
     } catch {
@@ -1371,6 +1416,7 @@ export function ScannerPanel() {
         hashDistChosen: recent && ls!.hashes?.length ? distanceToOracle(ls!.hashes, m.oracleId)?.distance : undefined,
         cropMap: recent ? ls!.cropMap : undefined,
         cropSnapped: recent ? ls!.cropSnapped : undefined,
+        cropTilt: recent ? ls!.cropTilt : undefined,
         crop: recent && diagRef.current ? ls!.crop : undefined,
         chosenOracle: m.oracleId,
         chosenName: m.card.name,
