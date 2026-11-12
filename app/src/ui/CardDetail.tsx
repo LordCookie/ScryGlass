@@ -11,6 +11,7 @@ import { CardImage } from './CardImage';
 import { ManaCost, ColorPips } from './mana';
 import { useBackHandler } from './backStack';
 import { isTypingTarget } from './wide';
+import { feedbackAdded } from '../native/feedback';
 
 /**
  * Kartendetail als Pixel-Sheet: großes Kartenbild, Regeltext/Effekte, Manakosten,
@@ -122,6 +123,13 @@ export function CardDetail({ oracleId, printingId, onClose, onPrev, onNext }: {
   // Preis der gezeigten Ausgabe (kurz verzögert, damit schnelles Blättern keine
   // Anfrageflut auslöst). Ohne Euro-Preis (z. B. deutscher Druck) → Standardpreis.
   const [price, setPrice] = useState<{ entry?: PriceEntry; fallback: boolean } | null>(null);
+  // „+ In Sammlung“ bestätigt kurz (1,5 s), dann wieder der normale Knopf.
+  const [added, setAdded] = useState<number | null>(null);
+  useEffect(() => {
+    if (!added) return;
+    const t = window.setTimeout(() => setAdded(null), 1500);
+    return () => window.clearTimeout(t);
+  }, [added]);
   const sid = current?.scryfallId;
   useEffect(() => {
     if (!sid) return;
@@ -230,6 +238,22 @@ export function CardDetail({ oracleId, printingId, onClose, onPrev, onNext }: {
                         </>}
                 </p>
                 <p className="text-text">{card.typeLine}</p>
+                {/* Deutlicher Knopf (Wunsch aus der Suche): 1× in der gezeigten Ausgabe, normal —
+                    oder Foil, wenn es die Ausgabe nur so gibt. */}
+                <button
+                  onClick={() => {
+                    const sid = current?.scryfallId;
+                    const finish: Finish = !current || current.finishes.includes('nonfoil') ? 'nonfoil' : (current.finishes[0] as Finish);
+                    feedbackAdded();
+                    void addOwned(oracleId, finish, 1, { source: 'manual', printingId: sid })
+                      .then(() => { if (sid && !token) return setOwnedPrinting(oracleId, sid); })
+                      .then(() => setAdded(Date.now()))
+                      .catch((e: Error) => alert(e.message));
+                  }}
+                  disabled={token && !current}
+                  className="rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-40">
+                  {added && Date.now() - added < 1500 ? '✓ Hinzugefügt' : '+ In Sammlung'}
+                </button>
                 {/* Bestand je Ausführung (Tokens: dieses Artwork) */}
                 <div className="space-y-1">
                   {token && <p className="text-[10px] text-muted">Dieses Artwork:</p>}
