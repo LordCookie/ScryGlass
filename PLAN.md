@@ -1338,7 +1338,7 @@ database", Animation fehlt)**
   (gesperrt bzw. beschädigt). Ursache beim Nutzer noch offen (Browser/Fenster erfragt).
 - Ladeanimation: Karten fliegen auch, solange der Browser auf die eigenen Karten wartet.
 
-**Nach 0.4.2 (Wunsch: „Preise auch übers Handy, local-first bleibt das Hauptthema")**
+**0.4.3 (Wunsch: „Preise auch übers Handy, local-first bleibt das Hauptthema")**
 - Big Screen: Preise (`POST /api/prices`, je 150 Schlüssel) und das nächste Set
   (`GET /api/next-set`) kommen vom Handy. Das Handy antwortet aus seinem Preis-Speicher und
   fragt Scryfall nur bei Veraltetem (> 1 Tag) oder bei „Preise aktualisieren". Der Browser
@@ -1442,3 +1442,4 @@ Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zä
 | 0.4.0 | 2026-11-12 | Zwei Commander, „Deck testen" (Probehand, Mulligan, Wahrscheinlichkeiten, Querformat), Drag-and-drop im breiten Layout, Big Screen: Kartenbilder vom Handy mit Vorladen, Scanner entzerrt schräg gehaltene Karten |
 | 0.4.1 | 2026-11-12 | Big Screen startet mit den eigenen Karten, der übrige Katalog lädt im Hintergrund (schnellerer Import, Katalog gepackt übers WLAN); Kartendetail mit Knopf „+ In Sammlung" |
 | 0.4.2 | 2026-11-12 | Big Screen prüft vor der Anmeldung, ob der Browser speichern darf, und erklärt auf Deutsch, was zu tun ist; Ladeanimation auch beim Warten auf die eigenen Karten |
+| 0.4.3 | 2026-11-12 | Big Screen: Preise und nächstes Set kommen vom Handy (der PC braucht kein Internet mehr); eigener User-Agent für Scryfall am Handy |

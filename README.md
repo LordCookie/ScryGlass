@@ -121,7 +121,8 @@ desktop layout: navigation on the left with its own combos tab, more columns, a 
 table and the card detail as a side panel. The browser uses the phone's color scheme.
 Card images come from the phone too: it keeps them in its cache and fetches missing ones
 from Scryfall itself. After you log in, the browser quietly preloads the images of your
-collection and decks in the background.
+collection and decks in the background. Prices come through the phone as well, so the PC
+itself never needs to go online for Big Screen.
 
 The phone stays the only copy of your data. Meant for your own Wi-Fi only.
 
