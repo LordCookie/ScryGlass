@@ -1150,7 +1150,7 @@ Entscheidungen und Gründe:
   schließt das Detail, `+`/`−` ändern im Detail die Anzahl.
 - Später, nicht in 0.3.15: Karten per Ziehen ins Deck legen.
 
-### M19 — Fertigdecks (Precons) in die Sammlung (Konzept — noch nichts gebaut)
+### M19 — Fertigdecks (Precons) in die Sammlung (v0.3.16)
 
 Wer ein Commander- oder Einsteiger-Deck kauft, soll nicht 100 Karten scannen müssen.
 Unter Sammlung kommt neben „Karten" und „Tokens" ein dritter Reiter **„Fertigdecks"**:
@@ -1236,6 +1236,91 @@ die Kombos mit `continue-on-error`)
 - [x] 4. Katalog-CI 2026-11-08 mit precons.ndjson (2.492 Decks); in 0.3.15/0.3.16 eingebaut.
 
 **Release:** M19 hängt nicht am Big Screen und kann vorher als eigenes Update kommen.
+
+### M20 — Version 0.4.0 (in Arbeit)
+
+Fünf Teile, jeder für sich testbar. Reihenfolge = Bauweise.
+
+**1. Zwei Commander**
+- `Deck` bekommt `partnerId?` (zweiter Commander) und `twoCommanders?` (Schalter). Alte
+  Decks und Sicherungen bleiben gültig.
+- Bei Commander und Brawl: Häkchen **„Zwei Commander"** beim Anlegen und im Editor.
+  Dann gibt es einen zweiten Commander-Platz (legendäre Kreatur oder Hintergrund).
+- Regeln: Die Deckgröße zählt beide, die Farbidentität ist die von beiden zusammen.
+  Ob die beiden laut Kartentext zusammen dürfen (Partner, „Partner with", Partner—…/
+  Friends forever, Choose a Background, Doctor's companion), ist nur ein **Hinweis**,
+  kein Fehler — wählbar bleibt es immer.
+- Häkchen weg → der zweite Commander wandert ins Hauptdeck, nichts geht verloren.
+- Fertigdecks mit zwei Commandern bekommen jetzt beide (bisher: zweiter im Hauptdeck).
+- Deck-Check, Kombos, Statistik, „Fehlt mir", Wert: beide zählen.
+- Big Screen: neue Deck-Schritte `partner` und `twoCommanders`.
+
+**2. Probehand („Deck testen")**
+- Im Deck-Check ganz unten: **„Deck testen"** öffnet eine Spielfläche.
+- Mischen, 7 ziehen, Mulligan nach London-Regel (wieder 7, dann so viele unter die
+  Bibliothek, wie man Mulligans genommen hat), Karte ziehen (Zug 1, 2, …), neu mischen.
+  Commander liegen daneben in der Befehlszone, nicht in der Bibliothek.
+- Dazu die Rechnung: Länder in der Starthand (Verteilung 0–7) und „Karte X bis Zug N"
+  (hypergeometrisch, auf dem Play / auf dem Draw).
+- **Handy drehen:** Im Querformat liegt die Hand in einer Reihe über die ganze Breite,
+  die Karten werden größer. Ohne Hinweis — wer dreht, bekommt es. Im Big Screen ist
+  ohnehin Platz.
+- Logik rein in `domain/playtest.ts` (mit festem Zufall testbar).
+
+**3. Drag-and-drop (breites Layout)**
+- Im Deck-Editor Karten aus „Karte hinzufügen" auf die Deckliste, das Sideboard oder
+  einen Commander-Platz ziehen; zwischen Deck und Sideboard verschieben.
+- Nur mit Maus (HTML-Drag-and-drop, ab 1024 px); am Handy bleibt alles wie es ist.
+
+**4. Kartenbilder vom Handy (Big Screen)**
+- Der Browser lädt Kartenbilder über das Handy (`/img/<größe>/<seite>/<a>/<b>/<id>.jpg`)
+  statt direkt von Scryfall.
+- Das Handy hebt sie im App-Cache auf (`cache/bilder`, höchstens 300 MB, älteste
+  fliegen raus). Fehlt eins, holt es das Handy einmal bei Scryfall (eigener User-Agent,
+  höchstens 4 gleichzeitig) — der PC fragt Scryfall dann gar nicht mehr.
+- Nur mit gültiger Anmeldung: Das Handy gibt dem Server die gültigen Sitzungen mit.
+- Der Browser darf sie 30 Tage behalten. Unter Mehr → Big Screen steht, wie groß der
+  Zwischenspeicher ist, mit „Leeren".
+- **Vorladen im Hintergrund** (Wunsch des Nutzers): Nach dem Anmelden holt der Browser
+  langsam und mit niedriger Priorität die Standard-Bilder — die Artworks von Sammlung
+  und Decks in der gewählten Ausgabe. Alles andere (weitere Ausgaben, Suche) erst bei
+  Bedarf. Pausiert, solange der Nutzer selbst Bilder lädt; hört beim Trennen auf.
+- Preise kommen im Browser weiter direkt von Scryfall (Teil des Funknetzes, M21).
+
+**5. Scanner: schräg gehaltene Karten entzerren**
+- Bisher sucht das Einrasten (`cardSnap.ts`) nur ein achsparalleles Rechteck. Ist die
+  Karte gedreht oder gekippt, rastet nichts ein, und der Bild-Hash sieht den Rahmen.
+- Neu `domain/cardQuad.ts`: je Seite Kantenpunkte entlang vieler Suchlinien, robuste
+  Gerade, Schnittpunkte → Viereck; prüfen (konvex, Kartenformat, deutliche Kanten).
+  Dann Homographie und Entzerren aufs Kartenformat (eigene bilineare Abtastung, ohne
+  Bibliothek) und hashen.
+- Läuft, wenn das Rechteck nicht einrastet oder die Kanten schief liegen; der bessere
+  Treffer (Vorsprung) gewinnt, Rahmen und Rechteck bleiben als Netz.
+- Tests mit erzeugten Bildern (gedreht, gekippt); Probe mit echten Kartenbildern wie
+  in § 6.2. Diagnose zeichnet das Viereck ins Protokoll-Bild.
+
+**Umsetzung in Schritten**
+- [ ] 1. Zwei Commander
+- [ ] 2. Probehand
+- [ ] 3. Drag-and-drop
+- [ ] 4. Bilder vom Handy
+- [ ] 5. Scanner-Entzerrung
+- [ ] 6. Version 0.4.0 (versionCode 28), README, Release nach OK
+
+### M21 — Eigenes Funknetz vom Handy (Idee, später)
+
+Für unterwegs (Zug) oder fremde WLANs: Das Handy macht für Big Screen ein eigenes
+Funknetz auf.
+- **Wi-Fi Direct als Gruppe mit festem Namen und Passwort** (Android 10+,
+  `WifiP2pConfig.Builder` mit `setNetworkName("DIRECT-…")`/`setPassphrase`, 2,4 GHz).
+  Laptops sehen es als normales WLAN und merken es sich. Nicht der „lokale Hotspot"
+  (jedes Mal neues Passwort) und nicht der System-Hotspot (teilt mobile Daten).
+- Feste Adresse `192.168.49.1:8780` → der Browser behält seinen Katalog.
+- WPA2-verschlüsselt, keine fremden Geräte, kein Internet für den PC über das Handy;
+  optional Big Screen nur im eigenen Funknetz erreichbar.
+- Haken: Der PC ist darin offline → Bilder (M20) und Preise über das Handy, mobile
+  Daten abschaltbar. Berechtigung „Geräte in der Nähe" (Android 13+) bzw. „Standort"
+  (10–12). Geräteabhängig → erst eine kleine Probe auf dem Handy des Nutzers.
 
 ---
 
