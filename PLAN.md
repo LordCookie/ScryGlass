@@ -1338,6 +1338,14 @@ database", Animation fehlt)**
   (gesperrt bzw. beschädigt). Ursache beim Nutzer noch offen (Browser/Fenster erfragt).
 - Ladeanimation: Karten fliegen auch, solange der Browser auf die eigenen Karten wartet.
 
+**Nach 0.4.2 (Wunsch: „Preise auch übers Handy, local-first bleibt das Hauptthema")**
+- Big Screen: Preise (`POST /api/prices`, je 150 Schlüssel) und das nächste Set
+  (`GET /api/next-set`) kommen vom Handy. Das Handy antwortet aus seinem Preis-Speicher und
+  fragt Scryfall nur bei Veraltetem (> 1 Tag) oder bei „Preise aktualisieren". Der Browser
+  schickt damit keine einzige Anfrage mehr ins Internet (im Simulator nachgezählt).
+- Scryfall lehnt allgemeine User-Agents ab (`generic_user_agent`): Am Handy und im
+  Simulator schicken wir jetzt „ScryGlass/<Version>" (`data/scryfallHeaders.ts`).
+
 ### M21 — Eigenes Funknetz vom Handy (Idee, später)
 
 Für unterwegs (Zug) oder fremde WLANs: Das Handy macht für Big Screen ein eigenes

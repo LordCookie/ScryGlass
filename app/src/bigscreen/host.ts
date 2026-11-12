@@ -6,6 +6,8 @@ import {
   type BigScreenAuth, type Session,
 } from '../domain/bigscreen';
 import { TOKEN_KEY } from '../data/tokens';
+import { pricesForKeys } from '../data/prices';
+import { getCachedNextSet, refreshNextSet } from '../data/nextSet';
 import { WRITE_OPS, OpError } from './ops';
 import type {
   HostRequest, HostResponse, ServerMsg, Snapshot, PhoneStatus, ReplicaTable, ScanNotice, WriteRequest, CatalogSubset,
@@ -157,6 +159,14 @@ export class BigScreenHost {
       }
       if (method === 'GET' && path === '/api/catalog-subset') {
         return json(200, await this.catalogSubset());
+      }
+      // Preise und nächstes Set fürs Browserfenster (M20): Der PC fragt nicht selbst im Internet.
+      if (method === 'POST' && path === '/api/prices') {
+        const b = JSON.parse(req.body || '{}') as { keys?: unknown; force?: unknown };
+        return json(200, { prices: await pricesForKeys(Array.isArray(b.keys) ? b.keys : [], b.force === true) });
+      }
+      if (method === 'GET' && path === '/api/next-set') {
+        return json(200, { next: (await getCachedNextSet()) ?? (await refreshNextSet()) });
       }
       if (method === 'GET' && path === '/api/status') {
         return json(200, await this.status());

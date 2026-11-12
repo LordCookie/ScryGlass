@@ -1,5 +1,6 @@
 import { getMeta, setMeta } from '../db/db';
 import { pickNextSet, toSetInfos, type ScryfallSet, type SetInfo, type UpcomingSet } from '../domain/nextSet';
+import { scryfallHeaders } from './scryfallHeaders';
 
 /**
  * Holt die Set-Liste von Scryfall (dieselbe Quelle wie der Katalog) und merkt sich
@@ -16,6 +17,12 @@ interface CachedNextSet extends UpcomingSet {
   fetchedAt: number;
 }
 
+/** Big Screen (M20): das nächste Set kommt vom Handy statt von Scryfall. */
+let source: (() => Promise<UpcomingSet | null>) | null = null;
+export function setNextSetSource(s: (() => Promise<UpcomingSet | null>) | null): void {
+  source = s;
+}
+
 export async function getCachedNextSet(): Promise<UpcomingSet | null> {
   const c = await getMeta<CachedNextSet>(META_KEY);
   return c ? { code: c.code, name: c.name, releasedAt: c.releasedAt } : null;
@@ -23,8 +30,13 @@ export async function getCachedNextSet(): Promise<UpcomingSet | null> {
 
 /** Aktualisiert das gecachte nächste Set von Scryfall; gibt es (oder den Cache) zurück. */
 export async function refreshNextSet(now: Date = new Date()): Promise<UpcomingSet | null> {
+  if (source) {
+    const next = await source().catch(() => null);
+    if (next) await setMeta(META_KEY, { ...next, fetchedAt: Date.now() } satisfies CachedNextSet);
+    return next ?? getCachedNextSet();
+  }
   try {
-    const res = await fetch(SETS_URL, { headers: { Accept: 'application/json' } });
+    const res = await fetch(SETS_URL, { headers: scryfallHeaders() });
     if (!res.ok) return getCachedNextSet();
     const json = (await res.json()) as { data?: ScryfallSet[] };
     if (json.data?.length) await setMeta(SET_LIST_KEY, toSetInfos(json.data));

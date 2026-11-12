@@ -1,11 +1,16 @@
 import { db } from '../db/db';
 import { parseScryfallPrices, priceKey, fallbackPriceKey, unitPrice, isStale, type PriceEntry, type ValueRow } from '../domain/prices';
+import { scryfallHeaders } from './scryfallHeaders';
 
 /**
  * Preise von Scryfall holen (POST /cards/collection, max. 75 Karten je Anfrage) und
  * mit Zeitstempel in Dexie ablegen. Offline bleibt der letzte Stand stehen.
  * In der App läuft `fetch` über CapacitorHttp (kein CORS); im Browser erlaubt
  * Scryfall die Anfrage direkt.
+ *
+ * Big Screen (M20, local-first): Der Browser fragt nicht Scryfall, sondern das Handy
+ * (`setPriceSource`). Das Handy antwortet aus seinem eigenen Preis-Speicher und holt nur
+ * Veraltetes (älter als einen Tag) oder bei „Preise aktualisieren" alles frisch.
  */
 
 const URL = 'https://api.scryfall.com/cards/collection';
@@ -26,15 +31,41 @@ interface ScryfallCard {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Holt Preise für die Schlüssel und speichert sie; gibt die Anzahl gefundener zurück. */
-export async function fetchPrices(reqs: readonly PriceRequest[], onProgress?: (done: number, total: number) => void): Promise<number> {
+/** Woher die Preise kommen, wenn nicht direkt von Scryfall (Big Screen: vom Handy). */
+export type PriceSource = (keys: string[], force: boolean) => Promise<PriceEntry[]>;
+let source: PriceSource | null = null;
+/** So viele Schlüssel je Anfrage ans Handy — es fragt Scryfall in 75er-Paketen mit Pause. */
+const REMOTE_BATCH = 150;
+
+export function setPriceSource(s: PriceSource | null): void {
+  source = s;
+}
+
+/**
+ * Holt Preise für die Schlüssel und speichert sie; gibt die Anzahl gefundener zurück.
+ * `force`: auch beim Handy frisch holen lassen (nur „Preise aktualisieren").
+ */
+export async function fetchPrices(
+  reqs: readonly PriceRequest[],
+  onProgress?: (done: number, total: number) => void,
+  opts: { force?: boolean } = {},
+): Promise<number> {
   const uniq = [...new Map(reqs.map((r) => [r.key, r])).values()];
   let found = 0;
+  if (source) {
+    for (let i = 0; i < uniq.length; i += REMOTE_BATCH) {
+      const rows = await source(uniq.slice(i, i + REMOTE_BATCH).map((r) => r.key), !!opts.force);
+      if (rows.length) await db.prices.bulkPut(rows);
+      found += rows.length;
+      onProgress?.(Math.min(i + REMOTE_BATCH, uniq.length), uniq.length);
+    }
+    return found;
+  }
   for (let i = 0; i < uniq.length; i += BATCH) {
     const chunk = uniq.slice(i, i + BATCH);
     const res = await fetch(URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: scryfallHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ identifiers: chunk.map((r) => (r.id ? { id: r.id } : { oracle_id: r.oracleId })) }),
     });
     if (!res.ok) throw new Error(`Scryfall antwortet mit ${res.status}`);
@@ -69,6 +100,7 @@ export async function refreshCollectionPrices(onProgress?: (done: number, total:
   let found = await fetchPrices(
     owned.map((o) => ({ key: priceKey(o), id: o.printingId, oracleId: o.printingId ? undefined : o.oracleId })),
     onProgress,
+    { force: true },
   );
   const prices = await getPrices(owned.map(priceKey));
   const missing = owned.filter((o) => {
@@ -76,7 +108,7 @@ export async function refreshCollectionPrices(onProgress?: (done: number, total:
     return fb && unitPrice(prices.get(priceKey(o)), o.finish) == null;
   });
   if (missing.length) {
-    found += await fetchPrices(missing.map((o) => ({ key: fallbackPriceKey(o)!, oracleId: o.oracleId })));
+    found += await fetchPrices(missing.map((o) => ({ key: fallbackPriceKey(o)!, oracleId: o.oracleId })), undefined, { force: true });
   }
   return found;
 }
@@ -124,6 +156,27 @@ export async function ensureRowPrices(rows: readonly ValueRow[]): Promise<Map<st
   if (fallbacks.length) await load(fallbacks);
   prices = await getPrices([...rows.map((r) => r.key), ...fallbacks]);
   return prices;
+}
+
+const PRICE_KEY = /^(oracle:)?[0-9a-f-]{36}$/;
+
+/**
+ * Am Handy für den Big Screen: Preise aus dem eigenen Speicher; was fehlt oder älter als
+ * einen Tag ist (bei `force` alles), frisch von Scryfall. Offline: der letzte Stand.
+ */
+export async function pricesForKeys(keys: readonly unknown[], force = false): Promise<PriceEntry[]> {
+  const uniq = [...new Set(keys.filter((k): k is string => typeof k === 'string' && PRICE_KEY.test(k)))].slice(0, 300);
+  const have = await getPrices(uniq);
+  const now = Date.now();
+  const todo = force ? uniq : uniq.filter((k) => isStale(have.get(k)?.at, now));
+  if (todo.length) {
+    try {
+      await fetchPrices(todo.map(requestFor));
+    } catch {
+      /* offline: letzter Stand */
+    }
+  }
+  return [...(await getPrices(uniq)).values()];
 }
 
 export async function getPrices(keys: readonly string[]): Promise<Map<string, PriceEntry>> {

@@ -8,6 +8,10 @@ import type {
 import type { Owned } from '../domain/types';
 import { followTheme } from '../ui/themes';
 import { setCardImageBase } from '../data/cardImages';
+import { setPriceSource } from '../data/prices';
+import { setNextSetSource } from '../data/nextSet';
+import type { PriceEntry } from '../domain/prices';
+import type { UpcomingSet } from '../domain/nextSet';
 import { REMOTE_IMAGE_BASE } from './protocol';
 import { stopImagePrefetch } from './prefetch';
 
@@ -359,7 +363,17 @@ let client: RemoteClient | null = null;
 
 export function startRemote(i: BigScreenInfo): RemoteClient {
   info = i;
+  // Local-first (M20): Bilder, Preise und nächstes Set kommen vom Handy, nicht aus dem Internet.
   setCardImageBase(REMOTE_IMAGE_BASE);
+  setPriceSource(async (keys, force) => {
+    const r = await api<{ prices?: PriceEntry[] }>('POST', '/api/prices', { keys, force });
+    if (r.status !== 200) throw new Error('Preise: Das Handy antwortet nicht.');
+    return r.data.prices ?? [];
+  });
+  setNextSetSource(async () => {
+    const r = await api<{ next?: UpcomingSet | null }>('GET', '/api/next-set');
+    return r.status === 200 ? r.data.next ?? null : null;
+  });
   client ??= new RemoteClient(i);
   return client;
 }
