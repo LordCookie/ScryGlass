@@ -5,7 +5,7 @@ import {
   type ComboHead, type ComboHit, type ComboIndex, type ComboRow, type ComboStore,
 } from '../domain/combos';
 import type { DeckCombo, DeckCombos } from '../domain/deckCheck';
-import type { Card, Deck } from '../domain/types';
+import { commanderIds, type Card, type Deck } from '../domain/types';
 import { normalizeName } from '../domain/nameMatch';
 
 /**
@@ -139,9 +139,10 @@ export async function deckCombos(deck: Deck, cards: ReadonlyMap<string, Card>, o
   const names = await loadComboNames(ix);
   const inDeck = new Set(deck.cards.map((c) => c.oracleId));
   const leads = deck.format === 'commander' || deck.format === 'brawl';
-  if (leads && deck.commanderId) inDeck.add(deck.commanderId);
-  const commander = new Set(leads && deck.commanderId ? [deck.commanderId] : []);
-  const identity = leads && deck.commanderId ? colorMask((cards.get(deck.commanderId)?.colorIdentity ?? []).join('')) : 0x1f;
+  const cmdIds = leads ? commanderIds(deck) : [];
+  for (const id of cmdIds) inDeck.add(id);
+  const commander = new Set(cmdIds);
+  const identity = cmdIds.length ? colorMask(cmdIds.flatMap((id) => cards.get(id)?.colorIdentity ?? []).join('')) : 0x1f;
   const s = ix.store;
   const view = (h: ComboHit): DeckCombo => ({
     id: s.ids[h.i],

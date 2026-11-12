@@ -182,8 +182,8 @@ function deckCards(list: readonly PreconCard[], printings: ReadonlyMap<string, P
 }
 
 /**
- * Deck aus dem Fertigdeck. Commander-Decks bekommen ihren Commander; ein zweiter (Partner,
- * Hintergrund) kommt vorerst ins Hauptdeck, weil Decks nur einen Commander kennen.
+ * Deck aus dem Fertigdeck. Commander-Decks bekommen ihren Commander, ein zweiter (Partner,
+ * Hintergrund) den zweiten Platz (M20); nur ein dritter (gibt es kaum) käme ins Hauptdeck.
  * Andere Decks bekommen Vintage — dort ist fast alles erlaubt; das Format lässt sich ändern.
  */
 export function deckFromPrecon(
@@ -193,7 +193,7 @@ export function deckFromPrecon(
 ): { deck: Omit<Deck, 'id'>; extraCommanders: number } {
   const leads = deckCards(p.commander, printings);
   const format: FormatId = p.group === 'commander' ? (/brawl/i.test(p.type) ? 'brawl' : 'commander') : 'vintage';
-  const [commander, ...others] = format === 'vintage' ? [] : leads;
+  const [commander, partner, ...others] = format === 'vintage' ? [] : leads;
   const main = deckCards(p.main, printings);
   const extra = format === 'vintage' ? leads : others;
   for (const c of extra) {
@@ -206,6 +206,7 @@ export function deckFromPrecon(
       name: p.name,
       format,
       ...(commander ? { commanderId: commander.oracleId } : {}),
+      ...(partner ? { partnerId: partner.oracleId, twoCommanders: true } : {}),
       cards: main,
       sideboard: deckCards(p.side, printings),
       updatedAt: now,

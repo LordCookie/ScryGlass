@@ -10,6 +10,10 @@ export type DeckOp =
   | { kind: 'rename'; name: string }
   | { kind: 'format'; format: FormatId }
   | { kind: 'commander'; oracleId: string | null }
+  /** zweiter Commander (M20) */
+  | { kind: 'partner'; oracleId: string | null }
+  /** Schalter „Zwei Commander"; aus → der zweite wandert ins Hauptdeck */
+  | { kind: 'twoCommanders'; on: boolean }
   /** Text-Import: ersetzt beide Listen */
   | { kind: 'replaceLists'; cards: DeckCard[]; sideboard: DeckCard[] };
 
@@ -41,6 +45,22 @@ export function applyDeckOp(deck: Deck, op: DeckOp, now = Date.now()): Deck {
       if (op.oracleId) next.commanderId = op.oracleId;
       else delete next.commanderId;
       break;
+    case 'partner':
+      if (op.oracleId) {
+        next.partnerId = op.oracleId;
+        next.twoCommanders = true;
+      } else delete next.partnerId;
+      break;
+    case 'twoCommanders':
+      if (op.on) next.twoCommanders = true;
+      else {
+        delete next.twoCommanders;
+        if (deck.partnerId) {
+          next.cards = adjustList(deck.cards, deck.partnerId, 1);
+          delete next.partnerId;
+        }
+      }
+      break;
     case 'replaceLists':
       next.cards = op.cards.filter((c) => c.qty > 0).map((c) => ({ oracleId: c.oracleId, qty: c.qty }));
       next.sideboard = op.sideboard.filter((c) => c.qty > 0).map((c) => ({ oracleId: c.oracleId, qty: c.qty }));
@@ -65,7 +85,10 @@ export function isDeckOp(v: unknown): v is DeckOp {
     case 'format':
       return typeof o.format === 'string';
     case 'commander':
+    case 'partner':
       return o.oracleId === null || typeof o.oracleId === 'string';
+    case 'twoCommanders':
+      return typeof o.on === 'boolean';
     case 'replaceLists':
       return cardList(o.cards) && cardList(o.sideboard);
     default:

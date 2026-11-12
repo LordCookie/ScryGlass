@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Card, Deck } from './types';
 import { parseDeckText, serializeDeckText } from './deckText';
-import { validateDeck, canBeCommander, colorIdentityWithin, availableColors } from './deckValidate';
+import { validateDeck, canBeCommander, colorIdentityWithin, availableColors, canPair, canBeSecondCommander, commanderIdentity } from './deckValidate';
 import { computeStats, primaryType, isLand, isBasicLand } from './deckStats';
 import { computeMissing } from './deckMissing';
 
@@ -169,5 +169,57 @@ describe('computeMissing', () => {
       { oracleId: 'bolt', need: 4, have: 2, missing: 2 },
       { oracleId: 'krenko', need: 1, have: 0, missing: 1 },
     ]);
+  });
+});
+
+// --- Zwei Commander (M20) ----------------------------------------------------
+describe('Zwei Commander', () => {
+  const tymna = card({ oracleId: 'tymna', name: 'Tymna the Weaver', typeLine: 'Legendary Creature — Human Cleric', colorIdentity: ['W', 'B'], legalities: L_COMMANDER, oracleText: `Lifelink
+At the beginning of your postcombat main phase, …
+Partner (You can have two commanders if both have partner.)` });
+  const thrasios = card({ oracleId: 'thrasios', name: 'Thrasios, Triton Hero', typeLine: 'Legendary Creature — Merfolk Wizard', colorIdentity: ['G', 'U'], legalities: L_COMMANDER, oracleText: `{4}: Scry 1, then reveal the top card of your library. …
+Partner (You can have two commanders if both have partner.)` });
+  const pir = card({ oracleId: 'pir', name: 'Pir, Imaginative Rascal', typeLine: 'Legendary Creature — Human', colorIdentity: ['G'], legalities: L_COMMANDER, oracleText: `Partner with Toothy, Imaginary Friend (When this creature enters, …)
+If one or more counters would be put on a permanent your team controls, …` });
+  const toothy = card({ oracleId: 'toothy', name: 'Toothy, Imaginary Friend', typeLine: 'Legendary Creature — Illusion', colorIdentity: ['U'], legalities: L_COMMANDER, oracleText: `Partner with Pir, Imaginative Rascal (When this creature enters, …)
+Whenever you draw a card, …` });
+  const wilson = card({ oracleId: 'wilson', name: 'Wilson, Refined Grizzly', typeLine: 'Legendary Creature — Bear Warrior', colorIdentity: ['G'], legalities: L_COMMANDER, oracleText: `Choose a Background (You can have a Background as a second commander.)
+Reach, trample` });
+  const bg = card({ oracleId: 'bg', name: 'Raised by Giants', typeLine: 'Legendary Enchantment — Background', colorIdentity: ['G'], legalities: L_COMMANDER, oracleText: 'Commander creatures you own have base power and toughness 10/10 …' });
+  const ff1 = card({ oracleId: 'ff1', name: 'Will, the Wise', typeLine: 'Legendary Creature — Human', colorIdentity: ['U'], oracleText: 'Friends forever (You can have two commanders if both have friends forever.)' });
+  const ff2 = card({ oracleId: 'ff2', name: 'Mike, the Dungeon Master', typeLine: 'Legendary Creature — Human', colorIdentity: ['W'], oracleText: 'Partner—Friends forever (You can have two commanders if both have this ability.)' });
+  const doc = card({ oracleId: 'doc', name: 'The Tenth Doctor', typeLine: 'Legendary Creature — Time Lord Doctor', colorIdentity: ['U', 'R', 'G'] });
+  const rose = card({ oracleId: 'rose', name: 'Rose Tyler', typeLine: 'Legendary Creature — Human', colorIdentity: ['W'], oracleText: "Doctor's companion (You can have two commanders if the other is the Doctor.)" });
+
+  it('erkennt die Paarungen aus dem Regeltext', () => {
+    expect(canPair(tymna, thrasios)).toBe(true);
+    expect(canPair(pir, toothy)).toBe(true);
+    expect(canPair(wilson, bg)).toBe(true);
+    expect(canPair(bg, wilson)).toBe(true);
+    expect(canPair(ff1, ff2)).toBe(true);
+    expect(canPair(rose, doc)).toBe(true);
+    expect(canPair(tymna, pir)).toBe(false);
+    expect(canPair(CARDS.get('krenko')!, tymna)).toBe(false);
+    expect(canBeCommander(bg)).toBe(false);
+    expect(canBeSecondCommander(bg)).toBe(true);
+    expect(commanderIdentity([tymna, thrasios])).toEqual(['W', 'U', 'B', 'G']);
+  });
+
+  it('Deckgröße zählt beide, Farbidentität ist die gemeinsame, falsche Paarung nur als Hinweis', () => {
+    const lookup = new Map<string, Card>([...CARDS, ['tymna', tymna], ['thrasios', thrasios], ['bg', bg]]);
+    const deck: Deck = {
+      name: 'Partner', format: 'commander', commanderId: 'tymna', partnerId: 'thrasios', twoCommanders: true,
+      cards: [{ oracleId: 'counter', qty: 1 }, { oracleId: 'forest', qty: 97 }], sideboard: [], updatedAt: 0,
+    };
+    const ok = validateDeck(deck, lookup);
+    expect(ok.mainCount).toBe(100);
+    expect(ok.ok).toBe(true);
+    expect(ok.issues).toEqual([]);
+    // Krenko (rot) passt nicht in W/U/B/G; Krenko + Tymna ist keine Paarung → nur Hinweis.
+    const bad = validateDeck({ ...deck, partnerId: 'krenko', cards: [{ oracleId: 'bolt', qty: 1 }, { oracleId: 'forest', qty: 97 }] }, lookup);
+    expect(bad.issues.find((i) => i.message.includes('dürfen laut Kartentext nicht'))?.level).toBe('warning');
+    expect(bad.issues.some((i) => i.oracleId === 'bolt')).toBe(false); // Krenko bringt Rot mit
+    const missing = validateDeck({ ...deck, partnerId: undefined }, lookup);
+    expect(missing.issues.some((i) => i.message === 'Zweiter Commander noch nicht gewählt.')).toBe(true);
   });
 });

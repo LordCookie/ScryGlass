@@ -8,7 +8,7 @@
  * `roles`), Kombos aus Commander Spellbook (data/combos) — beides wie bei Spellbook selbst.
  * Ältere Kataloge ohne diese Daten: Rollen grob am Regeltext, Kombos aus einer Auswahl.
  */
-import { ROLE, type Card, type Deck } from './types';
+import { ROLE, commanderIds, type Card, type Deck } from './types';
 import { validateDeck, type CardLookup } from './deckValidate';
 import { isLand } from './deckStats';
 
@@ -273,8 +273,10 @@ export function checkDeck(deck: Deck, cards: CardLookup, opts: CheckOptions): De
     const card = cards.get(e.oracleId);
     if (card) entries.push({ card, qty: e.qty });
   }
-  const cmdCard = deck.commanderId ? cards.get(deck.commanderId) : undefined;
-  if (cmdCard && !deck.cards.some((e) => e.oracleId === cmdCard.oracleId)) entries.push({ card: cmdCard, qty: 1 });
+  for (const id of commanderIds(deck)) {
+    const cmdCard = cards.get(id);
+    if (cmdCard && !deck.cards.some((e) => e.oracleId === cmdCard.oracleId)) entries.push({ card: cmdCard, qty: 1 });
+  }
   const all = entries.map((e) => e.card);
   const total = entries.reduce((n, e) => n + e.qty, 0);
   const sections: CheckSection[] = [];

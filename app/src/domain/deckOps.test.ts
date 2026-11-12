@@ -36,6 +36,27 @@ describe('Deck-Schritte', () => {
     expect(r.cards).toEqual([{ oracleId: 'a', qty: 2 }]);
   });
 
+  it('zwei Commander: setzen, und beim Ausschalten wandert der zweite ins Hauptdeck', () => {
+    const cmd: Deck = { ...base, format: 'commander', commanderId: 'tana' };
+    const on = applyDeckOp(cmd, { kind: 'twoCommanders', on: true });
+    expect(on.twoCommanders).toBe(true);
+    const p = applyDeckOp(on, { kind: 'partner', oracleId: 'tymna' });
+    expect(p.partnerId).toBe('tymna');
+    const off = applyDeckOp(p, { kind: 'twoCommanders', on: false });
+    expect(off).not.toHaveProperty('partnerId');
+    expect(off).not.toHaveProperty('twoCommanders');
+    expect(off.cards).toEqual([{ oracleId: 'bolt', qty: 3 }, { oracleId: 'tymna', qty: 1 }]);
+    expect(off.commanderId).toBe('tana');
+    // Partner setzen schaltet „Zwei Commander" mit ein; entfernen lässt den Platz stehen.
+    const direct = applyDeckOp(cmd, { kind: 'partner', oracleId: 'tymna' });
+    expect(direct.twoCommanders).toBe(true);
+    const cleared = applyDeckOp(direct, { kind: 'partner', oracleId: null });
+    expect(cleared).not.toHaveProperty('partnerId');
+    expect(cleared.twoCommanders).toBe(true);
+    expect(isDeckOp({ kind: 'partner', oracleId: null })).toBe(true);
+    expect(isDeckOp({ kind: 'twoCommanders', on: 'ja' })).toBe(false);
+  });
+
   it('prüft Schritte von außen', () => {
     const ok: DeckOp[] = [
       { kind: 'adjust', list: 'cards', oracleId: 'x', delta: 1 },

@@ -151,9 +151,21 @@ export interface Deck {
   format: FormatId;
   /** oracleId des Commanders (nur Commander-Format). */
   commanderId?: string;
+  /** Zweiter Commander (Partner, Hintergrund …), nur mit `twoCommanders` (M20). */
+  partnerId?: string;
+  /** Schalter „Zwei Commander" — zeigt den zweiten Commander-Platz. */
+  twoCommanders?: boolean;
   cards: DeckCard[]; // Mainboard
   sideboard: DeckCard[];
   updatedAt: number;
+}
+
+/** Die Commander des Decks (0, 1 oder 2), erster zuerst. */
+export function commanderIds(deck: Pick<Deck, 'commanderId' | 'partnerId'>): string[] {
+  const out: string[] = [];
+  if (deck.commanderId) out.push(deck.commanderId);
+  if (deck.partnerId && deck.partnerId !== deck.commanderId) out.push(deck.partnerId);
+  return out;
 }
 
 // --- Fertigdecks (Precons, M19) ---------------------------------------------

@@ -291,7 +291,7 @@ function PreconDetail({ precon: p, onBack }: { precon: Precon; onBack: () => voi
               {done.deckId != null ? ' · Deck angelegt' : ''}.
             </p>
             {done.extraCommanders > 0 && (
-              <p className="mt-1 text-muted">Der zweite Commander liegt im Hauptdeck — Decks kennen bisher nur einen.</p>
+              <p className="mt-1 text-muted">Weitere Commander liegen im Hauptdeck — ein Deck hat höchstens zwei.</p>
             )}
             {done.unknown > 0 && (
               <p className="mt-1 text-muted">{plural(done.unknown, 'Karte kennt', 'Karten kennt')} der Katalog nicht — nicht gebucht.</p>

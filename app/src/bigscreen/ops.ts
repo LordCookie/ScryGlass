@@ -77,6 +77,8 @@ export const WRITE_OPS: Record<string, (args: unknown[]) => Promise<unknown>> = 
       name: typeof d.name === 'string' && d.name.trim() ? d.name : 'Neues Deck',
       format,
       ...(typeof d.commanderId === 'string' ? { commanderId: d.commanderId } : {}),
+      ...(typeof d.partnerId === 'string' ? { partnerId: d.partnerId } : {}),
+      ...(d.twoCommanders === true ? { twoCommanders: true } : {}),
       cards: d.cards ? deckCards(d.cards) : [],
       sideboard: d.sideboard ? deckCards(d.sideboard) : [],
       updatedAt: Date.now(),

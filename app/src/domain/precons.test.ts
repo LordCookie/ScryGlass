@@ -81,12 +81,14 @@ describe('Buchungen', () => {
 });
 
 describe('Deck aus dem Fertigdeck', () => {
-  it('Commander gesetzt, Partner ins Hauptdeck, Beilagen und Tokens nicht im Deck', () => {
+  it('Commander und Partner gesetzt, Beilagen und Tokens nicht im Deck', () => {
     const { deck, extraCommanders } = deckFromPrecon(precon(), PRINTINGS, 5);
     expect(deck.format).toBe('commander');
     expect(deck.commanderId).toBe('o-cmd');
-    expect(extraCommanders).toBe(1);
-    expect(deck.cards).toEqual([{ oracleId: 'o-partner', qty: 1 }, { oracleId: 'o-sol', qty: 1 }, { oracleId: 'o-plains', qty: 30 }]);
+    expect(deck.partnerId).toBe('o-partner');
+    expect(deck.twoCommanders).toBe(true);
+    expect(extraCommanders).toBe(0);
+    expect(deck.cards).toEqual([{ oracleId: 'o-sol', qty: 1 }, { oracleId: 'o-plains', qty: 30 }]);
     expect(deck.sideboard).toEqual([{ oracleId: 'o-side', qty: 1 }]);
     expect(deck.updatedAt).toBe(5);
   });
