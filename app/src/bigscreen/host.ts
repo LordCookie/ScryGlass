@@ -1,4 +1,5 @@
-import { db, getMeta } from '../db/db';
+import { db, getMeta, whereAnyOf } from '../db/db';
+import { subsetOracleIds } from '../domain/catalogSubset';
 import { onDbChanges, type TableChange } from '../db/changeFeed';
 import {
   SessionBook, parseCookies, sessionCookie, clearSessionCookie, deviceLabel, SESSION_COOKIE,
@@ -7,9 +8,9 @@ import {
 import { TOKEN_KEY } from '../data/tokens';
 import { WRITE_OPS, OpError } from './ops';
 import type {
-  HostRequest, HostResponse, ServerMsg, Snapshot, PhoneStatus, ReplicaTable, ScanNotice, WriteRequest,
+  HostRequest, HostResponse, ServerMsg, Snapshot, PhoneStatus, ReplicaTable, ScanNotice, WriteRequest, CatalogSubset,
 } from './protocol';
-import type { ScanLog } from '../domain/types';
+import type { Card, ScanLog } from '../domain/types';
 
 /**
  * Big Screen am Handy (PLAN.md M18): beantwortet die `/api/*`-Anfragen, die der native
@@ -154,6 +155,9 @@ export class BigScreenHost {
       if (method === 'GET' && path === '/api/snapshot') {
         return json(200, await this.snapshot());
       }
+      if (method === 'GET' && path === '/api/catalog-subset') {
+        return json(200, await this.catalogSubset());
+      }
       if (method === 'GET' && path === '/api/status') {
         return json(200, await this.status());
       }
@@ -177,6 +181,18 @@ export class BigScreenHost {
     const [owned, decks, ownedPrecons, tokenCount] = await db.transaction('r', db.owned, db.decks, db.ownedPrecons, db.meta, () =>
       Promise.all([db.owned.toArray(), db.decks.toArray(), db.ownedPrecons.toArray(), getMeta<number>(TOKEN_KEY)]));
     return { seq: this.seq, owned, decks, ownedPrecons, tokenCount: typeof tokenCount === 'number' ? tokenCount : 0 };
+  }
+
+  /** Katalogdaten der Karten aus Sammlung, Decks und Fertigdecks — der schnelle Start (M20). */
+  async catalogSubset(): Promise<CatalogSubset> {
+    const [owned, decks, precons] = await Promise.all([db.owned.toArray(), db.decks.toArray(), db.ownedPrecons.toArray()]);
+    const ids = subsetOracleIds(owned, decks, precons);
+    const [cards, printings, names] = await Promise.all([
+      db.cards.bulkGet(ids),
+      whereAnyOf(db.printings, 'oracleId', ids),
+      whereAnyOf(db.names, 'oracleId', ids),
+    ]);
+    return { cards: cards.filter((c): c is Card => !!c), printings, names };
   }
 
   private async write(req: WriteRequest): Promise<HostResponse> {

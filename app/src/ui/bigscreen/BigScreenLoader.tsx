@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { db } from '../../db/db';
-import type { SyncProgress } from '../../data/catalog';
 
 /**
  * DESIGN.md A10 — „Der Katalog kommt von deinem Handy". Zwei große Kartenrahmen; Karten
@@ -9,14 +8,16 @@ import type { SyncProgress } from '../../data/catalog';
  * die Karten liegen. Nur aus den Primitiven Stapeln, Flip, Foil-Sweep, Tick.
  */
 
+/**
+ * Seit M20 nur noch zwei Schritte vor der App: die Katalogdaten der eigenen Karten (ein
+ * Rutsch vom Handy) und Sammlung & Decks. Der übrige Katalog lädt danach im Hintergrund.
+ */
 export type LoadStep =
-  | { phase: 'katalog'; progress: SyncProgress | null }
-  | { phase: 'extras'; done: number; total: number }
+  | { phase: 'karten'; done: number; total: number }
   | { phase: 'sammlung' }
   | { phase: 'fertig' };
 
-const PIPS = ['Karten', 'Druckausgaben', 'Namen', 'Kombos & Fertigdecks', 'Sammlung & Decks'];
-const CATALOG_PIP: Record<SyncProgress['phase'], number> = { cards: 0, printings: 1, names: 2 };
+const PIPS = ['Deine Karten', 'Sammlung & Decks'];
 const nf = new Intl.NumberFormat('de-DE');
 /** Eine fliegende Karte je so vielen importierten Zeilen, höchstens 8 je Sekunde. */
 const ROWS_PER_CARD = 1000;
@@ -28,16 +29,13 @@ interface Flyer {
 }
 
 function pipIndex(step: LoadStep): number {
-  if (step.phase === 'katalog') return step.progress ? CATALOG_PIP[step.progress.phase] : 0;
-  if (step.phase === 'extras') return 3;
-  if (step.phase === 'sammlung') return 4;
-  return 5;
+  if (step.phase === 'karten') return 0;
+  if (step.phase === 'sammlung') return 1;
+  return 2;
 }
 
 function counter(step: LoadStep): number {
-  if (step.phase === 'katalog') return step.progress?.overallDone ?? 0;
-  if (step.phase === 'extras') return step.done;
-  return 0;
+  return step.phase === 'karten' ? step.done : 0;
 }
 
 /** Echte Kartennamen aus der eigenen Datenbank, während sie sich füllt (höchstens 3 je Sekunde). */
@@ -118,10 +116,9 @@ export function BigScreenLoader({ step, device, error, onRetry }: {
     return () => window.removeEventListener('resize', measure);
   }, []);
 
-  const pct = step.phase === 'katalog' && step.progress
-    ? Math.min(100, Math.round((step.progress.overallDone / Math.max(1, step.progress.overallTotal)) * 100))
-    : step.phase === 'extras' ? Math.min(100, Math.round((step.done / Math.max(1, step.total)) * 100))
-    : step.phase === 'sammlung' ? 50 : 100;
+  const pct = step.phase === 'karten'
+    ? (step.total ? 60 : 20)
+    : step.phase === 'sammlung' ? 85 : 100;
   const stack = Math.min(14, landed);
 
   return (
@@ -197,11 +194,9 @@ export function BigScreenLoader({ step, device, error, onRetry }: {
           <div className="h-full bg-fill" style={{ width: `${pct}%` }} />
         </div>
         <p className="font-hud text-[10px] text-text">
-          {step.phase === 'katalog' && step.progress
-            ? `${nf.format(step.progress.overallDone)} / ${nf.format(step.progress.overallTotal)} Karten, Drucke und Namen`
-            : step.phase === 'extras'
-              ? `${nf.format(step.done)} / ${nf.format(step.total)}`
-              : step.phase === 'sammlung' ? 'Sammlung und Decks…' : step.phase === 'fertig' ? 'Fertig.' : '…'}
+          {step.phase === 'karten'
+            ? (step.total ? `${nf.format(step.total)} Karten, Drucke und Namen aus deiner Sammlung` : 'Deine Karten…')
+            : step.phase === 'sammlung' ? 'Sammlung und Decks…' : 'Fertig.'}
         </p>
         {error ? (
           <div className="mt-4 font-mono text-sm">
@@ -210,7 +205,7 @@ export function BigScreenLoader({ step, device, error, onRetry }: {
           </div>
         ) : (
           <p className="mt-4 font-mono text-sm text-muted">
-            Der Katalog kommt von deinem Handy, nicht aus dem Internet. Das passiert nur einmal je Katalogstand.
+            Erst deine eigenen Karten, der übrige Katalog lädt danach im Hintergrund — vom Handy, nicht aus dem Internet.
           </p>
         )}
       </div>

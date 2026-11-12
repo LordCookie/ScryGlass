@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import App from '../../App';
-import { applyUpdate, fetchRemoteVersion, getLocalCatalogVersion } from '../../data/catalog';
+import { applyUpdate, fetchRemoteVersion, getLocalCatalogVersion, type CatalogVersion } from '../../data/catalog';
+import { db } from '../../db/db';
 import { invalidateNameIndex } from '../../data/matcher';
 import { invalidateSearchIndex } from '../../data/search';
 import { syncCombos } from '../../data/combos';
 import { syncPrecons } from '../../data/precons';
 import type { RemoteClient } from '../../bigscreen/client';
-import { REMOTE_CATALOG_BASE } from '../../bigscreen/protocol';
+import { REMOTE_CATALOG_BASE, type CatalogSubset } from '../../bigscreen/protocol';
+import { startImagePrefetch } from '../../bigscreen/prefetch';
 import { BigScreenLoader, type LoadStep } from './BigScreenLoader';
 import { RemoteLogin } from './RemoteLogin';
 import { ScanToasts } from './ScanToasts';
@@ -16,11 +18,20 @@ import { useRemoteState } from './ConnectionIndicator';
  * Big Screen im Browser (PLAN.md M18): Anmelden → Katalog vom Handy (nur wenn der Stand
  * neu ist) → Sammlung & Decks → die App. Läuft die Anmeldung ab, legt sich die Anmeldeseite
  * über die App; nach dem Anmelden geht es an derselben Stelle weiter.
+ *
+ * Schneller Start (M20, Vorschlag des Nutzers): Ist der Katalogstand neu, holt der Browser
+ * erst nur die Katalogdaten der eigenen Karten (ein Rutsch, Sekunden) — dann geht die App
+ * auf, und der ganze Katalog, Kombos und Fertigdecks laden im Hintergrund. Erst danach gilt
+ * der Stand als eingespielt; bricht man ab, geht es nächstes Mal dort weiter.
  */
+
+/** Fortschritt des Hintergrund-Ladens (nur während der große Katalog läuft). */
+type Background = { done: number; total: number } | null;
 export function RemoteRoot({ client }: { client: RemoteClient }) {
   const st = useRemoteState(client);
-  const [step, setStep] = useState<LoadStep>({ phase: 'katalog', progress: null });
+  const [step, setStep] = useState<LoadStep>({ phase: 'karten', done: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
+  const [background, setBackground] = useState<Background>(null);
   const running = useRef(false);
 
   useEffect(() => {
@@ -36,25 +47,28 @@ export function RemoteRoot({ client }: { client: RemoteClient }) {
       const base = REMOTE_CATALOG_BASE;
       const [local, remote] = await Promise.all([getLocalCatalogVersion(), fetchRemoteVersion(base, 15_000)]);
       if (!remote) throw new Error('Der Katalog des Handys ist nicht erreichbar.');
-      // Genau den Stand des Handys — auch wenn hier ein anderer liegt.
-      if (local !== remote.catalogVersion) {
-        setStep({ phase: 'katalog', progress: null });
-        await applyUpdate(remote, { base, gzip, onProgress: (progress) => setStep({ phase: 'katalog', progress }) });
+      // Genau den Stand des Handys — auch wenn hier ein anderer liegt. Erst die eigenen Karten.
+      const later = local !== remote.catalogVersion;
+      if (later) {
+        setStep({ phase: 'karten', done: 0, total: 0 });
+        const r = await fetch('/api/catalog-subset', { credentials: 'same-origin' });
+        if (!r.ok) throw new Error('Deine Karten kamen nicht vom Handy.');
+        const sub = (await r.json()) as CatalogSubset;
+        await db.transaction('rw', db.cards, db.printings, db.names, async () => {
+          await db.cards.bulkPut(sub.cards);
+          await db.printings.bulkPut(sub.printings);
+          await db.names.bulkPut(sub.names);
+        });
+        const n = sub.cards.length + sub.printings.length + sub.names.length;
+        setStep({ phase: 'karten', done: n, total: n });
         invalidateNameIndex();
         invalidateSearchIndex();
       }
-      const ver = remote.catalogVersion;
-      const extras = (remote.counts.combos ?? 0) + (remote.counts.precons ?? 0) || 1;
-      let comboDone = 0;
-      setStep({ phase: 'extras', done: 0, total: extras });
-      await syncCombos(base, ver, (done) => {
-        comboDone = done;
-        setStep({ phase: 'extras', done, total: extras });
-      }, gzip);
-      await syncPrecons(base, ver, (done) => setStep({ phase: 'extras', done: comboDone + done, total: extras }), gzip);
       setStep({ phase: 'sammlung' });
       await client.connect();
       setStep({ phase: 'fertig' });
+      startImagePrefetch();
+      void loadRest(remote, base, gzip, later, setBackground);
     } catch (e) {
       setError((e as Error).message || 'Laden fehlgeschlagen.');
     } finally {
@@ -85,9 +99,49 @@ export function RemoteRoot({ client }: { client: RemoteClient }) {
   return (
     <>
       <App remote />
+      {background && <BackgroundStrip {...background} />}
       <ScanToasts />
       {st.phase === 'abgelaufen' && <RemoteLogin client={client} device={st.info.deviceName} overlay />}
     </>
+  );
+}
+
+/**
+ * Im Hintergrund: der ganze Katalog (falls der Stand neu ist), dann Kombos und Fertigdecks
+ * (die kümmern sich selbst darum, ob sie neu sind). Fehler sind still — beim nächsten
+ * Laden geht es weiter, weil der Stand erst am Ende als eingespielt gilt.
+ */
+async function loadRest(remote: CatalogVersion, base: string, gzip: boolean, catalog: boolean, set: (b: Background) => void) {
+  const c = remote.counts;
+  const catalogTotal = catalog ? c.cards + c.printings + c.names : 0;
+  const total = catalogTotal + (c.combos ?? 0) + (c.precons ?? 0);
+  const show = (done: number) => { if (catalog) set({ done, total }); };
+  try {
+    if (catalog) {
+      show(0);
+      await applyUpdate(remote, { base, gzip, onProgress: (p) => show(p.overallDone) });
+      invalidateNameIndex();
+      invalidateSearchIndex();
+    }
+    let comboDone = 0;
+    await syncCombos(base, remote.catalogVersion, (done) => { comboDone = done; show(catalogTotal + done); }, gzip);
+    await syncPrecons(base, remote.catalogVersion, (done) => show(catalogTotal + comboDone + done), gzip);
+  } catch {
+    /* nächstes Mal weiter */
+  } finally {
+    set(null);
+  }
+}
+
+/** Kleiner Hinweis unten links, solange der übrige Katalog im Hintergrund lädt. */
+function BackgroundStrip({ done, total }: { done: number; total: number }) {
+  const pct = Math.min(100, Math.round((done / Math.max(1, total)) * 100));
+  return (
+    <div className="pointer-events-none fixed bottom-20 left-3 z-20 w-64 border-2 border-fill bg-surface p-2 font-mono text-[11px] text-muted lg:bottom-4 lg:left-52">
+      <p>Lade den übrigen Katalog · {pct} %</p>
+      <div className="mt-1 h-1.5 w-full bg-bg"><div className="h-full bg-fill" style={{ width: `${pct}%` }} /></div>
+      <p className="mt-1 text-[10px]">Deine Karten sind schon da. Suche und weitere Ausgaben werden gleich vollständig.</p>
+    </div>
   );
 }
 

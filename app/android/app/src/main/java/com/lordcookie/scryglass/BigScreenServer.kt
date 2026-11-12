@@ -158,6 +158,16 @@ class BigScreenServer(
         return p.reply ?: Reply(503, if (ok) """{"error":"Big Screen ist aus."}""" else """{"error":"Handy antwortet nicht — App am Handy öffnen."}""", emptyMap())
     }
 
+    /**
+     * Gepackt übertragen, wenn der Browser es kann (M20): NanoHTTPD packt von sich aus nur
+     * Text und `…/json`, nicht den eingebauten Katalog (`application/x-ndjson`, ~80 MB
+     * roh, gepackt etwa ein Viertel). Bereits gepackte `.gz` und Bilder bleiben, wie sie sind.
+     */
+    override fun useGzipWhenAccepted(r: Response): Boolean {
+        val mime = r.mimeType?.lowercase() ?: return false
+        return mime.startsWith("text/") || mime.contains("json")
+    }
+
     private fun jsonResponse(r: Reply): Response {
         val res = newFixedLengthResponse(statusOf(r.status), "application/json; charset=utf-8", r.body)
         for ((k, v) in r.headers) res.addHeader(k, v)

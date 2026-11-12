@@ -1,4 +1,4 @@
-import type { Deck, Owned, OwnedPrecon } from '../domain/types';
+import type { Card, Deck, NameEntry, Owned, OwnedPrecon, Printing } from '../domain/types';
 
 /**
  * Big Screen (PLAN.md M18): was Handy und Browser austauschen. Das Handy ist die einzige
@@ -33,6 +33,13 @@ export interface Snapshot {
 }
 
 export type ReplicaTable = 'owned' | 'decks' | 'ownedPrecons';
+
+/** Katalogdaten nur der eigenen Karten (M20): damit startet der Browser, der Rest folgt. */
+export interface CatalogSubset {
+  cards: Card[];
+  printings: Printing[];
+  names: NameEntry[];
+}
 
 /** Neuer Scan am Handy — für die Anzeige unten rechts (DESIGN A11). */
 export interface ScanNotice {

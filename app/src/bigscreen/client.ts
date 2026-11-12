@@ -9,7 +9,7 @@ import type { Owned } from '../domain/types';
 import { followTheme } from '../ui/themes';
 import { setCardImageBase } from '../data/cardImages';
 import { REMOTE_IMAGE_BASE } from './protocol';
-import { startImagePrefetch, stopImagePrefetch } from './prefetch';
+import { stopImagePrefetch } from './prefetch';
 
 /**
  * Big Screen im Browser (PLAN.md M18): Anmelden, Kopie von Sammlung & Decks aktuell halten,
@@ -151,7 +151,6 @@ class RemoteClient {
     this.openSocket();
     await this.resync();
     if (this.st.phase === 'laden') this.set({ phase: 'bereit' });
-    startImagePrefetch();
   }
 
   private openSocket() {

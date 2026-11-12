@@ -154,3 +154,26 @@ describe('Reihenfolge im Browser', () => {
     expect(t.accept({ t: 'reset', seq: 9 })).toBe('resync');
   });
 });
+
+describe('Schneller Start (M20)', () => {
+  it('liefert nur die Katalogdaten der eigenen Karten, nur angemeldet', async () => {
+    await Promise.all([db.printings.clear(), db.names.clear()]);
+    await db.cards.bulkPut([{ oracleId: 'forest', name: 'Forest', normName: 'forest', layout: 'normal' }] as never[]);
+    await db.printings.bulkPut([
+      { scryfallId: 'p-bolt', oracleId: 'bolt', set: 'm10', collectorNumber: '146', lang: 'en', finishes: ['nonfoil'] },
+      { scryfallId: 'p-forest', oracleId: 'forest', set: 'm10', collectorNumber: '246', lang: 'en', finishes: ['nonfoil'] },
+    ]);
+    await db.names.bulkPut([
+      { normName: 'lightning bolt', oracleId: 'bolt', lang: 'en' },
+      { normName: 'blitzschlag', oracleId: 'bolt', lang: 'de' },
+      { normName: 'forest', oracleId: 'forest', lang: 'en' },
+    ]);
+    await addOwned('bolt', 'nonfoil');
+    expect((await req('GET', '/api/catalog-subset')).status).toBe(401);
+    const cookie = await login();
+    const sub = body(await req('GET', '/api/catalog-subset', { cookie }));
+    expect(sub.cards.map((c: { oracleId: string }) => c.oracleId)).toEqual(['bolt']);
+    expect(sub.printings.map((p: { scryfallId: string }) => p.scryfallId)).toEqual(['p-bolt']);
+    expect(sub.names).toHaveLength(2);
+  });
+});

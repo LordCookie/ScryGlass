@@ -17,12 +17,20 @@ import { NdjsonBuffer } from './ndjson';
  * Was aus dem Katalog verschwindet, bleibt liegen (wie bisher): Sammlung und Decks
  * können noch darauf zeigen.
  *
- * Zwischen den Chunks bekommt die UI Luft — per MessageChannel, nicht per `setTimeout`:
- * Timer drosselt der Browser bei ausgeblendeter Seite (Bildschirm aus, App im
+ * Lesen und Schreiben laufen nebeneinander (M20, Big Screen): Das Netz liest bis zu
+ * READ_AHEAD Chunks voraus, während geschrieben wird — vorher stand der Download still,
+ * solange IndexedDB schrieb. Geschrieben wird in Transaktionen zu TX_CHUNKS Chunks
+ * (gemessen: 4 statt 1 → ~15 % schneller, mehr bringt nichts; größere Chunks allein
+ * auch nicht).
+ *
+ * Zwischen den Transaktionen bekommt die UI Luft — per MessageChannel, nicht per
+ * `setTimeout`: Timer drosselt der Browser bei ausgeblendeter Seite (Bildschirm aus, App im
  * Hintergrund) auf ≥ 1 s je Chunk, und ein Import hat Hunderte davon.
  */
 
 const CHUNK = 1500;
+const TX_CHUNKS = 4;
+const READ_AHEAD = 12;
 
 function yieldToUi(): Promise<void> {
   return new Promise((resolve) => {
@@ -35,6 +43,19 @@ function yieldToUi(): Promise<void> {
   });
 }
 
+/** Weckruf zwischen Lesen und Schreiben: `wait()` bis zum nächsten `fire()`. */
+function wakeup() {
+  let resolve: () => void = () => {};
+  let p = new Promise<void>((r) => (resolve = r));
+  return {
+    wait: () => p,
+    fire: () => {
+      resolve();
+      p = new Promise<void>((r) => (resolve = r));
+    },
+  };
+}
+
 export interface StreamImportOptions<R, T, K extends IndexableType> {
   /** `*.ndjson.gz` (GitHub) beim Lesen entpacken */
   gzip?: boolean;
@@ -43,7 +64,7 @@ export interface StreamImportOptions<R, T, K extends IndexableType> {
   map?: (raw: R) => T;
   key: (row: T) => K;
   diff: 'keys' | 'rows';
-  /** nach jedem Chunk: gelesene Zeilen bisher */
+  /** nach jeder Schreib-Transaktion: gelesene Zeilen bisher */
   onChunk?: (done: number) => void | Promise<void>;
 }
 
@@ -74,36 +95,72 @@ export async function streamImport<R, T, K extends IndexableType>(
   const decoder = new TextDecoder();
   const buf = new NdjsonBuffer<R>();
   const map = opts.map ?? ((r: R) => r as unknown as T);
-  let pending: T[] = [];
+
+  // --- Lesen (läuft voraus) ---
+  const queue: T[][] = [];
+  const dataReady = wakeup();
+  const roomReady = wakeup();
+  let ended = false;
+  let readError: unknown = null;
+  const pump = (async () => {
+    try {
+      let pending: T[] = [];
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        for (const raw of buf.push(decoder.decode(value, { stream: true }))) {
+          pending.push(map(raw));
+          if (pending.length >= CHUNK) {
+            queue.push(pending);
+            pending = [];
+            dataReady.fire();
+          }
+        }
+        while (queue.length >= READ_AHEAD) await roomReady.wait();
+      }
+      for (const raw of buf.flush()) pending.push(map(raw));
+      if (pending.length > 0) queue.push(pending);
+    } catch (e) {
+      readError = e;
+    } finally {
+      ended = true;
+      dataReady.fire();
+    }
+  })();
+
+  // --- Schreiben ---
   let rows = 0;
   let written = 0;
-
-  const flush = async () => {
-    if (pending.length === 0) return;
-    let put = pending;
-    if (have) {
-      put = pending.filter((r) => !have.has(keyString(opts.key(r))));
-    } else if (update) {
-      const old = await table.bulkGet(pending.map(opts.key));
-      put = pending.filter((r, i) => !old[i] || JSON.stringify(old[i]) !== JSON.stringify(r));
-    }
-    if (put.length > 0) await table.bulkPut(put);
-    rows += pending.length;
-    written += put.length;
-    pending = [];
-    await opts.onChunk?.(rows);
-    await yieldToUi();
+  const filter = async (chunk: T[]): Promise<T[]> => {
+    if (have) return chunk.filter((r) => !have.has(keyString(opts.key(r))));
+    if (!update) return chunk;
+    const old = await table.bulkGet(chunk.map(opts.key));
+    return chunk.filter((r, i) => !old[i] || JSON.stringify(old[i]) !== JSON.stringify(r));
   };
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    for (const raw of buf.push(decoder.decode(value, { stream: true }))) {
-      pending.push(map(raw));
-      if (pending.length >= CHUNK) await flush();
+  try {
+    for (;;) {
+      while (!ended && queue.length < TX_CHUNKS) await dataReady.wait();
+      if (readError) throw readError;
+      if (queue.length === 0) break;
+      const group = queue.splice(0, TX_CHUNKS);
+      roomReady.fire();
+      await table.db.transaction('rw', table, async () => {
+        for (const chunk of group) {
+          const put = await filter(chunk);
+          if (put.length > 0) await table.bulkPut(put);
+          written += put.length;
+        }
+      });
+      for (const chunk of group) rows += chunk.length;
+      await opts.onChunk?.(rows);
+      await yieldToUi();
     }
+  } catch (e) {
+    void reader.cancel().catch(() => {});
+    throw e;
+  } finally {
+    roomReady.fire();
   }
-  for (const raw of buf.flush()) pending.push(map(raw));
-  await flush();
+  await pump;
   return { rows, written };
 }
