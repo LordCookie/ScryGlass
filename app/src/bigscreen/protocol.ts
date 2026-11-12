@@ -21,6 +21,8 @@ export interface BigScreenInfo {
 
 /** Wo der Browser den Katalog des Handys findet. */
 export const REMOTE_CATALOG_BASE = '/catalog';
+/** Kartenbilder vom Handy (M20): `/img/<größe>/<seite>/<a>/<b>/<id>.jpg`. */
+export const REMOTE_IMAGE_BASE = '/img';
 
 export interface Snapshot {
   seq: number;

@@ -8,7 +8,7 @@
 import 'fake-indexeddb/auto';
 import { readFileSync } from 'node:fs';
 import { db, addOwnedBatch, createDeck, logScan } from '../src/db/db';
-import { makeAuth } from '../src/domain/bigscreen';
+import { makeAuth, parseCookies, SESSION_COOKIE } from '../src/domain/bigscreen';
 import { BigScreenHost } from '../src/bigscreen/host';
 import type { HostRequest, HostResponse, ServerMsg } from '../src/bigscreen/protocol';
 import type { Card } from '../src/domain/types';
@@ -18,6 +18,8 @@ export const SIM_PASSWORD = 'bigscreen';
 
 type Transport = { send: (msg: string, sessions?: string[]) => void; close: (sessions: string[], last?: string) => void };
 let transport: Transport = { send: () => {}, close: () => {} };
+/** Gültige Sitzungs-Cookies — wie am Handy für `/img` (M20). */
+let tokens = new Set<string>();
 
 export function setTransport(t: Transport): void {
   transport = t;
@@ -29,7 +31,13 @@ const host = new BigScreenHost({
   now: () => Date.now(),
   deviceName: 'Simuliertes Handy',
   battery: async () => ({ level: 0.62, charging: false }),
+  onSessions: (sessions) => { tokens = new Set(sessions.map((s) => s.token)); },
 }, { auth: makeAuth(SIM_PASSWORD), idleMs: 15 * 60_000 });
+
+export function hasSession(cookie: string | undefined): boolean {
+  const t = parseCookies(cookie)[SESSION_COOKIE];
+  return !!t && tokens.has(t);
+}
 
 let seeded: Promise<Card[]> | null = null;
 

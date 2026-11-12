@@ -8,12 +8,17 @@ import type { Plugin, ViteDevServer } from 'vite';
  * `npm run dev:bigscreen` (eigener Port, damit die IndexedDB getrennt bleibt).
  *   /bigscreen.json, /api/* → dev/simPhone.ts (derselbe Host-Code wie am Handy)
  *   WS /api/events          → minimaler WebSocket ohne Zusatzpaket
+ *   /img/*                  → Kartenbilder von Scryfall durchgereicht (wie das Handy, M20;
+ *                             ohne Zwischenspeicher, nur mit gültiger Sitzung)
  * /catalog/* liefert Vite selbst aus public/catalog (wie die APK-Assets).
  */
+
+const IMG_PATH = /^\/img\/((?:small|normal|large|png|art_crop|border_crop)\/(?:front|back)\/[0-9a-f]\/[0-9a-f]\/[0-9a-f-]{36}\.(?:jpg|png))$/;
 
 interface SimPhone {
   handle(req: unknown, catalogDir: string): Promise<{ status: number; body: string; headers?: Record<string, string> }>;
   hello(session: string): Promise<string>;
+  hasSession(cookie: string | undefined): boolean;
   setTransport(t: { send: (msg: string, sessions?: string[]) => void; close: (sessions: string[], last?: string) => void }): void;
   SIM_PASSWORD: string;
 }
@@ -80,6 +85,28 @@ export function bigscreenSim(): Plugin {
           res.setHeader('Content-Type', 'application/json');
           res.setHeader('Cache-Control', 'no-store');
           res.end(JSON.stringify({ mode: 'bigscreen', deviceName: 'Simuliertes Handy', appVersion: 'dev', catalogGzip: false }));
+          return;
+        }
+        const img = IMG_PATH.exec(url);
+        if (img) {
+          const p = await load(server);
+          if (!p.hasSession(req.headers.cookie)) {
+            res.statusCode = 401;
+            res.end('unauthorized');
+            return;
+          }
+          try {
+            const up = await fetch(`https://cards.scryfall.io/${img[1]}`, { headers: { 'User-Agent': 'ScryGlass/dev (Big-Screen-Simulator)', Accept: 'image/*' } });
+            res.statusCode = up.ok ? 200 : up.status === 404 ? 404 : 504;
+            if (up.ok) {
+              res.setHeader('Content-Type', up.headers.get('content-type') ?? 'image/jpeg');
+              res.setHeader('Cache-Control', 'private, max-age=2592000');
+              res.end(Buffer.from(await up.arrayBuffer()));
+            } else res.end();
+          } catch {
+            res.statusCode = 504;
+            res.end();
+          }
           return;
         }
         if (!url.startsWith('/api/')) return next();

@@ -16,6 +16,11 @@ export interface BigScreenPlugin {
   getIp(): Promise<{ ip: string }>;
   /** Ordner, aus dem `/catalog/*` zuerst ausgeliefert wird (aufgehobene Katalog-Dateien). */
   catalogPath(): Promise<{ path: string }>;
+  /** Gültige Sitzungs-Cookies — nur sie bekommen Kartenbilder über `/img` (M20). */
+  setSessions(opts: { tokens: string[] }): Promise<void>;
+  /** Bild-Zwischenspeicher für den Browser: Größe und Anzahl. */
+  imageCache(): Promise<{ bytes: number; count: number }>;
+  clearImageCache(): Promise<void>;
   addListener(
     eventName: 'request',
     cb: (req: { id: string; method: string; path: string; cookie?: string; body?: string; remote?: string; userAgent?: string }) => void,

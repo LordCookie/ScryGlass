@@ -3,8 +3,10 @@ import QRCode from 'qrcode';
 import {
   bigScreenPhone, bigScreenAvailable, initBigScreenPhone, setBigScreenPassword, setBigScreenIdle,
   startBigScreen, stopBigScreen, kickBigScreenSession, bigScreenCatalogReady, prepareBigScreenCatalog,
+  bigScreenImageCache, clearBigScreenImageCache,
 } from '../../bigscreen/phone';
 import { remoteClient } from '../../bigscreen/client';
+import { imagePrefetch } from '../../bigscreen/prefetch';
 import { IDLE_OPTIONS, PASSWORD_MIN } from '../../domain/bigscreen';
 import { PixelCheckbox } from '../PixelCheckbox';
 
@@ -14,6 +16,7 @@ import { PixelCheckbox } from '../PixelCheckbox';
  */
 
 const timeFmt = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' });
+const mb = (bytes: number) => `${(bytes / 1_000_000).toFixed(bytes < 10_000_000 ? 1 : 0).replace('.', ',')} MB`;
 
 export function BigScreenSection() {
   const st = useSyncExternalStore(bigScreenPhone.subscribe, () => bigScreenPhone.state);
@@ -41,6 +44,9 @@ export function BigScreenSection() {
     if (st.url) void QRCode.toDataURL(st.url, { width: 200, margin: 1 }).then(setQr).catch(() => setQr(null));
     else setQr(null);
   }, [st.url]);
+  // Kartenbilder, die das Handy für den Browser aufhebt (M20).
+  const [images, setImages] = useState<{ bytes: number; count: number } | null>(null);
+  useEffect(() => { void bigScreenImageCache().then(setImages); }, [st.running, st.sessions.length]);
 
   if (!bigScreenAvailable()) {
     return (
@@ -160,6 +166,14 @@ export function BigScreenSection() {
         Als Eingabe zählt Klicken, Tippen und Scrollen im Browser — ein vergessener Tab läuft trotzdem ab.
       </p>
 
+      {images && images.count > 0 && (
+        <p className="mb-2 flex items-center gap-2 text-xs text-muted">
+          <span className="flex-1">Kartenbilder für den Browser: {images.count} · {mb(images.bytes)} (höchstens 300 MB)</span>
+          <button onClick={() => void clearBigScreenImageCache().then(() => setImages({ bytes: 0, count: 0 }))}
+            className="bg-bg px-2 py-1 hover:text-text">Leeren</button>
+        </p>
+      )}
+
       {st.hasPassword && !askPassword && (
         <button onClick={() => setChanging(true)} className="text-xs text-muted underline hover:text-text">Passwort ändern</button>
       )}
@@ -181,6 +195,7 @@ export function BigScreenRemoteSection() {
   );
   const [clearCatalog, setClearCatalog] = useState(false);
   const [busy, setBusy] = useState(false);
+  const pre = useSyncExternalStore(imagePrefetch.subscribe, () => imagePrefetch.state);
   if (!client || !st) return null;
   return (
     <div className="rounded-lg bg-surface p-4 font-mono text-xs">
@@ -190,6 +205,12 @@ export function BigScreenRemoteSection() {
         {st.online ? '' : ' — Handy schläft, App am Handy öffnen'}.
       </p>
       <p className="mt-1 text-muted">Scanner, Updates und Sicherungen gibt es am Handy.</p>
+      {pre.total > 0 && (
+        <p className="mt-1 text-muted">
+          Kartenbilder kommen vom Handy.{' '}
+          {pre.running ? `Lade Bilder von Sammlung und Decks vor: ${pre.done} / ${pre.total}` : `${pre.done} Bilder von Sammlung und Decks vorgeladen.`}
+        </p>
+      )}
       <div className="mt-3">
         <PixelCheckbox checked={clearCatalog} onChange={setClearCatalog}>Auch den Katalog löschen (fremder PC)</PixelCheckbox>
       </div>

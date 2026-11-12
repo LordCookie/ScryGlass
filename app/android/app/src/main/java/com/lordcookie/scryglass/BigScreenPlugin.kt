@@ -29,6 +29,13 @@ class BigScreenPlugin : Plugin() {
 
     private var server: BigScreenServer? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private var sessionTokens: Set<String> = emptySet()
+    private var imageCache: CardImageCache? = null
+
+    /** Kartenbilder für den Browser (M20) — im Cache-Ordner, Android darf ihn bei Platzmangel leeren. */
+    private fun images(appVersion: String = ""): CardImageCache =
+        imageCache ?: CardImageCache(File(context.cacheDir, "bilder"), "ScryGlass/${appVersion.ifEmpty { "0" }} (Android; Big Screen)")
+            .also { imageCache = it }
 
     /** Ordner mit den vom Katalog-Update aufgehobenen Dateien (siehe catalogStage in JS). */
     private fun catalogDir(): File = File(context.filesDir, "katalog/aktuell")
@@ -72,7 +79,8 @@ class BigScreenPlugin : Plugin() {
 
         var lastError: String? = null
         for (port in ports) {
-            val srv = BigScreenServer(port, context.assets, dir, info, bridge)
+            val srv = BigScreenServer(port, context.assets, dir, info, bridge, images(appVersion))
+            srv.sessionTokens = sessionTokens
             try {
                 // Lese-Timeout 60 s; der Server pingt WebSockets alle 20 s an.
                 srv.start(60_000, false)
@@ -96,6 +104,34 @@ class BigScreenPlugin : Plugin() {
     fun stop(call: PluginCall) {
         stopServer()
         call.resolve()
+    }
+
+    /** Gültige Sitzungen (Cookie-Werte) — nur sie bekommen Kartenbilder. */
+    @PluginMethod
+    fun setSessions(call: PluginCall) {
+        sessionTokens = call.getArray("tokens")?.toList<String>()?.toSet() ?: emptySet()
+        server?.sessionTokens = sessionTokens
+        call.resolve()
+    }
+
+    /** Größe des Bild-Zwischenspeichers. */
+    @PluginMethod
+    fun imageCache(call: PluginCall) {
+        Thread {
+            val (bytes, count) = images().stats()
+            val ret = JSObject()
+            ret.put("bytes", bytes)
+            ret.put("count", count)
+            call.resolve(ret)
+        }.start()
+    }
+
+    @PluginMethod
+    fun clearImageCache(call: PluginCall) {
+        Thread {
+            images().clear()
+            call.resolve()
+        }.start()
     }
 
     /** Antwort von JS auf eine weitergereichte Anfrage. */
@@ -189,6 +225,7 @@ class BigScreenPlugin : Plugin() {
     private fun stopServer() {
         server?.stop()
         server = null
+        sessionTokens = emptySet()
     }
 
     private fun localIpAddress(): String? {
@@ -205,6 +242,7 @@ class BigScreenPlugin : Plugin() {
 
     override fun handleOnDestroy() {
         stopServer()
+        imageCache?.shutdown()
         setWifiLock(false)
         super.handleOnDestroy()
     }

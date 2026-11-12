@@ -108,6 +108,8 @@ export async function startBigScreen(): Promise<void> {
       onSessions: (sessions) => {
         if (sessions.length) noSessionSince = Date.now();
         else if (st.sessions.length) noSessionSince = Date.now();
+        // Nur angemeldete Browser bekommen Kartenbilder vom Handy (M20).
+        void BigScreen.setSessions({ tokens: sessions.map((s) => s.token) }).catch(() => {});
         set({ sessions });
       },
     }, { auth, idleMs: st.idleMs });
@@ -182,6 +184,16 @@ function setDimmed(dimmed: boolean) {
   if (!st.running) return;
   void BigScreen.setAwake({ on: true, dim: dimmed }).catch(() => {});
   set({ dimmed });
+}
+
+/** Zwischenspeicher der Kartenbilder für den Browser (M20). */
+export async function bigScreenImageCache(): Promise<{ bytes: number; count: number } | null> {
+  if (!bigScreenAvailable()) return null;
+  return BigScreen.imageCache().catch(() => null);
+}
+
+export async function clearBigScreenImageCache(): Promise<void> {
+  if (bigScreenAvailable()) await BigScreen.clearImageCache();
 }
 
 /** Ruhebild antippen → wieder normal. */

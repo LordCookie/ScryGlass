@@ -22,6 +22,8 @@ import java.util.concurrent.TimeUnit
  *   GET  /bigscreen.json   → daran erkennt die Web-App den Fernbetrieb
  *   GET  /catalog/<datei>  → Katalog des Handys: aufgehobene .gz vom letzten Katalog-Update,
  *                            sonst der eingebaute aus den Assets
+ *   GET  /img/<pfad>       → Kartenbild aus dem Zwischenspeicher des Handys, fehlende holt das
+ *                            Handy bei Scryfall (M20); nur mit gültiger Sitzung
  *   *    /api/...          → an JS weitergereicht (Brücke), Antwort kommt per respond()
  *   WS   /api/events       → Änderungen live; Anmeldung wird vorher über JS geprüft
  *
@@ -33,7 +35,11 @@ class BigScreenServer(
     private val catalogDir: File,
     private val infoJson: () -> String,
     private val bridge: Bridge,
+    private val images: CardImageCache,
 ) : NanoWSD(port) {
+
+    /** Gültige Sitzungs-Cookies (von JS gesetzt, nur im Speicher) — für `/img`. */
+    @Volatile var sessionTokens: Set<String> = emptySet()
 
     interface Bridge {
         /** Anfrage an JS geben; die Antwort kommt über [complete]. */
@@ -123,6 +129,7 @@ class BigScreenServer(
                 path.startsWith("/api/") -> jsonResponse(ask(session, session.method.name, path, readBody(session)))
                 path == "/bigscreen.json" -> noStore(newFixedLengthResponse(Response.Status.OK, "application/json", infoJson()))
                 path.startsWith("/catalog/") -> serveCatalog(path.removePrefix("/catalog/"))
+                path.startsWith("/img/") -> serveImage(session, path.removePrefix("/img/"))
                 session.method == Method.GET || session.method == Method.HEAD -> serveAsset(path)
                 else -> text(Response.Status.METHOD_NOT_ALLOWED, "method not allowed")
             }
@@ -171,6 +178,33 @@ class BigScreenServer(
             return noStore(newFixedLengthResponse(Response.Status.OK, mime, FileInputStream(staged), staged.length()))
         }
         return serveAssetFile("public/catalog/$name") ?: text(Response.Status.NOT_FOUND, "not staged")
+    }
+
+    private fun sessionCookie(session: IHTTPSession): String? {
+        val raw = session.headers["cookie"] ?: return null
+        for (part in raw.split(';')) {
+            val kv = part.trim()
+            if (kv.startsWith("sg_session=")) return kv.removePrefix("sg_session=")
+        }
+        return null
+    }
+
+    private fun serveImage(session: IHTTPSession, rel: String): Response {
+        if (session.method != Method.GET && session.method != Method.HEAD) return text(Response.Status.METHOD_NOT_ALLOWED, "method not allowed")
+        val token = sessionCookie(session)
+        if (token == null || token !in sessionTokens) return text(statusOf(401), "unauthorized")
+        if (!images.validPath(rel)) return text(Response.Status.NOT_FOUND, "unknown image")
+        return when (val r = images.get(rel)) {
+            is CardImageCache.Result.Hit -> {
+                val mime = if (rel.endsWith(".png")) "image/png" else "image/jpeg"
+                val res = newFixedLengthResponse(Response.Status.OK, mime, FileInputStream(r.file), r.file.length())
+                // Der Browser darf sie behalten; Scryfall ersetzt Bilder selten (Vorschau → Druck).
+                res.addHeader("Cache-Control", "private, max-age=2592000")
+                res
+            }
+            CardImageCache.Result.NotFound -> text(Response.Status.NOT_FOUND, "no image")
+            CardImageCache.Result.Offline -> noStore(text(statusOf(504), "Scryfall nicht erreichbar"))
+        }
     }
 
     private fun serveAsset(rawPath: String): Response {

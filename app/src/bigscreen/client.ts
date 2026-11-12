@@ -7,6 +7,9 @@ import type {
 } from './protocol';
 import type { Owned } from '../domain/types';
 import { followTheme } from '../ui/themes';
+import { setCardImageBase } from '../data/cardImages';
+import { REMOTE_IMAGE_BASE } from './protocol';
+import { startImagePrefetch, stopImagePrefetch } from './prefetch';
 
 /**
  * Big Screen im Browser (PLAN.md M18): Anmelden, Kopie von Sammlung & Decks aktuell halten,
@@ -148,6 +151,7 @@ class RemoteClient {
     this.openSocket();
     await this.resync();
     if (this.st.phase === 'laden') this.set({ phase: 'bereit' });
+    startImagePrefetch();
   }
 
   private openSocket() {
@@ -336,6 +340,7 @@ class RemoteClient {
 
   /** Abgemeldet (hier oder am Handy): Kopie weg, zurück zur Anmeldung. */
   private async forget() {
+    stopImagePrefetch();
     setWriteGateway(null);
     const ws = this.ws;
     this.ws = null;
@@ -355,6 +360,7 @@ let client: RemoteClient | null = null;
 
 export function startRemote(i: BigScreenInfo): RemoteClient {
   info = i;
+  setCardImageBase(REMOTE_IMAGE_BASE);
   client ??= new RemoteClient(i);
   return client;
 }
