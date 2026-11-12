@@ -1237,7 +1237,7 @@ die Kombos mit `continue-on-error`)
 
 **Release:** M19 hängt nicht am Big Screen und kann vorher als eigenes Update kommen.
 
-### M20 — Version 0.4.0 (gebaut, Release nach OK)
+### M20 — Version 0.4.0 (v0.4.0, 2026-11-12)
 
 Fünf Teile, jeder für sich testbar. Reihenfolge = Bauweise.
 
@@ -1315,7 +1315,7 @@ Fünf Teile, jeder für sich testbar. Reihenfolge = Bauweise.
       wie nativ, JPEG, echter Index (158k): gerade Karten unverändert 36/36; gedreht
       (5–20°) oder gekippt alt 9/156 richtig (0 sicher), neu 141/156 richtig (130 sicher),
       **0 falsche Auto-Treffer** (alt wie neu). Schwächer: 15° auf mittelgrauem Grund.
-- [ ] 6. Version 0.4.0 (versionCode 28), README, Release nach OK
+- [x] 6. Version 0.4.0 (versionCode 28), README, Release 2026-11-12
 
 ### M21 — Eigenes Funknetz vom Handy (Idee, später)
 
@@ -1410,3 +1410,4 @@ Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zä
 | 0.3.0 | 2026-11-08 | Deck-Check (Bracket-Schätzung, Manabasis, Rollen aus Scryfall-Tags), alle Kombos von Commander Spellbook mit eigenen Pixel-Sternen (Suche, Σ-Statistik, Deck-Check), App-Update nimmt die geladene APK beim zweiten Versuch |
 | 0.3.15 | 2026-11-08 | Nur Vorabversion (Test am Handy): Big Screen, Fertigdecks, breites Layout |
 | 0.3.16 | 2026-11-08 | Big Screen (App im PC-Browser übers WLAN, Katalog vom Handy, Farbschema vom Handy), Fertigdecks aus MTGJSON, breites Layout ab 1024 px mit eigenem Reiter „Kombos", Deck-Änderungen als Schritte, Katalog 08.11. mit Fertigdecks |
+| 0.4.0 | 2026-11-12 | Zwei Commander, „Deck testen" (Probehand, Mulligan, Wahrscheinlichkeiten, Querformat), Drag-and-drop im breiten Layout, Big Screen: Kartenbilder vom Handy mit Vorladen, Scanner entzerrt schräg gehaltene Karten |
