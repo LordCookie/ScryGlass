@@ -18,6 +18,7 @@ import { parseDeckText, serializeDeckText } from '../domain/deckText';
 import { LEGALITY_FORMATS, FORMAT_LABELS, commanderIds, type Card, type Deck, type DeckCard, type FormatId } from '../domain/types';
 import { PixelCheckbox } from './PixelCheckbox';
 import { PlaytestView } from './PlaytestView';
+import { DeckCompare } from './DeckCompare';
 import { ColorPips } from './mana';
 import { CardImage } from './CardImage';
 import { CardDetail } from './CardDetail';
@@ -44,16 +45,27 @@ function colorNames(colors: readonly string[]): string {
 export function DecksPanel() {
   const decks = useLiveQuery(() => listDecks(), []);
   const [editingId, setEditingId] = useState<number | null>(() => deckRequested());
+  // Deck-Vergleich (M22): zwei Decks nebeneinander.
+  const [compare, setCompare] = useState<[number, number] | null>(null);
   useEffect(() => clearDeckRequest(), []);
 
   if (editingId != null) {
     return <DeckEditor deckId={editingId} onBack={() => setEditingId(null)} />;
   }
+  if (compare) {
+    return <DeckCompare initial={compare} onBack={() => setCompare(null)} />;
+  }
 
   return (
     <section className="space-y-3">
       <div className="rounded-lg bg-surface p-4">
-        <h2 className="mb-3 font-mono text-lg">Decks</h2>
+        <div className="mb-3 flex items-center gap-2">
+          <h2 className="flex-1 font-mono text-lg">Decks</h2>
+          {decks && decks.length >= 2 && (
+            <button onClick={() => setCompare([decks[0].id!, decks[1].id!])}
+              className="rounded bg-bg px-3 py-1.5 font-mono text-xs text-muted hover:text-text">Decks vergleichen</button>
+          )}
+        </div>
         <NewDeckForm onCreated={(id) => setEditingId(id)} />
       </div>
       {decks === undefined ? (
