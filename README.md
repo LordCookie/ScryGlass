@@ -63,6 +63,10 @@ The **Σ** view sums it all up: total cards, foils, lands, the **collection valu
 (Cardmarket prices via Scryfall) with your most valuable cards, color and type
 breakdowns, mana curve and how far along you are with each set.
 
+**Binder:** the *Sammelordner* tab shows your collection as 9-pocket pages to flip
+through (two pages side by side on wide screens), or a **set checklist** with the cards you
+are still missing greyed out. The statistics keep a **value history** of your collection.
+
 ### 3. Search every card
 
 The **Suche** (search) tab covers the complete catalog of about 34,000 cards and
@@ -96,6 +100,12 @@ Legacy, Vintage, Commander, Pauper and Brawl.
 - Import and export as text (Moxfield format).
 - On wide screens, drag cards from the search into the deck, the sideboard or a
   commander slot.
+- **Suggestions from your own collection:** cards you already own that fit the deck, each
+  with a reason — completes a combo, fills a gap (ramp, card draw, removal, wipes), fits the
+  commander's theme (creature type, counters, tokens …).
+- **Deck history** with undo, and a **side-by-side comparison** of two decks, including the
+  cards your collection can't cover for both at once.
+- **Popularity** (EDHREC rank, via Scryfall) to sort search and collection.
 
 <p align="center">
   <img src="docs/screenshots/deck.png" width="260" alt="Commander deck with color identity check">

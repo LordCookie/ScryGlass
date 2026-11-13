@@ -1361,7 +1361,7 @@ Funknetz auf.
   Daten abschaltbar. Berechtigung „Geräte in der Nähe" (Android 13+) bzw. „Standort"
   (10–12). Geräteabhängig → erst eine kleine Probe auf dem Handy des Nutzers.
 
-### M22 — Version 0.5.0 „Deck-Werkstatt & Sammelordner" (in Arbeit)
+### M22 — Version 0.5.0 „Deck-Werkstatt & Sammelordner" (gebaut, Release nach OK)
 
 Vom Nutzer gewählt (2026-11-13) aus 17 Ideen: Beliebtheit, Wert-Verlauf, Deck-Verlauf —
 „vor allem im Big Screen" —, Sammelordner als Reiter unter Sammlung, Deck-Vergleich,
@@ -1407,12 +1407,18 @@ Empfehlungen aus der eigenen Sammlung. Alles lokal; neue Daten nur aus Scryfall.
   „+ ins Deck" direkt dort. Logik rein in `domain/recommend.ts`.
 
 **Umsetzung in Schritten**
-- [ ] 1. Beliebtheit (Pipeline + App)
-- [ ] 2. Deck-Vergleich
-- [ ] 3. Sammelordner
-- [ ] 4. Deck-Verlauf
-- [ ] 5. Wert-Verlauf
-- [ ] 6. Empfehlungen
+- [x] 1. Beliebtheit (`fetch_scryfall.py` → `edhrecRank`, `domain/popularity.ts`): Sortierung in Suche
+      und Sammlung, Spalte „Rang" in der breiten Tabelle, Kartendetail, Deck-Check-Abschnitt.
+- [x] 2. Deck-Vergleich (`domain/deckCompare.ts`, `ui/DeckCompare.tsx`): Browser-Test mit zwei
+      Commander-Decks, „Sol Ring: brauchst 2, hast 1".
+- [x] 3. Sammelordner (`domain/binder.ts`, `ui/BinderView.tsx`): Doppelseite passt auf den
+      Bildschirm, Checkliste BLB „25 / 279, 254 fehlen dir", Pfeiltasten, nur fehlende.
+- [x] 4. Deck-Verlauf (`domain/deckHistory.ts`, Dexie v8 `deckHistory`): Gruppen, Rückgängig
+      getestet (jeder Schritt hin und zurück im Test), im Big Screen mit übertragen.
+- [x] 5. Wert-Verlauf (`domain/valueHistory.ts`, `valueHistory`, `ui/ValueChart.tsx`): nur ohne
+      Filter gemerkt, Woche/Monat, im Backup.
+- [x] 6. Vorschläge (`domain/recommend.ts`, `ui/DeckSuggestView.tsx`): Browser-Test mit Krenko —
+      Lücken (Wipes, Removal, Rampe), Thema Goblin/Spielsteine.
 - [ ] 7. Version 0.5.0 (versionCode 32), Katalog mit `edhrecRank` einbauen, Release nach OK
 
 ---
