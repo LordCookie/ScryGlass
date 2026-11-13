@@ -1,4 +1,6 @@
 import type { Card, Deck, NameEntry, Owned, OwnedPrecon, Printing } from '../domain/types';
+import type { DeckHistoryEntry } from '../domain/deckHistory';
+import type { ValueSnapshot } from '../domain/valueHistory';
 
 /**
  * Big Screen (PLAN.md M18): was Handy und Browser austauschen. Das Handy ist die einzige
@@ -30,9 +32,12 @@ export interface Snapshot {
   decks: Deck[];
   ownedPrecons: OwnedPrecon[];
   tokenCount: number;
+  /** Deck- und Wert-Verlauf (M22) */
+  deckHistory: DeckHistoryEntry[];
+  valueHistory: ValueSnapshot[];
 }
 
-export type ReplicaTable = 'owned' | 'decks' | 'ownedPrecons';
+export type ReplicaTable = 'owned' | 'decks' | 'ownedPrecons' | 'deckHistory' | 'valueHistory';
 
 /** Katalogdaten nur der eigenen Karten (M20): damit startet der Browser, der Rest folgt. */
 export interface CatalogSubset {

@@ -314,7 +314,7 @@ function OwnedCollection({ kind, onKind }: { kind: Exclude<Kind, 'precons' | 'bi
         </p>
       ) : view === 'stats' ? (
         // Statistik der aktuell gefilterten Auswahl.
-        <CollectionStats rows={filtered} tokens={tokens} />
+        <CollectionStats rows={filtered} tokens={tokens} whole={!filter.query.trim() && !filter.color && extraFilterCount(filter) === 0} />
       ) : view === 'grid' ? (
         // Bild-Raster mit Anzahl-Badge oben rechts.
         <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5 min-[1600px]:grid-cols-7 min-[2000px]:grid-cols-9">

@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { recordValue } from '../db/db';
+import { dayKey } from '../domain/valueHistory';
+import { ValueChart } from './ValueChart';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { summarizeCollection } from '../domain/collectionStats';
 import { TYPE_LABEL, type FilterRow } from '../domain/collectionFilter';
@@ -28,7 +31,7 @@ const COLOR_NAME: Record<ColorKey, string> = {
 };
 const nf = new Intl.NumberFormat('de-DE');
 
-export function CollectionStats({ rows, tokens = false }: { rows: readonly FilterRow[]; tokens?: boolean }) {
+export function CollectionStats({ rows, tokens = false, whole = false }: { rows: readonly FilterRow[]; tokens?: boolean; whole?: boolean }) {
   const s = useMemo(() => summarizeCollection(rows), [rows]);
   const artworks = useMemo(() => new Set(rows.map((r) => r.owned.printingId ?? r.owned.oracleId)).size, [rows]);
 
@@ -67,7 +70,7 @@ export function CollectionStats({ rows, tokens = false }: { rows: readonly Filte
         ))}
       </div>
 
-      <ValueSection rows={rows} unit={tokens ? 'Tokens' : 'Karten'} />
+      <ValueSection rows={rows} unit={tokens ? 'Tokens' : 'Karten'} record={whole && !tokens} />
 
       <TokenSection />
 
@@ -264,7 +267,7 @@ const dateFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-dig
  * oder sind sie älter als 24 h, werden sie beim Öffnen einmal automatisch geholt
  * (nur online); offline gilt der letzte Stand.
  */
-function ValueSection({ rows, unit }: { rows: readonly FilterRow[]; unit: string }) {
+function ValueSection({ rows, unit, record = false }: { rows: readonly FilterRow[]; unit: string; record?: boolean }) {
   const valueRows = useMemo(
     () => rows.map((r) => ({
       key: priceKey(r.owned), fallbackKey: fallbackPriceKey(r.owned), finish: r.owned.finish, qty: r.owned.qty, name: r.card.name,
@@ -289,6 +292,15 @@ function ValueSection({ rows, unit }: { rows: readonly FilterRow[]; unit: string
       setProgress(null);
     }
   }
+
+  // Wert-Verlauf (M22): nur die ganze Sammlung (kein Filter), einmal je Tag — der letzte zählt.
+  useEffect(() => {
+    if (!record || progress || value.pricedQty === 0) return;
+    const t = window.setTimeout(() => {
+      void recordValue({ day: dayKey(new Date()), total: Math.round(value.total * 100) / 100, priced: value.pricedQty, at: Date.now() }).catch(() => {});
+    }, 1500);
+    return () => window.clearTimeout(t);
+  }, [record, progress, value.total, value.pricedQty]);
 
   // Einmal pro Öffnen automatisch aktualisieren, wenn Preise fehlen oder veraltet sind.
   useEffect(() => {
@@ -316,6 +328,7 @@ function ValueSection({ rows, unit }: { rows: readonly FilterRow[]; unit: string
         {value.oldestAt ? ` · Stand ${dateFmt.format(value.oldestAt)}` : ''}
       </p>
       {error && <p className="text-[10px] text-warn">{error}</p>}
+      {record && <ValueChart />}
       {value.top.length > 0 && (
         <ul className="mt-1 space-y-0.5">
           {value.top.map((t, i) => (

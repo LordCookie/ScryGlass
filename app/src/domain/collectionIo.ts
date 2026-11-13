@@ -4,6 +4,7 @@
  * verlustfreies, byte-stabiles Backup (Einträge deterministisch sortiert).
  */
 import type { Owned, Deck, Finish, OwnedSource, OwnedPrecon } from './types';
+import type { ValueSnapshot } from './valueHistory';
 
 export const COLLECTION_SCHEMA = 'scryglass-collection';
 export const SCHEMA_VERSION = 1;
@@ -18,6 +19,8 @@ export interface CollectionExport {
   tokens?: number;
   /** übernommene Fertigdecks (M19) — fehlt in älteren Backups */
   precons?: OwnedPrecon[];
+  /** Wert-Verlauf (M22) — fehlt in älteren Backups */
+  valueHistory?: ValueSnapshot[];
 }
 
 export class CollectionImportError extends Error {}
@@ -49,6 +52,7 @@ export function buildExport(
   exportedAt: number = Date.now(),
   tokens?: number,
   precons: readonly OwnedPrecon[] = [],
+  valueHistory: readonly ValueSnapshot[] = [],
 ): CollectionExport {
   return {
     schema: COLLECTION_SCHEMA,
@@ -58,6 +62,7 @@ export function buildExport(
     decks: sortDecks(decks),
     ...(tokens != null ? { tokens } : {}),
     ...(precons.length > 0 ? { precons: sortPrecons(precons) } : {}),
+    ...(valueHistory.length > 0 ? { valueHistory: [...valueHistory].sort((a, b) => a.day.localeCompare(b.day)) } : {}),
   };
 }
 
@@ -67,8 +72,9 @@ export function serializeCollection(
   exportedAt?: number,
   tokens?: number,
   precons: readonly OwnedPrecon[] = [],
+  valueHistory: readonly ValueSnapshot[] = [],
 ): string {
-  return JSON.stringify(buildExport(owned, decks, exportedAt, tokens, precons), null, 2);
+  return JSON.stringify(buildExport(owned, decks, exportedAt, tokens, precons, valueHistory), null, 2);
 }
 
 const FINISHES: Finish[] = ['nonfoil', 'foil', 'etched'];
@@ -146,5 +152,12 @@ export function parseCollection(json: string): CollectionExport {
     decks: sortDecks(decks),
     ...(typeof obj.tokens === 'number' && obj.tokens >= 0 ? { tokens: Math.floor(obj.tokens) } : {}),
     ...(Array.isArray(obj.precons) ? { precons: sortPrecons(obj.precons.filter(isValidPrecon)) } : {}),
+    ...(Array.isArray(obj.valueHistory) ? { valueHistory: obj.valueHistory.filter(isValidValue) } : {}),
   };
+}
+
+function isValidValue(v: unknown): v is ValueSnapshot {
+  const o = v as Record<string, unknown>;
+  return typeof o === 'object' && o !== null && typeof o.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.day) &&
+    typeof o.total === 'number' && Number.isFinite(o.total) && typeof o.priced === 'number';
 }

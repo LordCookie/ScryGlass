@@ -1,5 +1,5 @@
 import {
-  db, addOwned, addOwnedBatch, removeOwnedBatch, setOwnedPrinting, createDeck, changeDeck, deleteDeck,
+  db, addOwned, addOwnedBatch, removeOwnedBatch, setOwnedPrinting, createDeck, changeDeck, deleteDeck, recordValue,
 } from '../db/db';
 import { addTokens, setTokenCount } from '../data/tokens';
 import { addPreconToCollection, removePreconFromCollection } from '../data/precons';
@@ -90,6 +90,12 @@ export const WRITE_OPS: Record<string, (args: unknown[]) => Promise<unknown>> = 
     return changeDeck(num(id, 'Deck'), op);
   },
   deleteDeck: ([id]) => deleteDeck(num(id, 'Deck')),
+  recordValue: ([snap]) => {
+    const o = obj(snap);
+    const day = str(o.day, 'Tag');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new OpError('Tag ungültig');
+    return recordValue({ day, total: num(o.total, 'Wert'), priced: Math.max(0, Math.trunc(num(o.priced, 'Anzahl'))), at: Date.now() });
+  },
   addTokens: ([delta]) => addTokens(Math.trunc(num(delta, 'Anzahl'))),
   setTokenCount: ([n]) => setTokenCount(num(n, 'Anzahl')),
   addPrecon: async ([key, opts]) => {

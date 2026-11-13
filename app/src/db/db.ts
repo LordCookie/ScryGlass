@@ -15,6 +15,8 @@ import type {
   OwnedPrecon,
 } from '../domain/types';
 import type { PriceEntry } from '../domain/prices';
+import { inverseOps, type DeckHistoryEntry } from '../domain/deckHistory';
+import type { ValueSnapshot } from '../domain/valueHistory';
 import { isTokenCard } from '../domain/tokens';
 import { applyDeckOp, type DeckOp } from '../domain/deckOps';
 import { changeFeedMiddleware } from './changeFeed';
@@ -43,6 +45,8 @@ export class ScryGlassDB extends Dexie {
   inbox!: Table<InboxBasket, string>; // PK: basketId
   precons!: Table<Precon, string>; // PK: key (Fertigdecks, Katalogdaten — M19)
   ownedPrecons!: Table<OwnedPrecon, number>; // PK: ++id (übernommene Fertigdecks)
+  deckHistory!: Table<DeckHistoryEntry, number>; // PK: ++id (Deck-Verlauf, M22)
+  valueHistory!: Table<ValueSnapshot, string>; // PK: day (Wert-Verlauf, M22)
   meta!: Table<MetaEntry, string>; // PK: key
 
   constructor(name = 'scryglass') {
@@ -86,6 +90,11 @@ export class ScryGlassDB extends Dexie {
     this.version(7).stores({
       precons: 'key, group, date',
       ownedPrecons: '++id, key, addedAt',
+    });
+    // v8 (M22): Deck-Verlauf (jede Änderung mit dem Weg zurück) und Wert-Verlauf (je Tag).
+    this.version(8).stores({
+      deckHistory: '++id, deckId, at',
+      valueHistory: 'day',
     });
   }
 }
@@ -299,10 +308,13 @@ export async function changeDeck(id: number, op: DeckOp): Promise<void> {
     await gateway('changeDeck', [id, op]);
     return;
   }
-  await db.transaction('rw', db.decks, async () => {
+  await db.transaction('rw', db.decks, db.deckHistory, async () => {
     const deck = await db.decks.get(id);
     if (!deck) throw new Error('Das Deck gibt es nicht mehr — vielleicht am Handy gelöscht.');
     await db.decks.put(applyDeckOp(deck, op));
+    // Deck-Verlauf (M22): was geändert wurde und wie es zurückgeht.
+    const undo = inverseOps(deck, op);
+    if (undo.length) await db.deckHistory.add({ deckId: id, at: Date.now(), op, undo });
   });
 }
 
@@ -311,7 +323,19 @@ export async function deleteDeck(id: number): Promise<void> {
     await gateway('deleteDeck', [id]);
     return;
   }
-  await db.decks.delete(id);
+  await db.transaction('rw', db.decks, db.deckHistory, async () => {
+    await db.decks.delete(id);
+    await db.deckHistory.where('deckId').equals(id).delete();
+  });
+}
+
+/** Wert der Sammlung für heute merken (M22) — ein Eintrag je Tag, der letzte gilt. */
+export async function recordValue(snap: ValueSnapshot): Promise<void> {
+  if (gateway) {
+    await gateway('recordValue', [snap]);
+    return;
+  }
+  await db.valueHistory.put(snap);
 }
 
 // --- Eingang (inbox, Peer-Scanning) -----------------------------------------

@@ -7,7 +7,7 @@ import type { DBCore, DBCoreMutateRequest, DBCoreMutateResponse, Middleware } fr
  */
 
 /** Tabellen, deren Änderungen gemeldet werden. `meta` nur für Token-Zähler und Farbschema. */
-const WATCHED = new Set(['owned', 'decks', 'ownedPrecons', 'meta', 'scans']);
+const WATCHED = new Set(['owned', 'decks', 'ownedPrecons', 'meta', 'scans', 'deckHistory', 'valueHistory']);
 const META_KEYS = new Set(['tokenCount', 'theme']);
 
 export interface TableChange {

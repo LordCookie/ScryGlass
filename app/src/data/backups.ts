@@ -32,10 +32,10 @@ export interface AutoBackup {
 }
 
 async function currentBackupJson(at: number): Promise<{ json: string; owned: number; decks: number }> {
-  const [owned, decks, tokens, precons] = await Promise.all([
-    db.owned.toArray(), db.decks.toArray(), getTokenCount(), db.ownedPrecons.toArray(),
+  const [owned, decks, tokens, precons, values] = await Promise.all([
+    db.owned.toArray(), db.decks.toArray(), getTokenCount(), db.ownedPrecons.toArray(), db.valueHistory.toArray(),
   ]);
-  return { json: serializeCollection(owned, decks, at, tokens, precons), owned: owned.length, decks: decks.length };
+  return { json: serializeCollection(owned, decks, at, tokens, precons, values), owned: owned.length, decks: decks.length };
 }
 
 /** Eine eingelesene Sicherung übernehmen (auch für „JSON importieren"). */
@@ -48,6 +48,8 @@ export async function applyBackup(parsed: CollectionExport): Promise<void> {
     await db.ownedPrecons.clear();
     if (parsed.precons?.length) await db.ownedPrecons.bulkAdd(parsed.precons.map(({ id: _id, ...p }) => p));
   });
+  // Wert-Verlauf (M22): zu den vorhandenen Tagen dazu.
+  if (parsed.valueHistory?.length) await db.valueHistory.bulkPut(parsed.valueHistory);
 }
 
 // --- Außerhalb der App ------------------------------------------------------

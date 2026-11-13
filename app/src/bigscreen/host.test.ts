@@ -30,7 +30,7 @@ async function login(): Promise<string> {
 }
 
 beforeEach(async () => {
-  await Promise.all([db.owned.clear(), db.decks.clear(), db.meta.clear(), db.scans.clear(), db.ownedPrecons.clear(), db.cards.clear()]);
+  await Promise.all([db.owned.clear(), db.decks.clear(), db.meta.clear(), db.scans.clear(), db.ownedPrecons.clear(), db.cards.clear(), db.deckHistory.clear(), db.valueHistory.clear()]);
   await db.cards.bulkPut([{ oracleId: 'bolt', name: 'Lightning Bolt', normName: 'lightning bolt', layout: 'normal' }] as never[]);
   sent = [];
   closed = [];
@@ -118,7 +118,12 @@ describe('Lesen und Schreiben', () => {
     await req('POST', '/api/write', { cookie, body: { op: 'changeDeck', args: [id, { kind: 'adjust', list: 'cards', oracleId: 'bolt', delta: 4 }] } });
     expect((await db.decks.get(id))!.cards).toEqual([{ oracleId: 'bolt', qty: 4 }]);
     await req('POST', '/api/write', { cookie, body: { op: 'addTokens', args: [3] } });
-    expect(sent.map((s) => s.msg.t)).toEqual(['change', 'change', 'tokens']);
+    // Deck-Schritt meldet Deck und Deck-Verlauf (M22).
+    expect(sent.map((s) => (s.msg.t === 'change' ? `change:${s.msg.table}` : s.msg.t)))
+      .toEqual(['change:decks', 'change:decks', 'change:deckHistory', 'tokens']);
+    const snap = body(await req('GET', '/api/snapshot', { cookie }));
+    expect(snap.deckHistory).toHaveLength(1);
+    expect(snap.deckHistory[0].undo).toEqual([{ kind: 'adjust', list: 'cards', oracleId: 'bolt', delta: -4 }]);
 
     const scanId = await logScan({ at: now, ocrRaw: '', chosenOracle: 'bolt', chosenName: 'Lightning Bolt', via: 'bild' });
     await new Promise((r) => setTimeout(r, 20));

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { groupHistory, undoOpsFor } from '../domain/deckHistory';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, createDeck, changeDeck, deleteDeck, listDecks } from '../db/db';
 import type { DeckOp } from '../domain/deckOps';
@@ -139,7 +140,7 @@ function NewDeckForm({ onCreated }: { onCreated: (id: number) => void }) {
 function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) {
   const deck = useLiveQuery(() => db.decks.get(deckId), [deckId]);
   const owned = useLiveQuery(() => ownedByOracle(), []);
-  const [tab, setTab] = useState<'liste' | 'stats' | 'check' | 'fehlt' | 'text'>('liste');
+  const [tab, setTab] = useState<'liste' | 'stats' | 'check' | 'fehlt' | 'text' | 'verlauf'>('liste');
   // Breites Layout (M18): Liste links, Statistik/Check/… rechts; ab 1440 px noch die Suche davor.
   const width = useWidth();
   useBackHandler(true, onBack); // Android-Zurück = zur Deckliste
@@ -202,7 +203,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
     change({ kind: 'adjust', list, oracleId, delta });
   }
 
-  const TABS = ['liste', 'stats', 'check', 'fehlt', 'text'] as const;
+  const TABS = ['liste', 'stats', 'check', 'fehlt', 'text', 'verlauf'] as const;
   const sideTab = tab === 'liste' ? 'stats' : tab;
   const tabBar = (list: readonly (typeof TABS)[number][]) => (
     <div className="flex flex-wrap gap-1 font-mono text-xs">
@@ -211,7 +212,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
         return (
           <button key={t} onClick={() => setTab(t)}
             className={`whitespace-nowrap rounded px-3 py-1.5 ${on ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:text-text'}`}>
-            {t === 'liste' ? 'Liste' : t === 'stats' ? 'Statistik' : t === 'check' ? 'Deck-Check' : t === 'fehlt' ? 'Fehlt mir' : 'Text'}
+            {t === 'liste' ? 'Liste' : t === 'stats' ? 'Statistik' : t === 'check' ? 'Deck-Check' : t === 'fehlt' ? 'Fehlt mir' : t === 'text' ? 'Text' : 'Verlauf'}
           </button>
         );
       })}
@@ -223,6 +224,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
       {t === 'check' && <DeckCheckView deck={deck} cards={cards} owned={owned ?? EMPTY_OWNED} onTest={() => setTesting(true)} />}
       {t === 'fehlt' && <MissingView deck={deck} cards={cards} owned={owned ?? new Map()} />}
       {t === 'text' && <DeckTextView deck={deck} cards={cards} onImport={(lists) => change({ kind: 'replaceLists', ...lists })} />}
+      {t === 'verlauf' && <DeckHistoryView deckId={deckId} />}
     </>
   );
   const first = deck.commanderId ? cards.get(deck.commanderId) : undefined;
@@ -805,6 +807,51 @@ function MissingView({ deck, cards, owned }: { deck: Deck; cards: Map<string, Ca
         })}
       </ul>
       <p className="mt-2 font-mono text-[10px] text-muted">Richtwerte für die Standardausgabe, nicht-foil.</p>
+    </div>
+  );
+}
+
+const histFmt = new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+/** Deck-Verlauf (M22): Änderungen nach Zeit gruppiert, neueste oben, je Gruppe „Rückgängig". */
+function DeckHistoryView({ deckId }: { deckId: number }) {
+  const entries = useLiveQuery(() => db.deckHistory.where('deckId').equals(deckId).toArray(), [deckId]);
+  const ids = useMemo(() => [...new Set((entries ?? []).flatMap((e) =>
+    e.op.kind === 'adjust' ? [e.op.oracleId] : (e.op.kind === 'commander' || e.op.kind === 'partner') && e.op.oracleId ? [e.op.oracleId] : []))], [entries]);
+  const names = useLiveQuery(() => getCards(ids), [ids]);
+  const groups = useMemo(() => (entries ? groupHistory(entries, (id) => names?.get(id)?.name ?? '…') : []), [entries, names]);
+  const [busy, setBusy] = useState<number | null>(null);
+  if (!entries) return <p className="px-1 font-mono text-sm text-muted">Lade…</p>;
+  if (groups.length === 0) {
+    return <p className="rounded-lg bg-surface p-3 font-mono text-sm text-muted">Noch keine Änderungen gemerkt — ab jetzt steht hier jede Änderung am Deck.</p>;
+  }
+  async function undo(i: number) {
+    setBusy(i);
+    try {
+      for (const op of undoOpsFor(groups[i])) await changeDeck(deckId, op);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+  return (
+    <div className="space-y-2 font-mono text-xs">
+      {groups.slice(0, 60).map((g, i) => (
+        <div key={g.from} className="rounded-lg bg-surface p-3">
+          <div className="mb-1 flex items-center gap-2">
+            <span className="flex-1 text-muted">{histFmt.format(g.to)}</span>
+            <button onClick={() => void undo(i)} disabled={busy != null}
+              className="bg-bg px-2 py-1 text-muted hover:text-text disabled:opacity-40">{busy === i ? '…' : 'Rückgängig'}</button>
+          </div>
+          <ul className="space-y-0.5">
+            {g.lines.map((l, k) => (
+              <li key={k} className={l.startsWith('+') ? 'text-ok' : l.startsWith('−') ? 'text-danger' : 'text-text'}>{l}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      <p className="px-1 text-[10px] text-muted">Rückgängig macht die Änderungen dieser Gruppe zurück — das erscheint dann selbst als neue Änderung.</p>
     </div>
   );
 }

@@ -33,7 +33,7 @@ export interface HostDeps {
   onSessions?(sessions: Session[]): void;
 }
 
-const REPLICA_TABLES: ReplicaTable[] = ['owned', 'decks', 'ownedPrecons'];
+const REPLICA_TABLES: ReplicaTable[] = ['owned', 'decks', 'ownedPrecons', 'deckHistory', 'valueHistory'];
 /** Ab so vielen Schlüsseln lieber neu holen lassen als alles einzeln schicken. */
 const RESET_THRESHOLD = 2_000;
 
@@ -188,9 +188,16 @@ export class BigScreenHost {
   async snapshot(): Promise<Snapshot> {
     // Erst alle laufenden Meldungen abwarten, damit Stand und Nummer zusammenpassen.
     await this.chain;
-    const [owned, decks, ownedPrecons, tokenCount] = await db.transaction('r', db.owned, db.decks, db.ownedPrecons, db.meta, () =>
-      Promise.all([db.owned.toArray(), db.decks.toArray(), db.ownedPrecons.toArray(), getMeta<number>(TOKEN_KEY)]));
-    return { seq: this.seq, owned, decks, ownedPrecons, tokenCount: typeof tokenCount === 'number' ? tokenCount : 0 };
+    const [owned, decks, ownedPrecons, tokenCount, deckHistory, valueHistory] = await db.transaction(
+      'r', [db.owned, db.decks, db.ownedPrecons, db.meta, db.deckHistory, db.valueHistory], () =>
+        Promise.all([
+          db.owned.toArray(), db.decks.toArray(), db.ownedPrecons.toArray(), getMeta<number>(TOKEN_KEY),
+          db.deckHistory.toArray(), db.valueHistory.toArray(),
+        ]));
+    return {
+      seq: this.seq, owned, decks, ownedPrecons, tokenCount: typeof tokenCount === 'number' ? tokenCount : 0,
+      deckHistory, valueHistory,
+    };
   }
 
   /** Katalogdaten der Karten aus Sammlung, Decks und Fertigdecks — der schnelle Start (M20). */

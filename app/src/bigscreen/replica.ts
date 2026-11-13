@@ -2,6 +2,8 @@ import { db, setMeta } from '../db/db';
 import { TOKEN_KEY } from '../data/tokens';
 import type { SeqMsg, ServerMsg, Snapshot } from './protocol';
 import type { Deck, Owned, OwnedPrecon } from '../domain/types';
+import type { DeckHistoryEntry } from '../domain/deckHistory';
+import type { ValueSnapshot } from '../domain/valueHistory';
 
 /**
  * Die Kopie im Browser (PLAN.md M18): Schnappschuss einspielen, dann Änderungen nach ihrer
@@ -10,11 +12,14 @@ import type { Deck, Owned, OwnedPrecon } from '../domain/types';
  */
 
 export async function applySnapshot(s: Snapshot): Promise<void> {
-  await db.transaction('rw', db.owned, db.decks, db.ownedPrecons, db.meta, async () => {
-    await Promise.all([db.owned.clear(), db.decks.clear(), db.ownedPrecons.clear()]);
+  const tables = [db.owned, db.decks, db.ownedPrecons, db.meta, db.deckHistory, db.valueHistory];
+  await db.transaction('rw', tables, async () => {
+    await Promise.all([db.owned.clear(), db.decks.clear(), db.ownedPrecons.clear(), db.deckHistory.clear(), db.valueHistory.clear()]);
     await db.owned.bulkPut(s.owned);
     await db.decks.bulkPut(s.decks);
     await db.ownedPrecons.bulkPut(s.ownedPrecons);
+    await db.deckHistory.bulkPut(s.deckHistory ?? []);
+    await db.valueHistory.bulkPut(s.valueHistory ?? []);
     await setMeta(TOKEN_KEY, s.tokenCount);
   });
 }
@@ -25,17 +30,20 @@ export async function applyChange(msg: Extract<ServerMsg, { t: 'change' } | { t:
     await setMeta(TOKEN_KEY, msg.count);
     return;
   }
-  const table = db.table<Owned | Deck | OwnedPrecon, number>(msg.table);
+  const table = db.table<Owned | Deck | OwnedPrecon | DeckHistoryEntry | ValueSnapshot, number | string>(msg.table);
   await db.transaction('rw', table, async () => {
-    if (msg.deletes.length) await table.bulkDelete(msg.deletes as number[]);
-    if (msg.puts.length) await table.bulkPut(msg.puts as (Owned | Deck | OwnedPrecon)[]);
+    if (msg.deletes.length) await table.bulkDelete(msg.deletes);
+    if (msg.puts.length) await table.bulkPut(msg.puts as (Owned | Deck | OwnedPrecon | DeckHistoryEntry | ValueSnapshot)[]);
   });
 }
 
 /** Beim Trennen: Sammlung und Decks aus diesem Browser löschen (der Katalog darf bleiben). */
 export async function clearReplica(): Promise<void> {
-  await db.transaction('rw', db.owned, db.decks, db.ownedPrecons, db.meta, async () => {
-    await Promise.all([db.owned.clear(), db.decks.clear(), db.ownedPrecons.clear(), db.meta.delete(TOKEN_KEY)]);
+  await db.transaction('rw', [db.owned, db.decks, db.ownedPrecons, db.meta, db.deckHistory, db.valueHistory], async () => {
+    await Promise.all([
+      db.owned.clear(), db.decks.clear(), db.ownedPrecons.clear(), db.meta.delete(TOKEN_KEY),
+      db.deckHistory.clear(), db.valueHistory.clear(),
+    ]);
   });
 }
 
