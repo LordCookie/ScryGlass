@@ -111,6 +111,41 @@
   --c-on-accent: 13 10 11;
 }
 
+/* Game Boy (M23): die vier Grünstufen des ersten Game Boy (#0F380F · #306230 · #8BAC0F ·
+   #9BBC0F), dazwischen gemischt. Rahmen in einem dunkleren Olivgrün, damit helle Schrift
+   darauf lesbar bleibt. Kontraste: Text/bg 9,1:1 · Paper/fill 4,9:1 · on-accent/accent 6:1 ·
+   muted/surface 4,8:1 */
+:root[data-theme='gameboy'] {
+  --c-bg: 15 56 15;        /* #0F380F dunkelstes GB-Grün */
+  --c-surface: 24 74 24;   /* #184A18 */
+  --c-elevated: 33 90 30;  /* #215A1E */
+  --c-titlebar: 48 98 48;  /* #306230 GB-Dunkelgrün */
+  --c-pressed: 62 112 40;  /* #3E7028 */
+  --c-fill: 72 115 26;     /* #48731A Oliv — Rahmen/aktiv */
+  --c-text: 201 223 143;   /* #C9DF8F */
+  --c-paper: 230 245 196;  /* #E6F5C4 */
+  --c-muted: 157 187 122;  /* #9DBB7A */
+  --c-accent: 155 188 15;  /* #9BBC0F hellstes GB-Grün — Knöpfe/Akzente */
+  --c-on-accent: 15 56 15;
+  --c-ok: 139 172 15;      /* #8BAC0F — Grün in Grün, aber klar heller als der Grund */
+}
+
+/* Tiefsee (M23): Nachtblau mit Cyan. Kontraste: Text/bg 14,3:1 · Paper/fill 5,7:1 ·
+   on-accent/accent 9,8:1 · muted/bg 6,8:1 */
+:root[data-theme='tiefsee'] {
+  --c-bg: 10 22 40;        /* #0A1628 */
+  --c-surface: 17 35 58;   /* #11233A */
+  --c-elevated: 24 48 77;  /* #18304D */
+  --c-titlebar: 29 70 105; /* #1D4669 */
+  --c-pressed: 33 88 128;  /* #215880 */
+  --c-fill: 36 108 158;    /* #246C9E — Rahmen/aktiv */
+  --c-text: 207 232 247;   /* #CFE8F7 */
+  --c-paper: 255 255 255;  /* #FFFFFF */
+  --c-muted: 127 163 191;  /* #7FA3BF */
+  --c-accent: 63 208 224;  /* #3FD0E0 Cyan — Knöpfe/Akzente */
+  --c-on-accent: 10 22 40;
+}
+
 html,
 body,
 #root {

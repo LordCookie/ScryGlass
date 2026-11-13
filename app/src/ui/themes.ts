@@ -5,7 +5,7 @@ import { getMeta, setMeta, writeGateway } from '../db/db';
  * index.css (`:root[data-theme=…]`); hier nur Auswahl, Anwenden und Merken (Dexie).
  */
 
-export type ThemeKey = 'violett' | 'abendrot' | 'gold' | 'halloween';
+export type ThemeKey = 'violett' | 'abendrot' | 'gold' | 'halloween' | 'gameboy' | 'tiefsee';
 
 export interface ThemeInfo {
   key: ThemeKey;
@@ -22,6 +22,9 @@ export const THEMES: readonly ThemeInfo[] = [
   { key: 'gold', name: 'Schwarz-Gold', swatches: ['#0A0A0A', '#8C6D1A', '#D4AF37', '#FFFFFF'], bg: '#0A0A0A' },
   // Saison-Schema: Kürbis-Orange auf Schwarz, Hexen-Lila in den Titelbalken.
   { key: 'halloween', name: 'Halloween', swatches: ['#0D0A0B', '#4B1D5C', '#FF7518', '#FFE8CC'], bg: '#0D0A0B' },
+  // M23: das Grün des ersten Game Boy (vier Stufen) und ein tiefes Nachtblau mit Cyan.
+  { key: 'gameboy', name: 'Game Boy', swatches: ['#0F380F', '#306230', '#8BAC0F', '#9BBC0F'], bg: '#0F380F' },
+  { key: 'tiefsee', name: 'Tiefsee', swatches: ['#0A1628', '#246C9E', '#3FD0E0', '#CFE8F7'], bg: '#0A1628' },
 ];
 
 const THEME_KEY = 'theme';
