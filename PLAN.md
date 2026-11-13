@@ -1361,7 +1361,7 @@ Funknetz auf.
   Daten abschaltbar. Berechtigung „Geräte in der Nähe" (Android 13+) bzw. „Standort"
   (10–12). Geräteabhängig → erst eine kleine Probe auf dem Handy des Nutzers.
 
-### M22 — Version 0.5.0 „Deck-Werkstatt & Sammelordner" (gebaut, Release nach OK)
+### M22 — Version 0.5.0 „Deck-Werkstatt & Sammelordner" (v0.5.0, 2026-11-13)
 
 Vom Nutzer gewählt (2026-11-13) aus 17 Ideen: Beliebtheit, Wert-Verlauf, Deck-Verlauf —
 „vor allem im Big Screen" —, Sammelordner als Reiter unter Sammlung, Deck-Vergleich,
@@ -1419,7 +1419,7 @@ Empfehlungen aus der eigenen Sammlung. Alles lokal; neue Daten nur aus Scryfall.
       Filter gemerkt, Woche/Monat, im Backup.
 - [x] 6. Vorschläge (`domain/recommend.ts`, `ui/DeckSuggestView.tsx`): Browser-Test mit Krenko —
       Lücken (Wipes, Removal, Rampe), Thema Goblin/Spielsteine.
-- [ ] 7. Version 0.5.0 (versionCode 32), Katalog mit `edhrecRank` einbauen, Release nach OK
+- [x] 7. Version 0.5.0 (versionCode 32), Katalog mit `edhrecRank` eingebaut, Release 2026-11-13
 
 ---
 
@@ -1503,3 +1503,4 @@ Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zä
 | 0.4.1 | 2026-11-12 | Big Screen startet mit den eigenen Karten, der übrige Katalog lädt im Hintergrund (schnellerer Import, Katalog gepackt übers WLAN); Kartendetail mit Knopf „+ In Sammlung" |
 | 0.4.2 | 2026-11-12 | Big Screen prüft vor der Anmeldung, ob der Browser speichern darf, und erklärt auf Deutsch, was zu tun ist; Ladeanimation auch beim Warten auf die eigenen Karten |
 | 0.4.3 | 2026-11-12 | Big Screen: Preise und nächstes Set kommen vom Handy (der PC braucht kein Internet mehr); eigener User-Agent für Scryfall am Handy |
+| 0.5.0 | 2026-11-13 | Deck-Werkstatt & Sammelordner: Beliebtheit (EDHREC-Rang über Scryfall), Wert-Verlauf, Deck-Verlauf mit Rückgängig, Sammelordner mit Set-Checkliste, Deck-Vergleich, Vorschläge aus der eigenen Sammlung |
