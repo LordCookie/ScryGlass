@@ -1421,7 +1421,7 @@ Empfehlungen aus der eigenen Sammlung. Alles lokal; neue Daten nur aus Scryfall.
       Lücken (Wipes, Removal, Rampe), Thema Goblin/Spielsteine.
 - [x] 7. Version 0.5.0 (versionCode 32), Katalog mit `edhrecRank` eingebaut, Release 2026-11-13
 
-### M23 — 0.5.1: Update-Benachrichtigung und zwei Farbschemata (in Arbeit)
+### M23 — 0.5.1: Update-Benachrichtigung und zwei Farbschemata (v0.5.1, 2026-11-13)
 
 Wunsch des Nutzers (2026-11-13), zwei Komfort-Updates:
 - **Täglich gegen 12 Uhr nach Updates schauen** und per Android-Benachrichtigung Bescheid
@@ -1517,3 +1517,4 @@ Fixes/Kleinkram, `0.2.x` neue Funktionen, `1.0.0` öffentlich; `versionCode` zä
 | 0.4.2 | 2026-11-12 | Big Screen prüft vor der Anmeldung, ob der Browser speichern darf, und erklärt auf Deutsch, was zu tun ist; Ladeanimation auch beim Warten auf die eigenen Karten |
 | 0.4.3 | 2026-11-12 | Big Screen: Preise und nächstes Set kommen vom Handy (der PC braucht kein Internet mehr); eigener User-Agent für Scryfall am Handy |
 | 0.5.0 | 2026-11-13 | Deck-Werkstatt & Sammelordner: Beliebtheit (EDHREC-Rang über Scryfall), Wert-Verlauf, Deck-Verlauf mit Rückgängig, Sammelordner mit Set-Checkliste, Deck-Vergleich, Vorschläge aus der eigenen Sammlung |
+| 0.5.1 | 2026-11-13 | Täglich gegen 12 Uhr nach Updates schauen mit Benachrichtigung (JobScheduler), Farbschemata Game Boy und Tiefsee |
