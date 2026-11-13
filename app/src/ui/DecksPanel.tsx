@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { DeckSuggestView } from './DeckSuggestView';
 import { groupHistory, undoOpsFor } from '../domain/deckHistory';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, createDeck, changeDeck, deleteDeck, listDecks } from '../db/db';
@@ -140,7 +141,7 @@ function NewDeckForm({ onCreated }: { onCreated: (id: number) => void }) {
 function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) {
   const deck = useLiveQuery(() => db.decks.get(deckId), [deckId]);
   const owned = useLiveQuery(() => ownedByOracle(), []);
-  const [tab, setTab] = useState<'liste' | 'stats' | 'check' | 'fehlt' | 'text' | 'verlauf'>('liste');
+  const [tab, setTab] = useState<'liste' | 'stats' | 'check' | 'vorschlaege' | 'fehlt' | 'text' | 'verlauf'>('liste');
   // Breites Layout (M18): Liste links, Statistik/Check/… rechts; ab 1440 px noch die Suche davor.
   const width = useWidth();
   useBackHandler(true, onBack); // Android-Zurück = zur Deckliste
@@ -203,7 +204,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
     change({ kind: 'adjust', list, oracleId, delta });
   }
 
-  const TABS = ['liste', 'stats', 'check', 'fehlt', 'text', 'verlauf'] as const;
+  const TABS = ['liste', 'stats', 'check', 'vorschlaege', 'fehlt', 'text', 'verlauf'] as const;
   const sideTab = tab === 'liste' ? 'stats' : tab;
   const tabBar = (list: readonly (typeof TABS)[number][]) => (
     <div className="flex flex-wrap gap-1 font-mono text-xs">
@@ -212,7 +213,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
         return (
           <button key={t} onClick={() => setTab(t)}
             className={`whitespace-nowrap rounded px-3 py-1.5 ${on ? 'bg-accent text-on-accent' : 'bg-surface text-muted hover:text-text'}`}>
-            {t === 'liste' ? 'Liste' : t === 'stats' ? 'Statistik' : t === 'check' ? 'Deck-Check' : t === 'fehlt' ? 'Fehlt mir' : t === 'text' ? 'Text' : 'Verlauf'}
+            {t === 'liste' ? 'Liste' : t === 'stats' ? 'Statistik' : t === 'check' ? 'Deck-Check' : t === 'vorschlaege' ? 'Vorschläge' : t === 'fehlt' ? 'Fehlt mir' : t === 'text' ? 'Text' : 'Verlauf'}
           </button>
         );
       })}
@@ -225,6 +226,7 @@ function DeckEditor({ deckId, onBack }: { deckId: number; onBack: () => void }) 
       {t === 'fehlt' && <MissingView deck={deck} cards={cards} owned={owned ?? new Map()} />}
       {t === 'text' && <DeckTextView deck={deck} cards={cards} onImport={(lists) => change({ kind: 'replaceLists', ...lists })} />}
       {t === 'verlauf' && <DeckHistoryView deckId={deckId} />}
+      {t === 'vorschlaege' && <DeckSuggestView deck={deck} cards={cards} onAdd={(id) => adjust('cards', id, 1)} onOpen={setDetailId} />}
     </>
   );
   const first = deck.commanderId ? cards.get(deck.commanderId) : undefined;

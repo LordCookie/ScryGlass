@@ -250,7 +250,7 @@ export function findCombos(names: ReadonlySet<string>): { pair: [string, string]
 
 /** Richtwerte für Commander (verbreitete Faustregel, z. B. „The Command Zone"). */
 export const ROLE_TARGETS: Record<Role, number> = { ramp: 10, draw: 10, removal: 8, wipe: 2 };
-const ROLE_LABELS: Record<Role, string> = {
+export const ROLE_LABELS: Record<Role, string> = {
   ramp: 'Rampe', draw: 'Kartenvorteil', removal: 'Gezieltes Removal', wipe: 'Board-Wipes',
 };
 
