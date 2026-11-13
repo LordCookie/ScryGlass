@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { BinderView } from './BinderView';
 import { byPopularity } from '../domain/popularity';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, addOwned } from '../db/db';
@@ -32,7 +33,7 @@ import { hoverPreview } from './wide';
 
 type SortKey = 'name' | 'cmc' | 'qty' | 'value' | 'rank';
 type ViewMode = 'grid' | 'list' | 'stats';
-type Kind = 'cards' | 'tokens' | 'precons';
+type Kind = 'cards' | 'tokens' | 'precons' | 'binder';
 const CMC_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7];
 const FINISH_LABEL: Record<Finish, string> = { nonfoil: 'normal', foil: 'foil', etched: 'etched' };
 const COLORS: { key: string; label: string }[] = [
@@ -52,7 +53,7 @@ type KnownRow = FilterRow & { scryfallId?: string };
 
 export function CollectionView() {
   const [kind, setKind] = useState<Kind>('cards');
-  if (kind === 'precons') {
+  if (kind === 'precons' || kind === 'binder') {
     return (
       <section className="space-y-3">
         <div className="rounded-lg bg-surface p-4">
@@ -61,7 +62,7 @@ export function CollectionView() {
           </div>
           <KindToggle kind={kind} onKind={setKind} />
         </div>
-        <PreconsView />
+        {kind === 'precons' ? <PreconsView /> : <BinderView />}
       </section>
     );
   }
@@ -70,10 +71,10 @@ export function CollectionView() {
 
 /** Karten | Tokens | Fertigdecks (M14, M19) — Tokens zählen je Artwork und nicht für Decks. */
 function KindToggle({ kind, onKind, tokenTotal = 0 }: { kind: Kind; onKind: (k: Kind) => void; tokenTotal?: number }) {
-  const label = (k: Kind) => (k === 'cards' ? 'Karten' : k === 'tokens' ? `Tokens${tokenTotal > 0 ? ` (${tokenTotal})` : ''}` : 'Fertigdecks');
+  const label = (k: Kind) => (k === 'cards' ? 'Karten' : k === 'tokens' ? `Tokens${tokenTotal > 0 ? ` (${tokenTotal})` : ''}` : k === 'precons' ? 'Fertigdecks' : 'Sammelordner');
   return (
-    <div className="mb-2 flex gap-1 font-mono text-xs">
-      {(['cards', 'tokens', 'precons'] as Kind[]).map((k) => (
+    <div className="mb-2 flex flex-wrap gap-1 font-mono text-xs">
+      {(['cards', 'tokens', 'precons', 'binder'] as Kind[]).map((k) => (
         <button key={k} onClick={() => onKind(k)} aria-pressed={kind === k}
           className={`px-3 py-1 ${kind === k ? 'bg-fill text-paper' : 'bg-bg text-muted hover:text-text'}`}>
           {label(k)}
@@ -83,7 +84,7 @@ function KindToggle({ kind, onKind, tokenTotal = 0 }: { kind: Kind; onKind: (k: 
   );
 }
 
-function OwnedCollection({ kind, onKind }: { kind: Exclude<Kind, 'precons'>; onKind: (k: Kind) => void }) {
+function OwnedCollection({ kind, onKind }: { kind: Exclude<Kind, 'precons' | 'binder'>; onKind: (k: Kind) => void }) {
   const [filter, setFilter] = useState<CollectionFilter>(EMPTY_FILTER);
   const [showFilters, setShowFilters] = useState(false);
   const [sort, setSort] = useState<SortKey>('name');
