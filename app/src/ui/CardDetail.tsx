@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { rankLabel } from '../domain/popularity';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, addOwned, setOwnedPrinting } from '../db/db';
 import { getCard } from '../data/cards';
@@ -238,6 +239,9 @@ export function CardDetail({ oracleId, printingId, onClose, onPrev, onNext }: {
                         </>}
                 </p>
                 <p className="text-text">{card.typeLine}</p>
+                {rankLabel(card.edhrecRank) && (
+                  <p className="text-xs text-muted" title="EDHREC-Rang, wie Scryfall ihn mitliefert">Beliebtheit: {rankLabel(card.edhrecRank)}</p>
+                )}
                 {/* Deutlicher Knopf (Wunsch aus der Suche): 1× in der gezeigten Ausgabe, normal —
                     oder Foil, wenn es die Ausgabe nur so gibt. */}
                 <button

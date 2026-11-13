@@ -163,6 +163,9 @@ def test_catalog_card_fields():
     # Game Changer nur bei gesetzter Markierung (Commander-Brackets, M17)
     assert jace["gameChanger"] is True
     assert "gameChanger" not in bolt
+    # Beliebtheit (M22): EDHREC-Rang über Scryfall, nur wenn gesetzt
+    assert jace["edhrecRank"] == 412
+    assert "edhrecRank" not in bolt
 
 
 def test_catalog_split_and_dfc_faces():

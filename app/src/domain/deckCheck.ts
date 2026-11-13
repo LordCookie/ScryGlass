@@ -9,6 +9,7 @@
  * Ältere Kataloge ohne diese Daten: Rollen grob am Regeltext, Kombos aus einer Auswahl.
  */
 import { ROLE, commanderIds, type Card, type Deck } from './types';
+import { deckPopularity, popularityTier, TIER_LABEL } from './popularity';
 import { validateDeck, type CardLookup } from './deckValidate';
 import { isLand } from './deckStats';
 
@@ -363,6 +364,28 @@ export function checkDeck(deck: Deck, cards: CardLookup, opts: CheckOptions): De
   // Kombos (alle Formate): aus Commander Spellbook, sonst aus der kleinen Auswahl.
   const fallback = opts.combos ? [] : findCombos(new Set(all.map((c) => c.name)));
   sections.push({ title: 'Kombos', items: opts.combos ? spellbookComboItems(opts.combos) : fallbackComboItems(fallback) });
+
+  // Beliebtheit (M22): EDHREC-Rang über Scryfall — nur mit neuerem Katalog.
+  const pop = deckPopularity(all);
+  if (pop.ranked > 0) {
+    const tier = popularityTier(pop.median ?? undefined);
+    sections.push({
+      title: 'Beliebtheit (EDHREC-Rang über Scryfall)',
+      items: [
+        {
+          key: 'pop-median',
+          level: 'ok',
+          title: `Typische Karte: Platz ${fmt1(pop.median ?? 0)}${tier ? ` (${TIER_LABEL[tier]})` : ''}`,
+          detail: `${pop.ranked} von ${pop.total} Karten haben einen Rang (ohne Standardländer).`,
+        },
+        { key: 'pop-most', level: 'ok', title: 'Am häufigsten gespielt', cards: pop.most.map((c) => c.name) },
+        ...(pop.least.length ? [{
+          key: 'pop-least', level: 'info' as const, title: 'Ungewöhnlich — Geheimtipps oder Tauschkandidaten',
+          cards: pop.least.map((c) => c.name),
+        }] : []),
+      ],
+    });
+  }
 
   if (!commander) return { sections };
 

@@ -25,6 +25,8 @@ export interface Card {
   gameChanger?: boolean;
   /** Rollen aus den Scryfall-Tags als Bitmaske (ROLE). Fehlt = keine bzw. alter Katalog. */
   roles?: number;
+  /** Beliebtheit (M22): EDHREC-Rang laut Scryfall, 1 = am häufigsten gespielt. Fehlt = kein Rang bzw. alter Katalog. */
+  edhrecRank?: number;
 }
 
 /** Rollen-Bits — müssen zu `ROLE_BITS` in pipeline/fetch_scryfall.py passen. */

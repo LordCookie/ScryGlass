@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { byPopularity } from '../domain/popularity';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, addOwned } from '../db/db';
 import { getCards, previewImageIds } from '../data/cards';
@@ -29,7 +30,7 @@ import { hoverPreview } from './wide';
  * ihr Raster zeigt deshalb jede Druckausgabe einzeln. Dritter Reiter: Fertigdecks (M19).
  */
 
-type SortKey = 'name' | 'cmc' | 'qty' | 'value';
+type SortKey = 'name' | 'cmc' | 'qty' | 'value' | 'rank';
 type ViewMode = 'grid' | 'list' | 'stats';
 type Kind = 'cards' | 'tokens' | 'precons';
 const CMC_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7];
@@ -126,6 +127,7 @@ function OwnedCollection({ kind, onKind }: { kind: Exclude<Kind, 'precons'>; onK
     out.sort((a, b) => {
       if (sort === 'cmc') return a.card.cmc - b.card.cmc || a.card.name.localeCompare(b.card.name);
       if (sort === 'qty') return b.owned.qty - a.owned.qty || a.card.name.localeCompare(b.card.name);
+      if (sort === 'rank') return byPopularity(a.card, b.card);
       if (sort === 'value') {
         // Gesamtwert der Position, teuerste zuerst; ohne Preis ans Ende.
         const val = (r: KnownRow) => { const u = prices ? ownedUnitPrice(r.owned, prices) : undefined; return u == null ? -1 : u * r.owned.qty; };
@@ -219,6 +221,7 @@ function OwnedCollection({ kind, onKind }: { kind: Exclude<Kind, 'precons'>; onK
                 <option value="cmc">Manawert</option>
                 <option value="qty">Anzahl</option>
                 <option value="value">Wert</option>
+                <option value="rank">Beliebtheit</option>
               </select>
             </label>
             {/* Ansicht umschalten: Raster / Liste / Statistik */}
@@ -464,6 +467,8 @@ function ManualAddBox({ tokens, onPickToken }: { tokens: boolean; onPickToken: (
  * Anzahl und Preis sortieren über dieselbe Einstellung wie oben; Maus über dem Namen zeigt
  * das Kartenbild.
  */
+const nfRank = new Intl.NumberFormat('de-DE');
+
 function CollectionTable({ rows, prices, tokens, sort, onSort, onOpen }: {
   rows: KnownRow[];
   prices: Awaited<ReturnType<typeof getPrices>> | undefined;
@@ -490,6 +495,7 @@ function CollectionTable({ rows, prices, tokens, sort, onSort, onOpen }: {
           {head('Set')}
           {head('Ausführung')}
           {head('Manawert', 'cmc', true)}
+          {head('Rang', 'rank', true)}
           {head('Preis', 'value', true)}
           {head('Anzahl', 'qty', true)}
         </tr>
@@ -511,6 +517,7 @@ function CollectionTable({ rows, prices, tokens, sort, onSort, onOpen }: {
               <td className="px-2 py-1 text-xs text-muted">{r.set?.toUpperCase() ?? (tokens ? '?' : '–')}</td>
               <td className="px-2 py-1 text-xs">{r.owned.finish !== 'nonfoil' ? <span className="text-accent">✦ {r.owned.finish}</span> : <span className="text-muted">normal</span>}</td>
               <td className="px-2 py-1 text-right text-xs text-muted">{r.card.cmc}</td>
+              <td className="px-2 py-1 text-right text-xs text-muted" title="EDHREC-Rang über Scryfall">{r.card.edhrecRank != null ? nfRank.format(r.card.edhrecRank) : ''}</td>
               <td className="px-2 py-1 text-right text-xs text-text">{unit != null ? formatEur(unit) : ''}</td>
               <td className="whitespace-nowrap px-2 py-1 text-right">
                 <button onClick={() => void addOwned(r.owned.oracleId, r.owned.finish, -1, { printingId: r.owned.printingId })}

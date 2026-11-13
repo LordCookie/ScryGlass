@@ -1,4 +1,5 @@
 import { db } from '../db/db';
+import { byPopularity } from '../domain/popularity';
 import { normalizeName } from '../domain/nameMatch';
 import type { Card } from '../domain/types';
 import { matchesCardFilter, hasCardFilter, germanTypeWords, collectSubtypes, type CardFilter } from '../domain/cardFilter';
@@ -97,6 +98,8 @@ export async function searchCatalog(
   filter: CardFilter,
   limit: number,
   onlyIds?: ReadonlySet<string>,
+  /** `beliebtheit`: nach EDHREC-Rang (M22) statt nach Treffergüte bzw. Name */
+  sort: 'treffer' | 'beliebtheit' = 'treffer',
 ): Promise<CatalogResult> {
   const q = query.trim();
   if (!q && !hasCardFilter(filter) && !onlyIds) return { cards: [], total: 0 };
@@ -105,6 +108,7 @@ export async function searchCatalog(
   const hits = q
     ? scoreEntries(idx, query).map((s) => s.entry.card).filter(keep)
     : idx.map((e) => e.card).filter(keep).sort((a, b) => a.name.localeCompare(b.name));
+  if (sort === 'beliebtheit') hits.sort(byPopularity);
   return { cards: hits.slice(0, limit), total: hits.length };
 }
 

@@ -84,6 +84,8 @@ export interface CatalogFeatures {
   gameChanger: boolean;
   /** Rollen aus den Scryfall-Tags (Pipeline ab M17) */
   roles: boolean;
+  /** Beliebtheit: EDHREC-Rang über Scryfall (Pipeline ab M22) */
+  edhrecRank: boolean;
 }
 
 /** Was kennt der Katalog schon? Ein Durchlauf über die Karten, danach je Katalogstand gemerkt. */
@@ -91,12 +93,13 @@ let featureCache: { version?: string; features: CatalogFeatures } | null = null;
 export async function catalogFeatures(): Promise<CatalogFeatures> {
   const version = await getMeta<string>('catalogVersion');
   if (featureCache && featureCache.version === version) return featureCache.features;
-  const features: CatalogFeatures = { gameChanger: false, roles: false };
+  const features: CatalogFeatures = { gameChanger: false, roles: false, edhrecRank: false };
   await db.cards.toCollection()
-    .until(() => features.gameChanger && features.roles)
+    .until(() => features.gameChanger && features.roles && features.edhrecRank)
     .each((c) => {
       if (c.gameChanger) features.gameChanger = true;
       if (c.roles) features.roles = true;
+      if (c.edhrecRank) features.edhrecRank = true;
     });
   featureCache = { version, features };
   return features;

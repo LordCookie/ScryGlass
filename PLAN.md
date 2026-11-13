@@ -1361,6 +1361,60 @@ Funknetz auf.
   Daten abschaltbar. Berechtigung „Geräte in der Nähe" (Android 13+) bzw. „Standort"
   (10–12). Geräteabhängig → erst eine kleine Probe auf dem Handy des Nutzers.
 
+### M22 — Version 0.5.0 „Deck-Werkstatt & Sammelordner" (in Arbeit)
+
+Vom Nutzer gewählt (2026-11-13) aus 17 Ideen: Beliebtheit, Wert-Verlauf, Deck-Verlauf —
+„vor allem im Big Screen" —, Sammelordner als Reiter unter Sammlung, Deck-Vergleich,
+Empfehlungen aus der eigenen Sammlung. Alles lokal; neue Daten nur aus Scryfall.
+
+**1. Beliebtheit (EDHREC-Rang über Scryfall)**
+- Pipeline: Scryfall liefert `edhrec_rank` je Karte; neues Katalogfeld `edhrecRank`
+  (nur wenn gesetzt). Keine EDHREC-Daten direkt — die Nennung „Rang laut EDHREC, über
+  Scryfall" steht dabei.
+- App: Sortierung „Beliebtheit" in Suche und Sammlung, Rang im Kartendetail, Spalte in der
+  breiten Sammlungstabelle, im Deck-Check „beliebteste / ungewöhnlichste Karten".
+  Alter Katalog ohne Feld → Hinweis „nach dem nächsten Katalog-Update".
+
+**2. Wert-Verlauf der Sammlung**
+- Neue Tabelle `valueHistory` (Tag → Wert, Karten mit Preis), höchstens ein Eintrag je Tag,
+  geschrieben, wenn die Statistik den Wert ausrechnet (Handy oder Big Screen über das
+  Gateway). Kommt mit ins Backup.
+- Pixel-Diagramm in der Statistik (Σ): letzte 90 Tage, Veränderung zur Vorwoche; im
+  breiten Layout groß.
+
+**3. Deck-Verlauf**
+- Jede Deck-Änderung (die Schritte aus M18) landet mit Zeit und dem, was vorher war, in
+  `deckHistory`. Neuer Reiter „Verlauf" im Deck-Editor: nach Tag gruppiert, Änderungen
+  kurz hintereinander zusammengefasst („+2 Lightning Bolt, −1 Shock"), je Gruppe
+  „Rückgängig". Wird im Big Screen mit übertragen.
+
+**4. Sammelordner (Reiter unter Sammlung)**
+- Neben Karten / Tokens / Fertigdecks: „Sammelordner". 9er-Seiten zum Blättern (←/→,
+  Wischen), im breiten Layout aufgeschlagen mit zwei Seiten.
+- Zwei Arten: die eigene Sammlung (sortiert nach Set & Nummer, Farbe oder Name) und eine
+  **Set-Checkliste**: alle Karten eines Sets, fehlende ausgegraut, „23 fehlen dir".
+
+**5. Deck-Vergleich**
+- In der Deckliste zwei Decks wählen → nebeneinander: nur in A / in beiden / nur in B,
+  Kurven, Farben, Wert; dazu „brauchst du doppelt" (in beiden Decks, aber nicht oft
+  genug in der Sammlung). Logik in `domain/deckCompare.ts`.
+
+**6. Empfehlungen aus der eigenen Sammlung**
+- Neuer Reiter „Vorschläge" im Deck-Editor: Karten, die du besitzt, die passen
+  (Farbidentität, Format, nicht schon im Deck) — mit Begründung: schließt eine Kombo,
+  füllt eine Lücke aus dem Deck-Check (Rampe, Kartenziehen, Removal, Wipes), passt zum
+  Thema des Commanders (Marken, Tokens, Friedhof, Artefakte, Kreaturentyp …), beliebt.
+  „+ ins Deck" direkt dort. Logik rein in `domain/recommend.ts`.
+
+**Umsetzung in Schritten**
+- [ ] 1. Beliebtheit (Pipeline + App)
+- [ ] 2. Deck-Vergleich
+- [ ] 3. Sammelordner
+- [ ] 4. Deck-Verlauf
+- [ ] 5. Wert-Verlauf
+- [ ] 6. Empfehlungen
+- [ ] 7. Version 0.5.0 (versionCode 32), Katalog mit `edhrecRank` einbauen, Release nach OK
+
 ---
 
 ## 11. Risiken

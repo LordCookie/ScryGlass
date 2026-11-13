@@ -192,3 +192,22 @@ describe('Deck-Check mit Scryfall-Tags und Spellbook-Kombos', () => {
     ]);
   });
 });
+
+describe('Beliebtheit im Deck-Check (M22)', () => {
+  it('nur mit Rang im Katalog; nennt beliebteste und ungewöhnlichste', () => {
+    const cards = [
+      card('Sol Ring', '{T}: Add {C}{C}.', { typeLine: 'Artifact', edhrecRank: 1 }),
+      card('Nischenkarte', '', { edhrecRank: 25000 }),
+      card('Mitte', '', { edhrecRank: 900 }),
+    ];
+    const deck: Deck = { name: 'D', format: 'modern', cards: cards.map((c) => ({ oracleId: c.oracleId, qty: 1 })), sideboard: [], updatedAt: 0 };
+    const lookup = new Map(cards.map((c) => [c.oracleId, c]));
+    const sec = checkDeck(deck, lookup, { gameChangerData: false, roleData: false }).sections.find((s) => s.title.startsWith('Beliebtheit'));
+    expect(sec?.items[0].title).toBe('Typische Karte: Platz 900 (beliebt)');
+    expect(sec?.items[1].cards?.[0]).toBe('Sol Ring');
+    expect(sec?.items.find((i) => i.key === 'pop-least')?.cards?.[0]).toBe('Nischenkarte');
+    const plain = cards.map(({ edhrecRank: _r, ...c }) => c as Card);
+    const none = checkDeck(deck, new Map(plain.map((c) => [c.oracleId, c])), { gameChangerData: false, roleData: false });
+    expect(none.sections.some((s) => s.title.startsWith('Beliebtheit'))).toBe(false);
+  });
+});

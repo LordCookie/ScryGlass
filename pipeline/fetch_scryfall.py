@@ -250,6 +250,11 @@ class Catalog:
             # Game Changer (Commander-Brackets, M17) — nur wenn gesetzt, spart Platz.
             if card.get("game_changer"):
                 self.cards[oid]["gameChanger"] = True
+            # Beliebtheit (M22): EDHREC-Rang, wie Scryfall ihn mitliefert (1 = am häufigsten
+            # gespielt). Nur wenn gesetzt — Tokens und Unspielbares haben keinen.
+            rank = card.get("edhrec_rank")
+            if isinstance(rank, int) and rank > 0:
+                self.cards[oid]["edhrecRank"] = rank
             self._card_is_en[oid] = is_en
 
         # --- Namensindex (ohne Tokens, siehe TOKEN_LAYOUTS) ---

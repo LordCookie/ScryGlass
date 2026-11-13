@@ -44,6 +44,7 @@ export function SearchPanel() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<CardFilter>(EMPTY_CARD_FILTER);
   const [ownedOnly, setOwnedOnly] = useState(false);
+  const [sort, setSort] = useState<'treffer' | 'beliebtheit'>('treffer');
   const [showFilters, setShowFilters] = useState(false);
   const [limit, setLimit] = useState(PAGE);
   const [result, setResult] = useState<CatalogResult | null>(null);
@@ -69,7 +70,7 @@ export function SearchPanel() {
     // Tippen entprellen, damit nicht bei jedem Buchstaben 34.000 Karten durchsucht werden.
     const t = window.setTimeout(() => {
       const only = ownedOnly ? new Set(owned?.keys() ?? []) : undefined;
-      void searchCatalog(query, filter, limit, only).then(async (r) => {
+      void searchCatalog(query, filter, limit, only, sort).then(async (r) => {
         if (!alive) return;
         setResult(r);
         const ids = await previewImageIds(r.cards.map((c) => c.oracleId));
@@ -82,7 +83,7 @@ export function SearchPanel() {
     };
     // `owned` nur relevant, wenn „nur im Bestand" aktiv ist.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, query, filter, limit, ownedOnly, ownedOnly ? owned : null]);
+  }, [active, query, filter, limit, ownedOnly, ownedOnly ? owned : null, sort]);
 
   const extra = [filter.type, filter.cmc, filter.format, filter.text.trim() || null, filter.typeLine.trim() || null]
     .filter((v) => v != null).length;
@@ -141,7 +142,12 @@ export function SearchPanel() {
             className={`px-2 py-1 ${extra > 0 ? 'bg-fill text-paper' : 'bg-bg text-muted hover:text-text'}`}>
             Filter{extra > 0 ? ` (${extra})` : ''} {showFilters ? '▴' : '▾'}
           </button>
-          <PixelCheckbox checked={ownedOnly} onChange={setOwnedOnly} className="ml-auto text-muted">
+          <select value={sort} onChange={(e) => setSort(e.target.value as 'treffer' | 'beliebtheit')} aria-label="Sortieren"
+            className="ml-auto border-2 border-border bg-bg px-2 py-1 text-xs text-text outline-none focus:border-paper">
+            <option value="treffer">Beste Treffer</option>
+            <option value="beliebtheit">Beliebtheit</option>
+          </select>
+          <PixelCheckbox checked={ownedOnly} onChange={setOwnedOnly} className="text-muted">
             nur im Bestand
           </PixelCheckbox>
         </div>
