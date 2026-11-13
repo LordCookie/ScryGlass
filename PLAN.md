@@ -1421,6 +1421,19 @@ Empfehlungen aus der eigenen Sammlung. Alles lokal; neue Daten nur aus Scryfall.
       Lücken (Wipes, Removal, Rampe), Thema Goblin/Spielsteine.
 - [x] 7. Version 0.5.0 (versionCode 32), Katalog mit `edhrecRank` eingebaut, Release 2026-11-13
 
+### M23 — 0.5.1: Update-Benachrichtigung und zwei Farbschemata (in Arbeit)
+
+Wunsch des Nutzers (2026-11-13), zwei Komfort-Updates:
+- **Täglich gegen 12 Uhr nach Updates schauen** und per Android-Benachrichtigung Bescheid
+  geben — App und/oder Katalog. Auch wenn die App zu ist: `JobScheduler` (in Android
+  eingebaut, keine neue Bibliothek; wartet auf Netz, übersteht Neustarts), Fenster
+  12–14 Uhr. Prüft dasselbe wie die App (höchstes `vX.Y.Z` mit APK, `catalog-latest`
+  version.json gegen den eingespielten Stand, den die App dem Job mitteilt). Jede Version
+  nur einmal melden. Antippen öffnet die App unter „Mehr". Schalter unter Mehr → Updates
+  (Standard: an); Android 13+ fragt einmal nach der Erlaubnis für Benachrichtigungen.
+- **Zwei Farbschemata:** „Game Boy" (klassisches Grün: #0F380F · #306230 · #8BAC0F ·
+  #9BBC0F) und „Tiefsee" (Nachtblau mit Cyan). Kontraste wie bei den anderen geprüft.
+
 ---
 
 ## 11. Risiken

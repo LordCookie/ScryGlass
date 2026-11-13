@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { initDailyCheck, watchUpdateLaunch } from './data/dailyCheck';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db/db';
 import {
@@ -106,6 +107,8 @@ export default function App({ remote = false }: { remote?: boolean } = {}) {
       // Höchstens einmal am Tag bei GitHub nach Neuem sehen — etwas später, damit der
       // Start nicht mit dem Bild-Index um Netz und Datenbank konkurriert.
       window.setTimeout(() => void checkForUpdates().catch(() => {}), 5000);
+      // Täglicher Update-Blick gegen 12 Uhr (M23): planen, beim ersten Mal nach der Erlaubnis fragen.
+      void initDailyCheck().catch(() => {});
     }
   }
 
@@ -122,6 +125,16 @@ export default function App({ remote = false }: { remote?: boolean } = {}) {
     window.addEventListener(OPEN_DECK_EVENT, open);
     return () => window.removeEventListener(OPEN_DECK_EVENT, open);
   }, []);
+  // Über die Update-Benachrichtigung geöffnet (M23): gleich zu „Mehr" und frisch nachsehen.
+  useEffect(() => {
+    if (remote) return;
+    let stop = () => {};
+    void watchUpdateLaunch(() => {
+      setTab('mehr');
+      void checkForUpdates(true).catch(() => {});
+    }).then((s) => { stop = s; });
+    return () => stop();
+  }, [remote]);
   // Vibrations-Einstellung (unter „Mehr") gleich beim Start laden — gilt app-weit.
   useEffect(() => { void initFeedbackPrefs(); }, []);
   // Android-Zurück: offene Ebenen zuerst (Scanner, Detail, Deck), dann zur Sammlung, dann minimieren.

@@ -15,6 +15,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AppUpdaterPlugin.class);
         // Big Screen: die App im Browser am PC, ausgeliefert vom Handy (PLAN.md M18).
         registerPlugin(BigScreenPlugin.class);
+        // Täglicher Update-Blick mit Benachrichtigung (PLAN.md M23).
+        registerPlugin(UpdateNotifierPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

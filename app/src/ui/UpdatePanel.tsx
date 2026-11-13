@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { dailyCheckAvailable, dailyCheckEnabled, setDailyCheck } from '../data/dailyCheck';
+import { PixelCheckbox } from './PixelCheckbox';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
 import { APP_VERSION } from '../version';
@@ -175,6 +177,31 @@ export function AppUpdateSection() {
           Oder von Hand laden (Release-Seite)
         </a>
       )}
+      <DailyCheckToggle />
+    </div>
+  );
+}
+
+/** Täglicher Update-Blick gegen 12 Uhr mit Benachrichtigung (M23) — nur in der Android-App. */
+function DailyCheckToggle() {
+  const on = useLiveQuery(() => dailyCheckEnabled(), []);
+  const [note, setNote] = useState<string | null>(null);
+  if (!dailyCheckAvailable() || on === undefined) return null;
+  return (
+    <div className="mt-3 border-t-2 border-border pt-3 font-mono text-xs">
+      <PixelCheckbox checked={on} onChange={(v) => {
+        setNote(null);
+        void setDailyCheck(v).then((granted) => {
+          if (v && !granted) setNote('Android erlaubt ScryGlass gerade keine Benachrichtigungen — in den App-Einstellungen freigeben.');
+        });
+      }}>
+        Täglich gegen 12 Uhr nach Updates schauen und Bescheid geben
+      </PixelCheckbox>
+      <p className="mt-1 text-[10px] text-muted">
+        Auch wenn die App zu ist: Gibt es eine neue App-Version oder einen neuen Katalog, kommt eine Benachrichtigung —
+        jede Version nur einmal. Fragt nur bei GitHub nach, sonst nirgends.
+      </p>
+      {note && <p className="mt-1 text-[10px] text-warn">{note}</p>}
     </div>
   );
 }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Benachrichtigungs-Symbol (M23): Pixel-Karte mit Lupenglas, einfarbig weiß (Android färbt selbst). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="12"
+    android:viewportHeight="12">
+    <!-- Kartenrahmen -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M2,1h6v1h-5v8h5v-3h1v4h-7zM8,1h1v2h-1z" />
+    <!-- Lupe -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6,3h3v1h-3zM5,4h1v2h-1zM9,4h1v2h-1zM6,6h3v1h-3zM9,7h1v1h-1zM10,8h1v1h-1z" />
+</vector>

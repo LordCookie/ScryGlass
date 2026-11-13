@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core';
+import { syncDailyCheck } from './dailyCheck';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { getMeta, setMeta, db } from '../db/db';
 import { APP_VERSION } from '../version';
@@ -321,6 +322,8 @@ async function applyCatalog(source: CatalogSource, onStep: (s: CatalogStep) => v
   // Katalog liefert der Server die Dateien aus der APK — ein alter aufgehobener Stand muss weg.
   if (staged) await promoteStagedCatalog().catch(() => {});
   else if (source.kind === 'eingebaut') await dropLiveCatalog();
+  // Täglicher Update-Blick (M23) vergleicht ab jetzt mit dem neuen Stand.
+  void syncDailyCheck().catch(() => {});
   return version.catalogVersion;
 }
 
